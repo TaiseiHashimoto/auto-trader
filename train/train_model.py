@@ -5,9 +5,10 @@ import sys
 from collections import deque
 import lightgbm as lgb
 from sklearn.metrics import roc_auc_score
-import pickle
-# import yaml
-# from dotmap import DotMap
+try:
+    import pickle5 as pickle
+except:
+    import pickle
 from omegaconf import OmegaConf
 import neptune.new as neptune
 
@@ -193,7 +194,7 @@ def main(config):
     run["config"] = config
 
     if config.on_colab:
-        DATA_DIRECTORY = "./preprocessed"
+        DATA_DIRECTORY = str(pathlib.Path(__file__).resolve().parent / "preprocessed")
         os.makedirs(DATA_DIRECTORY, exist_ok=True)
 
         # GCS からデータ取得
@@ -206,7 +207,7 @@ def main(config):
             DATA_DIRECTORY
         )
     else:
-        DATA_DIRECTORY = "../data/preprocessed"
+        DATA_DIRECTORY = str(pathlib.Path(__file__).resolve().parents[1] / "data" / "preprocessed")
 
     OUTPUT_DIRECTORY = "./output"
     os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
@@ -324,7 +325,7 @@ if __name__ == "__main__":
 
     # GCP サービスアカウントキーの設定
     if config.on_colab:
-        credential_path = "/content/drive/MyDrive/sa_key/auto-trader-sa.json"
+        credential_path = "/content/drive/MyDrive/auto-trader/auto-trader-sa.json"
     else:
         credential_path = pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
 
