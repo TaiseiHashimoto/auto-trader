@@ -5,10 +5,7 @@ import sys
 from collections import deque
 import lightgbm as lgb
 from sklearn.metrics import roc_auc_score
-try:
-    import pickle5 as pickle
-except:
-    import pickle
+import pickle
 from omegaconf import OmegaConf
 import neptune.new as neptune
 
@@ -298,7 +295,7 @@ def main(config):
     # モデル保存
     MODEL_PATH = f"{OUTPUT_DIRECTORY}/model.pt"
     with open(MODEL_PATH, "wb") as f:
-        pickle.dump(models, f)
+        pickle.dump(models, f, protocol=4)
 
     model_version = neptune.init_model_version(model=f"{config.neptune.project_key}-{config.neptune.model_key}")
     model_version["binary"].upload(MODEL_PATH)
