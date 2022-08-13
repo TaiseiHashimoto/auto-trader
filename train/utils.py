@@ -53,7 +53,7 @@ def read_preprocessed_data(
     """
     前処理したデータを読み込む
     """
-    df = pd.read_pickle(f"{data_directory}/{symbol}-{year}-{month:02d}.pkl", protocol=4)
+    df = pd.read_pickle(f"{data_directory}/{symbol}-{year}-{month:02d}.pkl")
     return df
 
 
