@@ -229,7 +229,7 @@ def main(config):
     df_y = df_y.loc[~nan_mask]
 
     # 学習用パラメータを準備
-    model_params = config.model.toDict()
+    model_params = OmegaConf.to_container(config.model, resolve=True)
     model_params["random_state"] = config.random_seed
 
     # 学習データとテストデータに分けて学習・評価
@@ -295,7 +295,7 @@ def main(config):
     # モデル保存
     MODEL_PATH = f"{OUTPUT_DIRECTORY}/model.pt"
     with open(MODEL_PATH, "wb") as f:
-        pickle.dump(models, f, protocol=4)
+        pickle.dump(models, f)
 
     model_version = neptune.init_model_version(model=f"{config.neptune.project_key}-{config.neptune.model_key}")
     model_version["binary"].upload(MODEL_PATH)
