@@ -317,8 +317,6 @@ def main(config):
 
 
 if __name__ == "__main__":
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
-
     base_config = OmegaConf.structured(LGBMConfig)
     cli_config = OmegaConf.from_cli()
     config = OmegaConf.merge(base_config, cli_config)
