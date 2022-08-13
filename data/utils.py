@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 import datetime
-import calendar
+import glob
 from typing import Optional
 
 
@@ -15,12 +15,13 @@ def read_raw_data(
     """
     Dukascopy から取得した生データを読み込む
     """
-    first_day = 1
-    last_day = calendar.monthrange(year, month)[1]
 
-    date_range_str = f"{year}-{month:02d}-{first_day:02d}-{year}-{month:02d}-{last_day:02d}"
-    df_bid = pd.read_csv(f"{data_directory}/{symbol}-m1-bid-{date_range_str}.csv")
-    df_ask = pd.read_csv(f"{data_directory}/{symbol}-m1-ask-{date_range_str}.csv")
+    bid_paths = glob.glob(f"{data_directory}/{symbol}-m1-bid-{year}-{month:02d}-*.csv")
+    ask_paths = glob.glob(f"{data_directory}/{symbol}-m1-ask-{year}-{month:02d}-*.csv")
+    assert len(bid_paths) == 1 and len(ask_paths) == 1
+
+    df_bid = pd.read_csv(bid_paths[0])
+    df_ask = pd.read_csv(ask_paths[0])
     assert (df_bid["timestamp"] == df_ask["timestamp"]).all()
 
     datetime = pd.DatetimeIndex(pd.to_datetime(df_bid["timestamp"], unit='ms'))

@@ -1,0 +1,46 @@
+# gcp:
+#   project_id: auto-trader-359210
+#   bucket_name: preprocessed-thashimoto
+#   secret_id: neptune_api_key
+
+# neptune:
+#   project: thashimoto/sandbox
+#   project_key: SAN
+#   model_key: LGBM
+
+# data:
+#   symbol: usdjpy
+
+#   first:
+#     year: 2020
+#     month: 11
+#   last:
+#     year: 2020
+#     month: 12
+
+# label:
+#   # この値以上に上昇するならエントリーする
+#   thresh_entry: 0.05
+#   # この値を以下の下落であれば持ち続ける
+#   thresh_hold: 0.025
+#   # この値以上に上昇しないなら決済する
+#   thresh_exit: 0.0
+
+# feature:
+#   timings: ["high", "low", "close"]
+#   freqs: ["1min", "5min", "15min", "1h", "4h"]
+#   lag_max: 10
+#   sma:
+#     timing: "close"
+#     window_size: 10
+
+# model:
+#   objective: binary
+#   random_state: 123
+
+# train:
+#   test_ratio: 0.1
+#   num_iterations: 20
+#   save_model: true
+
+# on_colab: false

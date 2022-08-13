@@ -1,4 +1,6 @@
 .DS_Store
 __pycache__
 .ipynb_checkpoints
-
+.neptune
+auto-trader-sa.json
+.pytest_cache

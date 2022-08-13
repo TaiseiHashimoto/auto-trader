@@ -1,0 +1,7 @@
+google-cloud-secret-manager
+google-cloud-storage
+lightgbm
+matplotlib
+neptune-client
+numpy
+pandas
