@@ -10,12 +10,12 @@ from omegaconf import OmegaConf
 import neptune.new as neptune
 
 import utils
+from config import LGBMConfig
 
 import sys
 import pathlib
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
 import common_utils
-from config import LGBMConfig
 
 
 def compute_entry_idxs(values: np.ndarray, thresh_entry: float, thresh_hold: float):
@@ -195,6 +195,7 @@ def main(config):
         os.makedirs(DATA_DIRECTORY, exist_ok=True)
 
         # GCS からデータ取得
+        print("Download data from GCS")
         gcs = common_utils.GCSWrapper(config.gcp.project_id, config.gcp.bucket_name)
         utils.download_preprocessed_data_range(
             gcs,
@@ -210,6 +211,7 @@ def main(config):
     os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
 
     # データ読み込み
+    print("Load data")
     df = utils.read_preprocessed_data_range(
         config.data.symbol,
         config.data.first_year, config.data.first_month,
@@ -220,6 +222,7 @@ def main(config):
     assert (df.index[-1].hour, df.index[-1].minute) == (23, 59)
 
     # 学習データを準備
+    print("Prepare data for training")
     df_y = create_labels(df, config)
     df_x = create_featurs(df, config)
 
@@ -233,6 +236,7 @@ def main(config):
     model_params["random_state"] = config.random_seed
 
     # 学習データとテストデータに分けて学習・評価
+    print("Train")
     valid_size = int(len(df_x) * config.train.valid_ratio)
     train_size = len(df_x) - valid_size
 
@@ -268,6 +272,7 @@ def main(config):
 
 
     # 全データで再学習
+    print("Re-train")
     models = {}
 
     for label_name in df_y.columns:
@@ -277,6 +282,7 @@ def main(config):
         model = lgb.train(
             model_params,
             train_set,
+            config.train.num_iterations,
             valid_sets=[train_set],
             valid_names=["train"],
             callbacks=[lgb.callback.record_evaluation(evals_result)]
@@ -293,6 +299,7 @@ def main(config):
         }
 
     # モデル保存
+    print("Save model")
     MODEL_PATH = f"{OUTPUT_DIRECTORY}/model.pt"
     with open(MODEL_PATH, "wb") as f:
         pickle.dump(models, f)
@@ -318,6 +325,7 @@ if __name__ == "__main__":
     base_config = OmegaConf.structured(LGBMConfig)
     cli_config = OmegaConf.from_cli()
     config = OmegaConf.merge(base_config, cli_config)
+    print(OmegaConf.to_yaml(config))
     # import pdb; pdb.set_trace()
 
     # GCP サービスアカウントキーの設定
