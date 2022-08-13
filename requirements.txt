@@ -5,3 +5,4 @@ matplotlib
 neptune-client
 numpy
 pandas
+omegaconf

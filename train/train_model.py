@@ -317,11 +317,19 @@ def main(config):
 
 
 if __name__ == "__main__":
-    credential_path = pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
     os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
 
     base_config = OmegaConf.structured(LGBMConfig)
     cli_config = OmegaConf.from_cli()
     config = OmegaConf.merge(base_config, cli_config)
+    # import pdb; pdb.set_trace()
+
+    # GCP サービスアカウントキーの設定
+    if config.on_colab:
+        credential_path = "/content/drive/MyDrive/sa_key/auto-trader-sa.json"
+    else:
+        credential_path = pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
+
+    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
 
     main(config)
