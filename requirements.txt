@@ -1,8 +1,7 @@
 google-cloud-secret-manager
 google-cloud-storage
-lightgbm
-matplotlib
+lightgbm >= 3.3.2
 neptune-client
 numpy
 omegaconf
-pandas
+pandas >= 1.3.5

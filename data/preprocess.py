@@ -83,9 +83,6 @@ def main(config):
     # データを整形して保存
     #####
 
-    config.first_year = 2020
-    config.first_month = 10
-
     for symbol in config.symbols:
         year = config.first_year
         month = config.first_month

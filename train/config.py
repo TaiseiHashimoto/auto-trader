@@ -39,6 +39,7 @@ class LabelConfig:
 class ModelConfig:
     objective: str = "binary"
     num_leaves: int = 31
+    verbosity: int = 1
 
 
 @dataclass

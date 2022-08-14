@@ -207,7 +207,7 @@ def main(config):
     else:
         DATA_DIRECTORY = str(pathlib.Path(__file__).resolve().parents[1] / "data" / "preprocessed")
 
-    OUTPUT_DIRECTORY = "./output"
+    OUTPUT_DIRECTORY = str(pathlib.Path(__file__).resolve().parent / "output")
     os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
 
     # データ読み込み
@@ -253,19 +253,23 @@ def main(config):
         model = lgb.train(
             model_params,
             train_set,
+            config.train.num_iterations,
             valid_sets=[train_set, valid_set],
             valid_names=["train", "valid"],
-            callbacks=[lgb.callback.record_evaluation(evals_result)]
+            callbacks=[
+                lgb.callback.record_evaluation(evals_result),
+                lgb.callback.log_evaluation()
+            ]
         )
 
         for loss in evals_result["train"]["binary_logloss"]:
-            run[f"train/{label_name}/loss/train"].log(loss)
+            run[f"train/loss/train/{label_name}"].log(loss)
         for loss in evals_result["valid"]["binary_logloss"]:
-            run[f"train/{label_name}/loss/valid"].log(loss)
+            run[f"train/loss/valid/{label_name}"].log(loss)
 
         valid_pred = model.predict(df_x_valid).astype(np.float32)
         valid_label = df_y_valid["long_entry"].values
-        run[f"train/{label_name}/auc"] = roc_auc_score(valid_label, valid_pred)
+        run[f"train/auc/{label_name}"] = roc_auc_score(valid_label, valid_pred)
 
     if not config.train.save_model:
         return
@@ -285,16 +289,20 @@ def main(config):
             config.train.num_iterations,
             valid_sets=[train_set],
             valid_names=["train"],
-            callbacks=[lgb.callback.record_evaluation(evals_result)]
+            callbacks=[
+                lgb.callback.record_evaluation(evals_result),
+                lgb.callback.log_evaluation()
+            ]
         )
         models[label_name] = model
 
         for loss in evals_result["train"]["binary_logloss"]:
-            run[f"retrain/{label_name}/loss/train"].log(loss)
+            run[f"retrain/loss/train/{label_name}"].log(loss)
 
         # 特徴量の重要度を記録
+        # TODO: neptune での見やすさのため csv にする
         importance = model.feature_importance("gain")
-        run[f"retrain/{label_name}/importance"] = {
+        run[f"retrain/importance/{label_name}"] = {
             k: v for k, v in zip(df_x.columns, importance)
         }
 
