@@ -11,9 +11,8 @@ class GCPConfig:
 
 @dataclass
 class NeptuneConfig:
-    project: str = "thashimoto/sandbox"
-    project_key: str = "SAN"
-    model_key: str = "LGBM"
+    project: str = "thashimoto/auto-trader"
+    model_id: str = "AUT-LGBM"
 
 
 @dataclass

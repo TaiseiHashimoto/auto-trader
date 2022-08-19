@@ -18,43 +18,71 @@ sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
 import common_utils
 
 
-def compute_entry_idxs(values: np.ndarray, thresh_entry: float, thresh_hold: float):
-    # それ以降で走査した中で最大のインデックス
-    max_idxs = deque()
-    checked_count = 0
-    entry_idxs = []
-    gains = []
-    for i in range(len(values)):
-        # より大きい値が後で見つかった場合には、古いインデックスを削除する
-        while len(max_idxs) > 0 and values[max_idxs[-1]] < values[i]:
-            max_idxs.pop()
-        max_idxs.append(i)
+def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> np.ndarray:
+    """
+    極大・極小をとるインデックスの配列を取得する。
+    thresh_hold 以下の変動は無視する。
+    """
+    # TODO: uptrend から始めて大丈夫か？
+    is_uptrend = True
+    max_idx = 0
+    max_value = values[0]
+    min_idx = None
+    min_value = np.inf
+    critical_idxs = []
+    for i in range(1, len(values)):
+        v = values[i]
+        # print(i, v, is_uptrend)
+        if is_uptrend:
+            if v > max_value:
+                # 上昇中にさらに高値が更新された場合
+                max_idx = i
+                max_value = v
+                # これまでの安値は無効化
+                min_idx = None
+                min_value = np.inf
+            elif v < min_value:
+                # 上昇中に安値が更新された場合
+                min_idx = i
+                min_value = v
 
-        max_value = values[max_idxs[0]]
-        # 最大値からしきい値を超えて下落したときに買い時を探す
-        if max_value - values[i] > thresh_hold:
-            # それ以降で走査した中で最小のインデックス
-            min_idxs = deque()
-            for j in range(checked_count, max_idxs[0]):
-                while len(min_idxs) > 0 and values[min_idxs[-1]] > values[j]:
-                    min_idxs.pop()
-                min_idxs.append(j)
+                if max_value - min_value > thresh_hold:
+                    # print("Add max_idx", max_idx)
+                    # print("To downtrend")
+                    # 下降に転換
+                    critical_idxs.append(max_idx)
+                    is_uptrend = False
+                    max_idx = None
+                    max_value = -np.inf
+        else:
+            if v < min_value:
+                # 下降中にさらに安値が更新された場合
+                min_idx = i
+                min_value = v
+                # これまでの高値は無効化
+                max_idx = None
+                max_value = -np.inf
+            elif v > max_value:
+                # 下降中に高値が更新された場合
+                max_idx = i
+                max_value = v
 
-                gains.append(max_value - values[j])
+                if max_value - min_value > thresh_hold:
+                    # print("Add min_idx", min_idx)
+                    # print("To uptrend")
+                    # 上昇に転換
+                    critical_idxs.append(min_idx)
+                    is_uptrend = True
+                    min_idx = None
+                    min_value = np.inf
+        # print(max_value, min_value)
 
-            while len(min_idxs) > 0:
-                min_value = values[min_idxs[0]]
-                if max_value - min_value >= thresh_entry:
-                    entry_idxs.append(min_idxs[0])
-                min_idxs.popleft()
+    if is_uptrend:
+        critical_idxs.append(max_idx)
+    else:
+        critical_idxs.append(min_idx)
 
-            checked_count = max_idxs[0]
-            max_idxs.popleft()
-
-    for j in range(checked_count, len(values)):
-        gains.append(np.nan)
-
-    return np.array(entry_idxs), np.array(gains)
+    return np.array(critical_idxs)
 
 
 def index2mask(index: np.ndarray, size: int) -> np.ndarray:
@@ -73,10 +101,48 @@ def merge_bid_ask(df):
     }, index=df.index)
 
 
-def create_labels(
-    df: pd.DataFrame, config
-    # thresh_entry: float, thresh_hold: float, thresh_exit: float
-) -> pd.DataFrame:
+def create_labels_sub(values: np.ndarray, thresh_entry: float, thresh_hold: float):
+    critical_idxs = compute_critical_idxs(values, thresh_hold)
+
+    values_next_critical = np.empty(len(values))
+    prev_cidx = 0
+    for cidx in critical_idxs:
+        values_next_critical[prev_cidx:cidx] = values[cidx]
+        prev_cidx = cidx
+
+    values_diff = values_next_critical - values
+
+    # entry: 利益が出る and それ以降にさらに利益が出ることはない
+    long_entry_labels_ = values_diff > thresh_entry
+    short_entry_labels_ = values_diff < -thresh_entry
+    # exit: 損失が出る
+    long_exit_labels = values_diff < -thresh_hold
+    short_exit_labels = values_diff > thresh_hold
+
+    # "それ以降にさらに利益が出ることはない" の部分を考慮
+    long_entry_labels = np.zeros(len(values), dtype=bool)
+    short_entry_labels = np.zeros(len(values), dtype=bool)
+    done_count = 0
+    is_uptrend = True
+    for cidx in critical_idxs:
+        min_value = np.inf
+        max_value = -np.inf
+        # critical_idx までの index を逆順に走査して、エントリーのタイミングを探す
+        for i in reversed(range(done_count, cidx)):
+            if is_uptrend and values[i] < min_value:
+                min_value = values[i]
+                long_entry_labels[i] = long_entry_labels_[i]
+            elif not is_uptrend and values[i] > max_value:
+                max_value = values[i]
+                short_entry_labels[i] = short_entry_labels_[i]
+
+        done_count = cidx
+        is_uptrend = not is_uptrend
+
+    return long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels
+
+
+def create_labels(df: pd.DataFrame, config: OmegaConf) -> pd.DataFrame:
     """
     ラベルを作成する
     df: (ask|bid)_(open|high|low|close)
@@ -87,18 +153,15 @@ def create_labels(
     """
 
     df = merge_bid_ask(df)
-    df = df.add_suffix("_1min")
 
-    long_entry_idxs_high, long_gains_high = compute_entry_idxs(df["high_1min"].values, config.label.thresh_entry, config.label.thresh_hold)
-    long_entry_idxs_low, long_gains_low = compute_entry_idxs(df["low_1min"].values, config.label.thresh_entry, config.label.thresh_hold)
-    short_entry_idxs_high, short_gains_high = compute_entry_idxs(-df["high_1min"].values, config.label.thresh_entry, config.label.thresh_hold)
-    short_entry_idxs_low, short_gains_low = compute_entry_idxs(-df["low_1min"].values, config.label.thresh_entry, config.label.thresh_hold)
+    mean_high_low = (df["high"].values + df["low"].values) / 2
+    long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels = create_labels_sub(mean_high_low, config.label.thresh_entry, config.label.thresh_hold)
 
     df_labels = pd.DataFrame({
-        "long_entry": index2mask(long_entry_idxs_high, len(df)) & index2mask(long_entry_idxs_low, len(df)),
-        "short_entry": index2mask(short_entry_idxs_high, len(df)) & index2mask(short_entry_idxs_low, len(df)),
-        "long_exit": (long_gains_high < config.label.thresh_exit) | (long_gains_low < config.label.thresh_exit),
-        "short_exit": (short_gains_high < config.label.thresh_exit) | (short_gains_low < config.label.thresh_exit),
+        "long_entry": long_entry_labels,
+        "short_entry": short_entry_labels,
+        "long_exit": long_exit_labels,
+        "short_exit": short_exit_labels,
     }, index=df.index)
 
     assert not (df_labels["long_entry"] & df_labels["long_exit"]).any()
@@ -107,11 +170,7 @@ def create_labels(
     return df_labels
 
 
-def create_featurs(
-    df: pd.DataFrame, config
-    # symbol: str,
-    # thresh_entry: float, thresh_hold: float, thresh_exit: float
-):
+def create_featurs(df: pd.DataFrame, config: OmegaConf) -> pd.DataFrame:
     """
     特徴量を作成する
     df: (ask|bid)_(open|high|low|close)
@@ -162,7 +221,7 @@ def create_featurs(
         df_agg = df_dict[freq]
         df_merged = pd.concat([df_merged, df_agg.reindex(df_merged.index, method="ffill")], axis=1)
 
-    assert (df_merged.dtypes == np.float32).all()
+    df_merged = df_merged.astype(np.float32)
 
     # 時間関連の特徴量
     df_merged["hour"] = df_merged.index.hour
@@ -222,9 +281,10 @@ def main(config):
     assert (df.index[-1].hour, df.index[-1].minute) == (23, 59)
 
     # 学習データを準備
-    print("Prepare data for training")
-    df_y = create_labels(df, config)
+    print("Create features")
     df_x = create_featurs(df, config)
+    print("Create labels")
+    df_y = create_labels(df, config)
 
     # データが足りない行を削除
     nan_mask = df_x.isnull().any(axis=1)
@@ -244,6 +304,9 @@ def main(config):
     df_x_valid = df_x.iloc[train_size:]
     df_y_train = df_y.iloc[:train_size]
     df_y_valid = df_y.iloc[train_size:]
+
+    run["label/positive_ratio/train"] = df_y_train.mean().to_dict()
+    run["label/positive_ratio/valid"] = df_y_valid.mean().to_dict()
 
     for label_name in df_y.columns:
         train_set = lgb.Dataset(df_x_train, df_y_train[label_name])
@@ -267,9 +330,13 @@ def main(config):
         for loss in evals_result["valid"]["binary_logloss"]:
             run[f"train/loss/valid/{label_name}"].log(loss)
 
+        train_pred = model.predict(df_x_train).astype(np.float32)
+        train_label = df_y_train["long_entry"].values
+        run[f"train/auc/train/{label_name}"] = roc_auc_score(train_label, train_pred)
+
         valid_pred = model.predict(df_x_valid).astype(np.float32)
         valid_label = df_y_valid["long_entry"].values
-        run[f"train/auc/{label_name}"] = roc_auc_score(valid_label, valid_pred)
+        run[f"train/auc/valid/{label_name}"] = roc_auc_score(valid_label, valid_pred)
 
     if not config.train.save_model:
         return
@@ -300,11 +367,8 @@ def main(config):
             run[f"retrain/loss/train/{label_name}"].log(loss)
 
         # 特徴量の重要度を記録
-        # TODO: neptune での見やすさのため csv にする
-        importance = model.feature_importance("gain")
-        run[f"retrain/importance/{label_name}"] = {
-            k: v for k, v in zip(df_x.columns, importance)
-        }
+        importance = pd.Series(model.feature_importance("gain"), index=df_x.columns)
+        run[f"retrain/importance/{label_name}"] = importance.sort_values().to_string()
 
     # モデル保存
     print("Save model")
@@ -312,7 +376,7 @@ def main(config):
     with open(MODEL_PATH, "wb") as f:
         pickle.dump(models, f)
 
-    model_version = neptune.init_model_version(model=f"{config.neptune.project_key}-{config.neptune.model_key}")
+    model_version = neptune.init_model_version(model=config.neptune.model_id)
     model_version["binary"].upload(MODEL_PATH)
 
     # メタデータ保存
@@ -336,12 +400,10 @@ if __name__ == "__main__":
     print(OmegaConf.to_yaml(config))
     # import pdb; pdb.set_trace()
 
-    # GCP サービスアカウントキーの設定
-    if config.on_colab:
-        credential_path = "/content/drive/MyDrive/auto-trader/auto-trader-sa.json"
-    else:
+    if not config.on_colab:
+        # GCP サービスアカウントキーの設定
+        # colab ではユーザ認証するため不要
         credential_path = pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
-
-    os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
 
     main(config)

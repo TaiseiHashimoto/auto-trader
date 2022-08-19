@@ -20,7 +20,7 @@ class DataConfig:
 class FeatureConfig:
     timings: List[str] = field(default_factory=lambda: ["high", "low", "close"])
     freqs: List[str] = field(default_factory=lambda: ["1min", "5min", "15min", "1h", "4h"])
-    lag_max: int = 10
+    lag_max: int = 5
     sma_timing: str = "close"
     sma_window_size: int = 10
 

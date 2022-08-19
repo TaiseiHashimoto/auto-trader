@@ -4,3 +4,4 @@ __pycache__
 .neptune
 auto-trader-sa.json
 .pytest_cache
+lprof/
