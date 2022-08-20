@@ -195,14 +195,217 @@ def calc_next_critical_values(values: np.ndarray, critical_idxs: np.ndarray):
     return np.array(next_critical_values)
 
 
-# def align_time(index: pd.DatetimeIndex, s: pd.Series):
+def merge_bid_ask(df):
+    # bid と ask の平均値を計算
+    return pd.DataFrame({
+        "open": (df["bid_open"] + df["ask_open"]) / 2,
+        "high": (df["bid_high"] + df["ask_high"]) / 2,
+        "low": (df["bid_low"] + df["ask_low"]) / 2,
+        "close": (df["bid_close"] + df["ask_close"]) / 2,
+    }, index=df.index)
 
 
+def create_featurs(
+    df: pd.DataFrame,
+    symbol: str,
+    timings: List[str],
+    freqs: List[str],
+    sma_timing: str,
+    sma_window_size: int,
+    lag_max: int,
+) -> pd.DataFrame:
+    """
+    特徴量を作成する
+    """
+
+    df = merge_bid_ask(df)
+    df = df.add_suffix("_1min")
+
+    PIP_SCALE = 0.01 if symbol == "usdjpy" else 0.0001
+    TIMING2OP = {"open": "first", "high": "max", "low": "min", "close": "last"}
+
+    # 複数タイムスケールのデータ作成
+    # import pdb; pdb.set_trace()
+    df_dict = {
+        "1min": df[[f"{timing}_1min" for timing in timings]]
+    }
+    for freq in freqs[1:]:
+        df_dict[freq] = pd.concat({
+            f"{timing}_{freq}": aggregate_time(df["open_1min"], freq, how=TIMING2OP[timing])
+            for timing in timings
+        }, axis=1)
+
+    # 各タイムスケールで特徴量作成
+    for freq, df_agg in df_dict.items():
+        # 単純移動平均
+        sma = (
+            df_agg[f"{sma_timing}_{freq}"]
+                .shift(1)
+                .rolling(sma_window_size)
+                .mean()
+                .astype(np.float32)
+        )
+        # SettingWithCopyWarning が出るが、問題なさそうなので無視する。
+        df_agg[f"{sma_timing}_{freq}_sma{sma_window_size}_frac"] = (sma / PIP_SCALE) % 100
+
+        for lag_i in range(1, lag_max + 1):
+            for timing in timings:
+                df_agg[f"{timing}_{freq}_lag{lag_i}_cent"] = df_agg[f"{timing}_{freq}"].shift(lag_i) - sma
+
+    # 全タイムスケールのデータをまとめる
+    df_merged = df_dict["1min"].copy()
+    for freq in freqs[1:]:
+        df_agg = df_dict[freq]
+        df_merged = pd.concat([df_merged, df_agg.reindex(df_merged.index, method="ffill")], axis=1)
+
+    df_merged = df_merged.astype(np.float32)
+
+    # 時間関連の特徴量
+    df_merged["hour"] = df_merged.index.hour
+    df_merged["day_of_week"] = df_merged.index.day_of_week
+    df_merged["month"] = df_merged.index.month
+
+    # 未来のデータを入力に使わないよう除外 (close_1min など)
+    non_feature_names = []
+    for freq in freqs:
+        for timing in timings:
+            non_feature_names.append(f"{timing}_{freq}")
+
+    feature_names = list(set(df_merged.columns) - set(non_feature_names))
+
+    return df_merged[feature_names]
 
 
-# def label_with_count(s: pd.Series, horizon: int, direction: str, tolerance: int):
+def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> np.ndarray:
+    """
+    極大・極小をとるインデックスの配列を取得する。
+    thresh_hold 以下の変動は無視する。
+    """
+    # TODO: uptrend から始めて大丈夫か？
+    is_uptrend = True
+    max_idx = 0
+    max_value = values[0]
+    min_idx = None
+    min_value = np.inf
+    critical_idxs = []
+    for i in range(1, len(values)):
+        v = values[i]
+        # print(i, v, is_uptrend)
+        if is_uptrend:
+            if v > max_value:
+                # 上昇中にさらに高値が更新された場合
+                max_idx = i
+                max_value = v
+                # これまでの安値は無効化
+                min_idx = None
+                min_value = np.inf
+            elif v < min_value:
+                # 上昇中に安値が更新された場合
+                min_idx = i
+                min_value = v
+
+                if max_value - min_value > thresh_hold:
+                    # print("Add max_idx", max_idx)
+                    # print("To downtrend")
+                    # 下降に転換
+                    critical_idxs.append(max_idx)
+                    is_uptrend = False
+                    max_idx = None
+                    max_value = -np.inf
+        else:
+            if v < min_value:
+                # 下降中にさらに安値が更新された場合
+                min_idx = i
+                min_value = v
+                # これまでの高値は無効化
+                max_idx = None
+                max_value = -np.inf
+            elif v > max_value:
+                # 下降中に高値が更新された場合
+                max_idx = i
+                max_value = v
+
+                if max_value - min_value > thresh_hold:
+                    # print("Add min_idx", min_idx)
+                    # print("To uptrend")
+                    # 上昇に転換
+                    critical_idxs.append(min_idx)
+                    is_uptrend = True
+                    min_idx = None
+                    min_value = np.inf
+        # print(max_value, min_value)
+
+    if is_uptrend:
+        critical_idxs.append(max_idx)
+    else:
+        critical_idxs.append(min_idx)
+
+    return np.array(critical_idxs)
 
 
-# def add_candle(df: pd.DataFrame, freq: str) -> pd.DataFrame:
-#     df.asfreq('1h')
+def create_labels_sub(values: np.ndarray, thresh_entry: float, thresh_hold: float):
+    critical_idxs = compute_critical_idxs(values, thresh_hold)
 
+    values_next_critical = np.empty(len(values))
+    prev_cidx = 0
+    for cidx in critical_idxs:
+        values_next_critical[prev_cidx:cidx] = values[cidx]
+        prev_cidx = cidx
+
+    values_diff = values_next_critical - values
+
+    # entry: 利益が出る and それ以降にさらに利益が出ることはない
+    long_entry_labels_ = values_diff > thresh_entry
+    short_entry_labels_ = values_diff < -thresh_entry
+    # exit: 損失が出る
+    long_exit_labels = values_diff < -thresh_hold
+    short_exit_labels = values_diff > thresh_hold
+
+    # "それ以降にさらに利益が出ることはない" の部分を考慮
+    long_entry_labels = np.zeros(len(values), dtype=bool)
+    short_entry_labels = np.zeros(len(values), dtype=bool)
+    done_count = 0
+    is_uptrend = True
+    for cidx in critical_idxs:
+        min_value = np.inf
+        max_value = -np.inf
+        # critical_idx までの index を逆順に走査して、エントリーのタイミングを探す
+        for i in reversed(range(done_count, cidx)):
+            if is_uptrend and values[i] < min_value:
+                min_value = values[i]
+                long_entry_labels[i] = long_entry_labels_[i]
+            elif not is_uptrend and values[i] > max_value:
+                max_value = values[i]
+                short_entry_labels[i] = short_entry_labels_[i]
+
+        done_count = cidx
+        is_uptrend = not is_uptrend
+
+    return long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels
+
+
+def create_labels(
+    df: pd.DataFrame,
+    thresh_entry: float,
+    thresh_hold: float,
+) -> pd.DataFrame:
+    """
+    ラベルを作成する
+    """
+
+    df = merge_bid_ask(df)
+
+    mean_high_low = (df["high"].values + df["low"].values) / 2
+    long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels = create_labels_sub(mean_high_low, thresh_entry, thresh_hold)
+
+    df_labels = pd.DataFrame({
+        "long_entry": long_entry_labels,
+        "short_entry": short_entry_labels,
+        "long_exit": long_exit_labels,
+        "short_exit": short_exit_labels,
+    }, index=df.index)
+
+    assert not (df_labels["long_entry"] & df_labels["long_exit"]).any()
+    assert not (df_labels["short_entry"] & df_labels["short_exit"]).any()
+
+    return df_labels

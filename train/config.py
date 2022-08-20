@@ -31,8 +31,6 @@ class LabelConfig:
     thresh_entry: float = 0.05
     # この値を以下の下落であれば持ち続ける
     thresh_hold: float = 0.025
-    # この値以上に上昇しないなら決済する
-    thresh_exit: float = 0.0
 
 
 @dataclass
@@ -44,15 +42,10 @@ class ModelConfig:
 
 @dataclass
 class TrainConfig:
+    random_seed: int = 123
     valid_ratio: float = 0.1
     num_iterations: int = 10
     save_model: bool = True
-
-
-@dataclass
-class LGBMConfig:
-    on_colab: bool = False
-    random_seed: int = 123
 
     gcp: GCPConfig = GCPConfig()
     neptune: NeptuneConfig = NeptuneConfig()
@@ -60,4 +53,33 @@ class LGBMConfig:
     feature: FeatureConfig = FeatureConfig()
     label: LabelConfig = LabelConfig()
     model: ModelConfig = ModelConfig()
-    train: TrainConfig = TrainConfig()
+
+
+@dataclass
+class EvalConfig:
+    start_hour: int = 2
+    end_hour: int = 22
+    thresh_loss_cut: float = 0.05
+    simulate_timing: str = "open"
+    spread: float = 0.02
+    prob_entry_list: List[float] = field(default_factory=lambda: [0.3, 0.9, 0.95])
+    prob_exit_list: List[float] = field(default_factory=lambda: [0.3, 0.9, 0.95])
+
+    gcp: GCPConfig = GCPConfig()
+    neptune: NeptuneConfig = NeptuneConfig()
+    data: DataConfig = DataConfig()
+
+
+# @dataclass
+# class LGBMConfig:
+#     # on_colab: bool = False
+#     random_seed: int = 123
+
+#     gcp: GCPConfig = GCPConfig()
+#     neptune: NeptuneConfig = NeptuneConfig()
+#     data: DataConfig = DataConfig()
+#     feature: FeatureConfig = FeatureConfig()
+#     label: LabelConfig = LabelConfig()
+#     model: ModelConfig = ModelConfig()
+#     train: TrainConfig = TrainConfig()
+#     evaluate: EvaluateConfig = EvaluateConfig()
