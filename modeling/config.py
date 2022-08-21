@@ -42,8 +42,11 @@ class ModelConfig:
     lambda_l2: float = 0.0
     feature_fraction: float = 1.0
     bagging_fraction: float = 1.0
+    pos_bagging_fraction: float = 1.0
+    neg_bagging_fraction: float = 1.0
     bagging_freq: int = 0
     is_unbalance: bool = False
+    scale_pos_weight: float = 1.0
     verbosity: int = 1
 
 

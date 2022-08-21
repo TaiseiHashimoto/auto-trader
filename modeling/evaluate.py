@@ -120,7 +120,7 @@ def main(eval_config):
     for label_name in df_y.columns:
         label = df_y[label_name].values
         model = models[label_name]
-        pred = model.predict(df_x).astype(np.float32)
+        pred = model.predict_proba(df_x).astype(np.float32)
         model_version["eval/auc"] = roc_auc_score(label, pred)
         preds[label_name] = pred
 
