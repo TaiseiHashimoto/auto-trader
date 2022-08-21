@@ -122,6 +122,17 @@ def main(eval_config):
         model = models[label_name]
         pred = model.predict(df_x).astype(np.float32)
         model_version["eval/auc"] = roc_auc_score(label, pred)
+        model_version["eval/pred"] = {
+            0: np.min(pred),
+            5: np.quantile(pred, 0.05),
+            10: np.quantile(pred, 0.10),
+            25: np.quantile(pred, 0.25),
+            50: np.quantile(pred, 0.50),
+            75: np.quantile(pred, 0.75),
+            90: np.quantile(pred, 0.90),
+            95: np.quantile(pred, 0.95),
+            100: np.max(pred),
+        }
         preds[label_name] = pred
 
     # シミュレーション
