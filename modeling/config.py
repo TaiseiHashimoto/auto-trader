@@ -37,7 +37,7 @@ class LabelConfig:
 class ModelConfig:
     objective: str = "binary"
     num_leaves: int = 31
-    learning_rate: float = 0.01
+    learning_rate: float = 0.1
     lambda_l1: float = 0.0
     lambda_l2: float = 0.0
     feature_fraction: float = 1.0
