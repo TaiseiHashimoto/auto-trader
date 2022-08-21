@@ -37,7 +37,13 @@ class LabelConfig:
 class ModelConfig:
     objective: str = "binary"
     num_leaves: int = 31
-    is_unbalance: bool = True
+    learning_rate: float = 0.01
+    lambda_l1: float = 0.0
+    lambda_l2: float = 0.0
+    feature_fraction: float = 1.0
+    bagging_fraction: float = 1.0
+    bagging_freq: int = 0
+    is_unbalance: bool = False
     verbosity: int = 1
 
 
