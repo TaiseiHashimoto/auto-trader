@@ -37,6 +37,7 @@ class LabelConfig:
 class ModelConfig:
     objective: str = "binary"
     num_leaves: int = 31
+    is_unbalance: bool = True
     verbosity: int = 1
 
 

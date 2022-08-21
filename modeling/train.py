@@ -156,7 +156,10 @@ def main(config):
 
         # 特徴量の重要度を記録
         importance = pd.Series(model.feature_importance("gain"), index=df_x.columns)
-        run[f"retrain/importance/{label_name}"] = importance.sort_values().to_string()
+        importance.sort_values(inplace=True, ascending=False)
+        importance_path = f"{OUTPUT_DIRECTORY}/importance_{label_name}.csv"
+        importance.to_csv(importance_path)
+        run[f"retrain/importance/{label_name}"].upload(importance_path)
 
     # モデル保存
     print("Save model")
