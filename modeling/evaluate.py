@@ -119,18 +119,18 @@ def main(eval_config):
         }
 
     # シミュレーション
-    params_list = list(itertools.product(eval_config.prob_entry_list, eval_config.prob_exit_list))
-    for prob_entry, prob_exit in tqdm(params_list):
+    params_list = list(itertools.product(eval_config.percentile_entry_list, eval_config.percentile_exit_list))
+    for percentile_entry, percentile_exit in tqdm(params_list):
         simulator = common_utils.OrderSimulator(
             eval_config.start_hour,
             eval_config.end_hour,
             eval_config.thresh_loss_cut
         )
 
-        long_entry = preds["long_entry"].values > prob_entry
-        short_entry = preds["short_entry"].values > prob_entry
-        long_exit = preds["long_exit"].values > prob_exit
-        short_exit = preds["short_exit"].values > prob_exit
+        long_entry = preds["long_entry"].values > np.percentile(preds["long_entry"].values, percentile_entry)
+        short_entry = preds["short_entry"].values > np.percentile(preds["short_entry"].values, percentile_entry)
+        long_exit = preds["long_exit"].values > np.percentile(preds["long_exit"].values, percentile_exit)
+        short_exit = preds["short_exit"].values > np.percentile(preds["short_exit"].values, percentile_exit)
         for i, timestamp in enumerate(base_index):
             rate = df.loc[timestamp, eval_config.simulate_timing]
             simulator.step(timestamp, rate, long_entry[i], short_entry[i], long_exit[i], short_exit[i])
@@ -141,7 +141,7 @@ def main(eval_config):
             for order in simulator.order_history
         ])
 
-        param_str = f"{prob_entry:.3f},{prob_exit:.3f}"
+        param_str = f"{percentile_entry},{percentile_exit}"
         model_version[f"eval/simulation/{param_str}/num_order"] = len(profits)
         if len(profits) > 0:
             model_version[f"eval/simulation/{param_str}/profit_per_trade"] = profits.mean()

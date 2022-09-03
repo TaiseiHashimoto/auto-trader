@@ -103,8 +103,8 @@ class EvalConfig:
     thresh_loss_cut: float = 0.05
     simulate_timing: str = "open"
     spread: float = 0.02
-    prob_entry_list: List[float] = field(default_factory=lambda: [0.3, 0.9, 0.95])
-    prob_exit_list: List[float] = field(default_factory=lambda: [0.3, 0.9, 0.95])
+    percentile_entry_list: List[int] = field(default_factory=lambda: [75, 90, 95])
+    percentile_exit_list: List[int] = field(default_factory=lambda: [75, 90, 95])
 
     gcp: GCPConfig = GCPConfig()
     neptune: NeptuneConfig = NeptuneConfig()
