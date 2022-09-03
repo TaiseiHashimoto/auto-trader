@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Optional, List
+from typing import Optional, List, Dict, Union, Callable
 
 import sys
 import pathlib
@@ -91,76 +91,7 @@ def aggregate_time(s: pd.Series, freq: str, how: str) -> pd.DataFrame:
     else:
         raise ValueError(f"how must be \"first\", \"last\", \"max\", or \"min\"")
 
-    # # データが足りている時間帯を特定
-    # valid_mask = (
-    #     (s_agg.index >= s.index[0]) &
-    #     (s_agg.index <= s.index[-1] - pd.Timedelta(freq) + pd.Timedelta("1min"))
-    # )
-    # valid_index = s_agg.index[valid_mask]
-    # valid_start = valid_index[0]
-    # valid_end = valid_index[-1] + pd.Timedelta(freq) - pd.Timedelta("1min")
-
-    # s_agg.loc[(s_agg.index < valid_start) | (s_agg.index > valid_end)] = np.nan
-    # s_agg = s_agg.reindex(s.index, method="ffill")
-    # s_agg.loc[s_agg.index > valid_end] = np.nan
-
     return s_agg.dropna()
-
-
-def calc_slope(arr: np.ndarray, lookahead: int) -> np.ndarray:
-    i_sum = lookahead * (lookahead + 1) / 2
-    i2_sum = lookahead * (lookahead + 1) * (lookahead * 2 + 1) / 6
-    arange = np.arange(1, lookahead + 1)
-    slopes = []
-    for i in range(len(arr) - lookahead):
-        bias = arr[i]
-        prod_sum = (arange * arr[i+1:i+1+lookahead]).sum()
-        (prod_sum - bias * i_sum) / (i2_sum)
-        slope = (prod_sum - bias * i_sum) / (i2_sum)
-        slopes.append(slope)
-
-    for i in range(lookahead):
-        slopes.append(np.nan)
-
-    return np.array(slopes)
-
-
-def polyline_approx(arr: np.ndarray, tol: float, lookahead_max: int):
-    approx_values = []
-    approx_slopes = []
-    # start_values = []
-    # end_values = []
-    # joint_idxs = []
-
-    start_idx = 0
-    # joint_idxs.append(start_idx)
-    # start_values.append(arr[start_idx])
-
-    while start_idx < len(arr) - 1:
-        end_idx = min(start_idx + lookahead_max - 1, len(arr)-1)
-        while True:
-            reference = arr[start_idx:end_idx+1]
-            approx = arr[start_idx] + np.linspace(0., 1., num=end_idx-start_idx+1) * (arr[end_idx] - arr[start_idx])
-            if np.max(np.abs(reference - approx)) <= tol:
-                break
-
-            end_idx -= 1
-
-        approx_values.extend(approx[:-1])
-        slope = (arr[end_idx] - arr[start_idx]) / (end_idx - start_idx)
-        approx_slopes.extend([slope] * (end_idx - start_idx))
-        # joint_idxs.append(end_idx)
-        # start_values.extend([arr[start_idx]] * (end_idx-start_idx))
-        # end_values.extend([arr[end_idx]] * (end_idx - start_idx))
-        start_idx = end_idx
-
-    approx_values.append(arr[end_idx])
-    approx_slopes.append(np.nan)
-    # joint_flags.append(True)
-    # end_values.append(np.nan)
-    # return np.array(approx_values), np.array(start_values), np.array(end_values)
-    # return np.array(approx_values), np.array(joint_idxs)
-    return np.array(approx_values), np.array(approx_slopes)
 
 
 def calc_critical_idxs(values: np.ndarray, joint_idxs: np.ndarray):
@@ -184,17 +115,6 @@ def calc_critical_idxs(values: np.ndarray, joint_idxs: np.ndarray):
     return np.array(critical_idxs)
 
 
-def calc_next_critical_values(values: np.ndarray, critical_idxs: np.ndarray):
-    done_count = 0
-    next_critical_values = []
-    for critical_idx in critical_idxs[1:]:
-        next_critical_values.extend([values[critical_idx]] * (critical_idx - done_count))
-        done_count = critical_idx
-
-    next_critical_values.append(np.nan)
-    return np.array(next_critical_values)
-
-
 def merge_bid_ask(df):
     # bid と ask の平均値を計算
     return pd.DataFrame({
@@ -205,75 +125,121 @@ def merge_bid_ask(df):
     }, index=df.index)
 
 
-def create_featurs(
+def resample(
+    df_1min: pd.DataFrame,
+    freqs: List[str],
+) -> Dict[str, pd.DataFrame]:
+    TIMING2OP = {"open": "first", "high": "max", "low": "min", "close": "last"}
+
+    # 複数タイムスケールのデータ作成
+    df_dict = {}
+    for freq in freqs:
+        if freq == "1min":
+            df_dict[freq] = df_1min.copy()
+        else:
+            df_dict[freq] = pd.concat({
+                timing: aggregate_time(df_1min[timing], freq, how=TIMING2OP[timing])
+                for timing in df_1min.columns
+            }, axis=1)
+
+    return df_dict
+
+
+def align_frequency(base_index: pd.DatetimeIndex, df_dict: Dict[str, pd.DataFrame]):
+    # 全タイムスケールのデータをまとめる
+    df_merged = pd.DataFrame(index=base_index)
+    for freq, df in df_dict.items():
+        if freq == "1min":
+            df_aligned = df.loc[base_index]
+        else:
+            df_aligned = df.reindex(base_index, method="ffill")
+
+        df_merged = pd.concat([df_merged, df_aligned.add_prefix(f"{freq}_")], axis=1)
+
+    # import pdb; pdb.set_trace()
+    return df_merged
+
+
+def create_time_features(index: pd.DatetimeIndex):
+    df_out = {
+        "hour": index.hour,
+        "day_of_week": index.day_of_week,
+        "month": index.month,
+    }
+    return pd.DataFrame(df_out, index=index)
+
+
+def compute_sma(df: pd.DataFrame, sma_timing: str, sma_window_size: int) -> pd.Series:
+    sma = (
+        df[f"{sma_timing}"]
+            .shift(1)
+            .rolling(sma_window_size)
+            .mean()
+            .astype(np.float32)
+    )
+    return sma
+
+
+def compute_fraction(s: pd.Series, base: float, ndigits: int):
+    return (s / base) % (10 ** ndigits)
+
+
+def create_lagged_features(df: pd.DataFrame, lag_max: int) -> pd.DataFrame:
+    df_out = {}
+    for column in df.columns:
+        for lag_i in range(1, lag_max + 1):
+            df_out[f"{column}_lag{lag_i}"] = df[column].shift(lag_i)
+
+    return pd.DataFrame(df_out, index=df.index)
+
+
+def create_features(
     df: pd.DataFrame,
     symbol: str,
     timings: List[str],
     freqs: List[str],
-    sma_timing: str,
-    sma_window_size: int,
     lag_max: int,
-) -> pd.DataFrame:
-    """
-    特徴量を作成する
-    """
+    sma_timing: str,
+    sma_window_sizes: List[int],
+    sma_window_size_center: int,
+    sma_frac_ndigits: int,
+    # centering: bool,
+) -> Dict[str, pd.DataFrame]:
+    pip_scale = common_utils.get_pip_scale(symbol)
 
-    df = merge_bid_ask(df)
-    df = df.add_suffix("_1min")
+    df_dict = resample(df, freqs)
 
-    PIP_SCALE = 0.01 if symbol == "usdjpy" else 0.0001
-    TIMING2OP = {"open": "first", "high": "max", "low": "min", "close": "last"}
-
-    # 複数タイムスケールのデータ作成
+    df_seq_dict = {}
+    df_cont_dict = {}
     # import pdb; pdb.set_trace()
-    df_dict = {
-        "1min": df[[f"{timing}_1min" for timing in timings]]
-    }
-    for freq in freqs[1:]:
-        df_dict[freq] = pd.concat({
-            f"{timing}_{freq}": aggregate_time(df["open_1min"], freq, how=TIMING2OP[timing])
-            for timing in timings
-        }, axis=1)
+    for freq in df_dict:
+        df_sma = pd.DataFrame({
+            f"sma{sma_window_size}": compute_sma(df_dict[freq], sma_timing, sma_window_size)
+            for sma_window_size in sma_window_sizes
+        })
+        df_seq_dict[freq] = pd.concat([df_dict[freq][timings], df_sma], axis=1)
 
-    # 各タイムスケールで特徴量作成
-    for freq, df_agg in df_dict.items():
-        # 単純移動平均
-        sma = (
-            df_agg[f"{sma_timing}_{freq}"]
-                .shift(1)
-                .rolling(sma_window_size)
-                .mean()
-                .astype(np.float32)
-        )
-        # SettingWithCopyWarning が出るが、問題なさそうなので無視する。
-        df_agg[f"{sma_timing}_{freq}_sma{sma_window_size}_frac"] = (sma / PIP_SCALE) % 100
+        sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale, ndigits=sma_frac_ndigits)
+        sma_frac = sma_frac.shift(1)
+        # name: sma* -> sma*_frac
+        sma_frac.name = sma_frac.name + "_frac_lag1"
+        # seq と形式を合わせるため、Series から DataFrame に変換
+        df_cont_dict[freq] = sma_frac.to_frame()
 
-        for lag_i in range(1, lag_max + 1):
-            for timing in timings:
-                df_agg[f"{timing}_{freq}_lag{lag_i}_cent"] = df_agg[f"{timing}_{freq}"].shift(lag_i) - sma
+    df_time = create_time_features(df.index)
+    df_cont_dict["1min"] = pd.concat([df_cont_dict["1min"], df_time], axis=1)
 
-    # 全タイムスケールのデータをまとめる
-    df_merged = df_dict["1min"].copy()
-    for freq in freqs[1:]:
-        df_agg = df_dict[freq]
-        df_merged = pd.concat([df_merged, df_agg.reindex(df_merged.index, method="ffill")], axis=1)
+    # データが足りない行を削除
+    first_index = pd.Timestamp("1900-1-1 00:00:00")
+    for freq in df_dict:
+        nan_mask = df_seq_dict[freq].isnull().any(axis=1)
+        notnan_idxs = (~nan_mask).values.nonzero()[0]
+        first_idx = notnan_idxs[0] + lag_max
+        first_index = max(first_index, df_seq_dict[freq].index[first_idx])
 
-    df_merged = df_merged.astype(np.float32)
+    base_index = df.index[df.index >= first_index]
 
-    # 時間関連の特徴量
-    df_merged["hour"] = df_merged.index.hour
-    df_merged["day_of_week"] = df_merged.index.day_of_week
-    df_merged["month"] = df_merged.index.month
-
-    # 未来のデータを入力に使わないよう除外 (close_1min など)
-    non_feature_names = []
-    for freq in freqs:
-        for timing in timings:
-            non_feature_names.append(f"{timing}_{freq}")
-
-    feature_names = list(set(df_merged.columns) - set(non_feature_names))
-
-    return df_merged[feature_names]
+    return base_index, {"sequential": df_seq_dict, "continuous": df_cont_dict}
 
 
 def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> np.ndarray:
@@ -392,8 +358,6 @@ def create_labels(
     """
     ラベルを作成する
     """
-
-    df = merge_bid_ask(df)
 
     mean_high_low = (df["high"].values + df["low"].values) / 2
     long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels = create_labels_sub(mean_high_low, thresh_entry, thresh_hold)

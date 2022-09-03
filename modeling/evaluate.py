@@ -1,17 +1,16 @@
 import numpy as np
-import pandas as pd
 import os
 import sys
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
 import pickle
 from omegaconf import OmegaConf
-from typing import Optional
 import itertools
 import neptune.new as neptune
-from neptune.new.types import File
 
 import utils
+import lgbm_utils
+import cnn_utils
 from config import EvalConfig
 
 import sys
@@ -29,6 +28,9 @@ def get_latest_model_version_id(model_id: str):
 
 
 def main(eval_config):
+    OUTPUT_DIRECTORY = str(pathlib.Path(__file__).resolve().parent / "output_eval")
+    os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
+
     if ON_COLAB:
         DATA_DIRECTORY = str(pathlib.Path(__file__).resolve().parent / "preprocessed")
         os.makedirs(DATA_DIRECTORY, exist_ok=True)
@@ -43,24 +45,28 @@ def main(eval_config):
             eval_config.data.last_year, eval_config.data.last_month,
             DATA_DIRECTORY
         )
+
     else:
         DATA_DIRECTORY = str(pathlib.Path(__file__).resolve().parents[1] / "data" / "preprocessed")
-
-    OUTPUT_DIRECTORY = str(pathlib.Path(__file__).resolve().parent / "output")
-    os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
 
     # モデル取得
     print("Fetch model")
     model_version_id = eval_config.neptune.model_version_id
     if model_version_id == "":
-        model_version_id = get_latest_model_version_id(eval_config.neptune.model_id)
+        model_id = common_utils.get_neptune_model_id(eval_config.neptune.project_key, model_type)
+        model_version_id = get_latest_model_version_id(model_id)
     print(f"model_version_id = {model_version_id}")
 
     model_version = neptune.init_model_version(version=model_version_id)
-    model_path = f"{OUTPUT_DIRECTORY}/model.pkl"
+    model_path = f"{OUTPUT_DIRECTORY}/model.bin"
     model_version["binary"].download(model_path)
-    with open(model_path, "rb") as f:
-        models = pickle.load(f)
+
+    # with open(model_path, "rb") as f:
+    #     models = pickle.load(f)
+    if model_type == "lgbm":
+        model = lgbm_utils.LGBMModel.from_file(model_path)
+    elif model_type == "cnn":
+        model = cnn_utils.CNNModel.from_file(model_path)
 
     # 過去の結果が残っている場合は削除
     if model_version.exists("eval"):
@@ -76,18 +82,17 @@ def main(eval_config):
         eval_config.data.last_year, eval_config.data.last_month,
         DATA_DIRECTORY
     )
+    df = utils.merge_bid_ask(df)
 
     # 評価データを準備
     print("Create features")
-    df_x = utils.create_featurs(
-        df,
-        train_config.data.symbol,
-        train_config.feature.timings,
-        train_config.feature.freqs,
-        train_config.feature.sma_timing,
-        train_config.feature.sma_window_size,
-        train_config.feature.lag_max
-    )
+    feature_params = common_utils.conf2dict(train_config.feature)
+    base_index, df_x_dict = utils.create_features(df, train_config.data.symbol, **feature_params)
+    # if model_type == "lgbm":
+    #     df_x_dict = lgbm_utils.create_lgbm_featurs(df, train_config.data.symbol, **feature_params)
+    # elif model_type == "cnn":
+    #     df_x_dict = cnn_utils.create_cnn_features(df, train_config.data.symbol, **feature_params)
+
     print("Create labels")
     df_y = utils.create_labels(
         df,
@@ -95,45 +100,36 @@ def main(eval_config):
         train_config.label.thresh_hold
     )
 
-    # データが足りない行を削除
-    nan_mask = df_x.isnull().any(axis=1)
-    df_x = df_x.loc[~nan_mask]
-    df_y = df_y.loc[~nan_mask]
-
     # 学習に使われた行を削除
     train_last_timestamp = model_version["train/last_timestamp"].fetch()
-    time_mask = df_x.index > train_last_timestamp
-    df_x = df_x.loc[time_mask]
-    df_y = df_y.loc[time_mask]
-    df_merged = utils.merge_bid_ask(df.loc[df_x.index])
+    # df_x_dict = utils.apply_df_dict(df_x_dict, lambda df: df.loc[df.index > train_last_timestamp])
+    base_index = base_index[base_index > train_last_timestamp]
 
-    eval_first_timestamp = df_x.index[0]
-    eval_last_timestamp = df_x.index[-1]
-    print(f"Data range : {str(eval_first_timestamp)} ~ {str(eval_last_timestamp)}")
+    if model_type == "lgbm":
+        # df_x = lgbm_utils.merge_features(df_x_dict)
+        ds = lgbm_utils.LGBMDataset(base_index, df_x_dict, df_y, train_config.feature.lag_max, train_config.feature.sma_window_size_center)
+    elif model_type == "cnn":
+        ds = cnn_utils.CNNDataset(base_index, df_x_dict, df_y, train_config.feature.lag_max, train_config.feature.sma_window_size_center)
+
+    eval_first_timestamp = base_index[0]
+    eval_last_timestamp = base_index[-1]
+    print(f"Evaluation period: {eval_first_timestamp} ~ {eval_last_timestamp}")
     model_version["eval/first_timestamp"] = str(eval_first_timestamp)
     model_version["eval/last_timestamp"] = str(eval_last_timestamp)
     days = (eval_last_timestamp - eval_first_timestamp).days * (5/7)
     months = (eval_last_timestamp - eval_first_timestamp).days / 30
 
     # 予測
-    preds = {}
-    for label_name in df_y.columns:
-        label = df_y[label_name].values
-        model = models[label_name]
-        pred = model.predict(df_x).astype(np.float32)
+    preds = model.predict_score(ds)
+
+    PERCENTILES = [0, 5, 10, 25, 50, 75, 90, 95, 100]
+    for label_name in preds.columns:
+        pred = preds[label_name].values
+        label = df_y.loc[base_index, label_name].values
         model_version["eval/auc"] = roc_auc_score(label, pred)
         model_version["eval/pred"] = {
-            0: np.min(pred),
-            5: np.quantile(pred, 0.05),
-            10: np.quantile(pred, 0.10),
-            25: np.quantile(pred, 0.25),
-            50: np.quantile(pred, 0.50),
-            75: np.quantile(pred, 0.75),
-            90: np.quantile(pred, 0.90),
-            95: np.quantile(pred, 0.95),
-            100: np.max(pred),
+            p: np.percentile(pred, p) for p in PERCENTILES
         }
-        preds[label_name] = pred
 
     # シミュレーション
     params_list = list(itertools.product(eval_config.prob_entry_list, eval_config.prob_exit_list))
@@ -144,13 +140,12 @@ def main(eval_config):
             eval_config.thresh_loss_cut
         )
 
-        long_entry = preds["long_entry"] > prob_entry
-        short_entry = preds["short_entry"] > prob_entry
-        long_exit = preds["long_exit"] > prob_exit
-        short_exit = preds["short_exit"] > prob_exit
-        for i in range(len(df_merged)):
-            timestamp = df_merged.index[i]
-            rate = df_merged[eval_config.simulate_timing][i]
+        long_entry = preds["long_entry"].values > prob_entry
+        short_entry = preds["short_entry"].values > prob_entry
+        long_exit = preds["long_exit"].values > prob_exit
+        short_exit = preds["short_exit"].values > prob_exit
+        for i, timestamp in enumerate(base_index):
+            rate = df.loc[timestamp, eval_config.simulate_timing]
             simulator.step(timestamp, rate, long_entry[i], short_entry[i], long_exit[i], short_exit[i])
 
         profits = np.array([order.gain for order in simulator.order_history]) - eval_config.spread
@@ -177,7 +172,12 @@ def main(eval_config):
 
 
 if __name__ == "__main__":
-    eval_config = OmegaConf.merge(OmegaConf.structured(EvalConfig), OmegaConf.from_cli())
+    model_type = sys.argv[1]
+    assert model_type in ("lgbm", "cnn")
+
+    base_config = OmegaConf.structured(EvalConfig)
+    cli_config = OmegaConf.from_cli(sys.argv[2:])
+    eval_config = OmegaConf.merge(base_config, cli_config)
     print(OmegaConf.to_yaml(eval_config))
 
     ON_COLAB = os.environ.get("ON_COLAB", False)
@@ -188,9 +188,6 @@ if __name__ == "__main__":
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
 
     # neptune 設定
-    os.environ["NEPTUNE_PROJECT"] = eval_config.neptune.project
-    secretmanager = common_utils.SecretManagerWrapper(eval_config.gcp.project_id)
-    neptune_api_token = secretmanager.fetch_secret(eval_config.gcp.secret_id)
-    os.environ["NEPTUNE_API_TOKEN"] = neptune_api_token
+    common_utils.setup_neptune(eval_config.neptune.project, eval_config.gcp.project_id, eval_config.gcp.secret_id)
 
     main(eval_config)

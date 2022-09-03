@@ -1,8 +1,12 @@
 import numpy as np
 import pandas as pd
-from typing import Optional
+import torch
+import random
+import os
+from typing import Optional, Dict
 from enum import Enum
 # from dataclasses import dataclass
+from omegaconf import OmegaConf
 from google.cloud import (storage, secretmanager)
 
 
@@ -193,4 +197,28 @@ def calc_year_month_offset(year: int, month: int, month_offset: int):
     month = (month - 1) % 12 + 1
     return year, month
 
+
+def conf2dict(config: OmegaConf) -> Dict:
+    return OmegaConf.to_container(config, resolve=True)
+
+
+def get_pip_scale(symbol: str) -> float:
+    return 0.01 if symbol == "usdjpy" else 0.0001
+
+
+def set_random_seed(seed: int):
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    random.seed(seed)
+
+
+def get_neptune_model_id(project_key: str, model_type: str) -> str:
+    return f"{project_key}-{model_type.upper()}"
+
+
+def setup_neptune(neptune_project: str, gcp_project_id: str, gcp_secret_id: str):
+    os.environ["NEPTUNE_PROJECT"] = neptune_project
+    secretmanager = SecretManagerWrapper(gcp_project_id)
+    neptune_api_token = secretmanager.fetch_secret(gcp_secret_id)
+    os.environ["NEPTUNE_API_TOKEN"] = neptune_api_token
 
