@@ -72,12 +72,13 @@ class CNNDataset:
                 idx_batch_freq = x_seq[freq].index.get_indexer(index_batch_freq)
                 assert (idx_batch_freq >= self.lag_max).all()
 
-                sma = x_seq[freq][f"sma{self.sma_window_size_center}"].values[idx_batch_freq-1, np.newaxis]
                 v = [
-                    x_seq[freq].iloc[idx_batch_freq-lag_i].values - sma
+                    x_seq[freq].iloc[idx_batch_freq-lag_i].values
                     for lag_i in range(1, self.lag_max + 1)
                 ]
-                values_x_seq[freq] = np.stack(v, axis=1)
+                sma = x_seq[freq][f"sma{self.sma_window_size_center}"].values[idx_batch_freq-1]
+                # shape; (batch_size, lag_max, feature_dim)
+                values_x_seq[freq] = np.stack(v, axis=1) - sma[:, np.newaxis, np.newaxis]
 
                 values_x_cont[freq] = x_cont[freq].iloc[idx_batch_freq].values
 
@@ -179,19 +180,19 @@ class CNNModel:
         model_params: Dict,
         model: nn.Module,
         stats_mean: Dict,
-        stats_std: Dict,
+        stats_var: Dict,
         run: neptune.Run,
     ):
         self.model_params = model_params
         self.model = model
         self.run = run
         self.stats_mean = stats_mean
-        self.stats_std = stats_std
+        self.stats_var = stats_var
         self.device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
     @classmethod
     def from_scratch(cls, model_params: Dict, run: neptune.Run):
-        return cls(model_params, model=None, stats_mean=None, stats_std=None, run=run)
+        return cls(model_params, model=None, stats_mean=None, stats_var=None, run=run)
 
     @classmethod
     def from_file(cls, model_path: str):
@@ -201,19 +202,48 @@ class CNNModel:
         model = CNNNet(**model_data["params"])
         model.load_state_dict(model_data["state_dict"])
 
-        return cls(model_data["params"], model, stats_mean=model_data["stats_mean"], stats_std=model_data["stats_std"], run=None)
+        return cls(model_data["params"], model, stats_mean=model_data["stats_mean"], stats_var=model_data["stats_var"], run=None)
 
     def _calc_stats(self, ds: CNNDataset):
-        self.stats_mean = {"sequential": {}, "continuous": {}}
-        self.stats_std = {"sequential": {}, "continuous": {}}
-
         data_types = ds.x.keys()
         freqs = ds.x["sequential"].keys()
 
-        for data_type in data_types:
-            for freq in freqs:
-                self.stats_mean[data_type][freq] = ds.x[data_type][freq].mean().values
-                self.stats_std[data_type][freq] = ds.x[data_type][freq].std().values
+        stats_count = {data_type: {freq: 0 for freq in freqs} for data_type in data_types}
+        self.stats_mean = {data_type: {freq: None for freq in freqs} for data_type in data_types}
+        self.stats_var = {data_type: {freq: None for freq in freqs} for data_type in data_types}
+
+        loader = ds.create_loader(self.model_params["batch_size"], randomize=False)
+        for d_x, _ in loader:
+            for data_type in data_types:
+                for freq in freqs:
+                    # shape: (batch_size, dim) or (batch_size, lag_max, dim)
+                    data = d_x[data_type][freq]
+                    # shape: (batch_size, dim) or (batch_size * lag_max, dim)
+                    data = data.reshape((-1, data.shape[-1]))
+
+                    count_add = len(data)
+                    mean_add = np.mean(data, axis=0)
+                    var_add = np.var(data, axis=0)
+
+                    count_old = stats_count[data_type][freq]
+                    mean_old = self.stats_mean[data_type][freq]
+                    var_old = self.stats_var[data_type][freq]
+
+                    if count_old == 0:
+                        count_new = count_add
+                        mean_new = mean_add
+                        var_new = var_add
+                    else:
+                        count_new = count_old + count_add
+                        mean_new = (mean_old * count_old + mean_add * count_add) / (count_old + count_add)
+                        var_new = (
+                            (var_old * count_old + var_add * count_add) / (count_old + count_add)
+                            + ((mean_old - mean_add) ** 2) * count_old * count_add / ((count_old + count_add) ** 2)
+                        )
+
+                    stats_count[data_type][freq] = count_new
+                    self.stats_mean[data_type][freq] = mean_new
+                    self.stats_var[data_type][freq] = var_new
 
     def _normalize(self, d_x: Dict, eps: Optional[float] = 1e-3):
         d_x_norm = {"sequential": {}, "continuous": {}}
@@ -224,7 +254,7 @@ class CNNModel:
         for data_type in data_types:
             for freq in freqs:
                 mean = self.stats_mean[data_type][freq]
-                std = self.stats_std[data_type][freq]
+                std = self.stats_var[data_type][freq] ** 0.5
                 d_x_norm[data_type][freq] = (d_x[data_type][freq] - mean) / (std + eps)
 
         return d_x_norm
@@ -267,7 +297,7 @@ class CNNModel:
         self.model_params["sequential_channels"] = ds_train.sequential_channels()
         self.model_params["num_labels"] = len(ds_train.label_names())
 
-        self.model = CNNNet(**self.model_params)
+        self.model = CNNNet(**self.model_params).to(self.device)
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_params["learning_rate"])
 
         for _ in tqdm(range(self.model_params["num_epochs"])):
@@ -344,6 +374,6 @@ class CNNModel:
             "params": self.model_params,
             "state_dict": self.model.state_dict(),
             "stats_mean": self.stats_mean,
-            "stats_std": self.stats_std,
+            "stats_var": self.stats_var,
         }
         torch.save(model_data, output_path)

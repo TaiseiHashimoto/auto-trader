@@ -64,7 +64,7 @@ class CNNModelConfig:
     num_epochs: int = 1
     learning_rate: float = 1.0e-3
     pos_weight: float = 1.0
-    batch_size: int = 128
+    batch_size: int = 256
     window_size: int = 32
     out_channels_list: List[int] = field(default_factory=lambda: [5, 10, 5])
     kernel_size_list: List[int] = field(default_factory=lambda: [5, 5, 5])
