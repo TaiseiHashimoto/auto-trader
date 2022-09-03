@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Union
 import lightgbm as lgb
 from sklearn.metrics import roc_auc_score
 import pickle
@@ -43,8 +43,11 @@ class LGBMDataset:
         assert not x.isnull().any(axis=None)
         return x
 
-    def get_labels(self, label_name: str) -> pd.Series:
-        return self.y.loc[self.base_index, label_name]
+    def get_labels(self, label_name: str = None) -> Union[pd.DataFrame, pd.Series]:
+        if label_name is None:
+            return self.y.loc[self.base_index]
+        else:
+            return self.y.loc[self.base_index, label_name]
 
     def train_test_split(self, test_proportion: float) -> Tuple["LGBMDataset", "LGBMDataset"]:
         assert self.y is not None

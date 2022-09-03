@@ -79,8 +79,8 @@ def main(config):
     # 学習データとテストデータに分けて学習・評価
     print("Train")
     ds_train, ds_valid = ds.train_test_split(config.valid_ratio)
-    run["label/positive_ratio/train"] = ds_train.y.mean().to_dict()
-    run["label/positive_ratio/valid"] = ds_valid.y.mean().to_dict()
+    run["label/positive_ratio/train"] = ds_train.get_labels().mean().to_dict()
+    run["label/positive_ratio/valid"] = ds_valid.get_labels().mean().to_dict()
     model.train_with_validation(ds_train, ds_valid)
 
     # 全データで再学習

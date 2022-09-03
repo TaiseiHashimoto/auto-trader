@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Optional, List, Dict, Tuple, Generator
+from typing import Optional, List, Dict, Tuple, Union, Generator
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
 import neptune.new as neptune
@@ -39,6 +39,12 @@ class CNNDataset:
 
     def sequential_channels(self) -> int:
         return self.x["sequential"]["1min"].shape[1]
+
+    def get_labels(self, label_name: str = None) -> Union[pd.DataFrame, pd.Series]:
+        if label_name is None:
+            return self.y.loc[self.base_index]
+        else:
+            return self.y.loc[self.base_index, label_name]
 
     def train_test_split(self, test_proportion: float) -> Tuple["CNNDataset", "CNNDataset"]:
         assert self.y is not None
@@ -308,7 +314,7 @@ class CNNModel:
             pred_df = self.predict_score(ds)
             auc_dict = {}
             for label_name in ds.label_names():
-                train_label = ds.y.loc[ds.base_index, label_name].values
+                train_label = ds.get_labels(label_name).values
                 train_pred = pred_df[label_name].values
                 auc_dict[label_name] = roc_auc_score(train_label, train_pred)
             return auc_dict

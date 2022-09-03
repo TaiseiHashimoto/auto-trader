@@ -60,8 +60,6 @@ def main(eval_config):
     model_path = f"{OUTPUT_DIRECTORY}/model.bin"
     model_version["binary"].download(model_path)
 
-    # with open(model_path, "rb") as f:
-    #     models = pickle.load(f)
     if model_type == "lgbm":
         model = lgbm_utils.LGBMModel.from_file(model_path)
     elif model_type == "cnn":
@@ -87,25 +85,15 @@ def main(eval_config):
     print("Create features")
     feature_params = common_utils.conf2dict(train_config.feature)
     base_index, df_x_dict = utils.create_features(df, train_config.data.symbol, **feature_params)
-    # if model_type == "lgbm":
-    #     df_x_dict = lgbm_utils.create_lgbm_featurs(df, train_config.data.symbol, **feature_params)
-    # elif model_type == "cnn":
-    #     df_x_dict = cnn_utils.create_cnn_features(df, train_config.data.symbol, **feature_params)
 
     print("Create labels")
-    df_y = utils.create_labels(
-        df,
-        train_config.label.thresh_entry,
-        train_config.label.thresh_hold
-    )
+    df_y = utils.create_labels(df, train_config.label.thresh_entry, train_config.label.thresh_hold)
 
     # 学習に使われた行を削除
     train_last_timestamp = model_version["train/last_timestamp"].fetch()
-    # df_x_dict = utils.apply_df_dict(df_x_dict, lambda df: df.loc[df.index > train_last_timestamp])
     base_index = base_index[base_index > train_last_timestamp]
 
     if model_type == "lgbm":
-        # df_x = lgbm_utils.merge_features(df_x_dict)
         ds = lgbm_utils.LGBMDataset(base_index, df_x_dict, df_y, train_config.feature.lag_max, train_config.feature.sma_window_size_center)
     elif model_type == "cnn":
         ds = cnn_utils.CNNDataset(base_index, df_x_dict, df_y, train_config.feature.lag_max, train_config.feature.sma_window_size_center)
