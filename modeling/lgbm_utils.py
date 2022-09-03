@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass
 from typing import Optional, List, Dict, Tuple
 import lightgbm as lgb
 from sklearn.metrics import roc_auc_score

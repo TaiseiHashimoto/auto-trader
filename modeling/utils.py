@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Optional, List, Dict, Union, Callable
+from typing import Optional, List, Dict
 
 import sys
 import pathlib

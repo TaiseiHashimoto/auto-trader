@@ -86,18 +86,12 @@ class TrainConfig:
 
 @dataclass
 class LGBMTrainConfig(TrainConfig):
-    # model_type: str = "lgbm"
-    # neptune: NeptuneConfig = NeptuneConfig(model_id="AUT-LGBM")
-    # feature: FeatureConfig = LGBMFeatureConfig()
     feature: FeatureConfig = FeatureConfig(lag_max=5)
     model: LGBMModelConfig = LGBMModelConfig()
 
 
 @dataclass
 class CNNTrainConfig(TrainConfig):
-    # model_type: str = "cnn"
-    # neptune: NeptuneConfig = NeptuneConfig(model_id="AUT-CNN")
-    # feature: FeatureConfig = FeatureConfig()
     feature: FeatureConfig = FeatureConfig(lag_max=32)
     model: CNNModelConfig = CNNModelConfig()
 
@@ -117,5 +111,8 @@ class EvalConfig:
     data: DataConfig = DataConfig()
 
 
-def validate_config(train_config: OmegaConf):
-    assert train_config.feature.sma_window_size_center in train_config.feature.sma_window_sizes
+def validate_train_config(config: OmegaConf):
+    assert config.feature.sma_window_size_center in config.feature.sma_window_sizes
+    window_size = config.model.get("window_size", None)
+    if window_size is not None:
+        assert window_size == config.feature.lag_max

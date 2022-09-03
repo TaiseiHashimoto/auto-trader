@@ -1,6 +1,5 @@
 import numpy as np
 import pandas as pd
-from dataclasses import dataclass
 from typing import Optional, List, Dict, Tuple, Generator
 from sklearn.metrics import roc_auc_score
 from tqdm import tqdm
@@ -130,6 +129,7 @@ class CNNNet(nn.Module):
     ):
         super().__init__()
 
+        # TODO: 使用しないパラメータは渡さないようにする
         for key in kwargs:
             warnings.warn(f"[CNNNet] keyword `{key}` is ignored")
 

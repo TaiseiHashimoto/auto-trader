@@ -5,18 +5,9 @@ import random
 import os
 from typing import Optional, Dict
 from enum import Enum
-# from dataclasses import dataclass
 from omegaconf import OmegaConf
 from google.cloud import (storage, secretmanager)
 
-
-# @dataclass
-# class Order:
-#     position_type: str
-#     entry_timestamp: pd.Timestamp
-#     exit_timestamp: pd.Timestamp
-#     entry_rate: float
-#     exit_rate: float
 
 class PositionType(Enum):
     LONG = "long"

@@ -3,7 +3,6 @@ import os
 import sys
 from tqdm import tqdm
 from sklearn.metrics import roc_auc_score
-import pickle
 from omegaconf import OmegaConf
 import itertools
 import neptune.new as neptune

@@ -7,7 +7,7 @@ import neptune.new as neptune
 import utils
 import lgbm_utils
 import cnn_utils
-from config import LGBMTrainConfig, CNNTrainConfig, validate_config
+from config import LGBMTrainConfig, CNNTrainConfig, validate_train_config
 
 import sys
 import pathlib
@@ -127,7 +127,7 @@ if __name__ == "__main__":
     cli_config = OmegaConf.from_cli(sys.argv[2:])
     config = OmegaConf.merge(base_config, cli_config)
     print(OmegaConf.to_yaml(config))
-    validate_config(config)
+    validate_train_config(config)
 
     common_utils.set_random_seed(config.random_seed)
 
