@@ -345,6 +345,7 @@ def create_labels(
         "short_exit": short_exit_labels,
     }, index=df.index)
 
+    assert not (df_labels["long_entry"] & df_labels["short_entry"]).any()
     assert not (df_labels["long_entry"] & df_labels["long_exit"]).any()
     assert not (df_labels["short_entry"] & df_labels["short_exit"]).any()
 

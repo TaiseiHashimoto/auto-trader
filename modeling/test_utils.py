@@ -5,7 +5,7 @@ import utils
 
 
 def test_download_preprocessed_data_range(mocker):
-    read_preprocessed_data = mocker.patch('utils.download_preprocessed_data', return_value=None)
+    download_preprocessed_data = mocker.patch('utils.download_preprocessed_data', return_value=None)
 
     gcs = "GCS"
     symbol = "symbol"
@@ -14,7 +14,7 @@ def test_download_preprocessed_data_range(mocker):
         gcs, symbol, 2019, 10, 2020, 2, data_directory
     )
 
-    assert read_preprocessed_data.call_args_list == [
+    assert download_preprocessed_data.call_args_list == [
         mocker.call(gcs, symbol, 2019, 10, data_directory),
         mocker.call(gcs, symbol, 2019, 11, data_directory),
         mocker.call(gcs, symbol, 2019, 12, data_directory),
@@ -172,7 +172,14 @@ def test_align_frequency():
 
 
 def test_create_time_features():
-    pass
+    index = pd.date_range("2022-01-01 00:00:00", "2022-01-04 23:59:59", freq="12h")
+    actual_result = utils.create_time_features(index)
+    expected_result = pd.DataFrame({
+        "hour": [0, 12, 0, 12, 0, 12, 0, 12],
+        "day_of_week": [5, 5, 6, 6, 0, 0, 1, 1],
+        "month": [1, 1, 1, 1, 1, 1, 1, 1],
+    }, index=index)
+    pd.testing.assert_frame_equal(expected_result, actual_result)
 
 
 def test_compute_sma():
@@ -282,6 +289,9 @@ def test_compute_ctirical_idxs():
     )
     expected_critical_idxs = np.array([0, 3, 5])
     np.testing.assert_equal(actual_critical_idxs, expected_critical_idxs)
+
+
+# TODO: test_create_labels
 
 
 def assert_df_dict_equal(df_dict1, df_dict2, **kwargs):

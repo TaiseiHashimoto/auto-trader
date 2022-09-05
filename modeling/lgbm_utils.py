@@ -21,8 +21,8 @@ class LGBMDataset:
         self.base_index = base_index
         self.x = x
         self.y = y
-        self.sma_window_size_center = sma_window_size_center
         self.lag_max = lag_max
+        self.sma_window_size_center = sma_window_size_center
 
     def label_names(self) -> List[str]:
         return list(self.y.columns)
@@ -34,8 +34,11 @@ class LGBMDataset:
         df_seq_dict = {}
         for freq in self.freqs():
             df_lagged = utils.create_lagged_features(self.x["sequential"][freq], self.lag_max)
-            sma = df_lagged[f"sma{self.sma_window_size_center}_lag1"].values
-            df_seq_dict[freq] = df_lagged - sma[:, np.newaxis]
+            sma_colname = f"sma{self.sma_window_size_center}_lag1"
+            sma = df_lagged[sma_colname]
+            df_lagged_centered = df_lagged - sma.values[:, np.newaxis]
+            # sma のカラムは常に 0 なので削除する
+            df_seq_dict[freq] = df_lagged_centered.drop(sma_colname, axis=1)
 
         df_seq = utils.align_frequency(self.base_index, df_seq_dict)
         df_cont = utils.align_frequency(self.base_index, self.x["continuous"])
