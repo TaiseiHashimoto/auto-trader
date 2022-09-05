@@ -94,27 +94,6 @@ def aggregate_time(s: pd.Series, freq: str, how: str) -> pd.DataFrame:
     return s_agg.dropna()
 
 
-def calc_critical_idxs(values: np.ndarray, joint_idxs: np.ndarray):
-    state = None
-    critical_idxs = []
-
-    for i in range(len(joint_idxs) - 1):
-        joint_idx_start = joint_idxs[i]
-        joint_idx_end = joint_idxs[i+1]
-        value_diff = values[joint_idx_end] - values[joint_idx_start]
-        if value_diff > 0:
-            new_state = "up"
-        else:
-            new_state = "down"
-
-        if state != new_state:
-            critical_idxs.append(joint_idx_start)
-            state = new_state
-
-    critical_idxs.append(joint_idx_end)
-    return np.array(critical_idxs)
-
-
 def merge_bid_ask(df):
     # bid と ask の平均値を計算
     return pd.DataFrame({
@@ -154,7 +133,7 @@ def align_frequency(base_index: pd.DatetimeIndex, df_dict: Dict[str, pd.DataFram
         else:
             df_aligned = df.reindex(base_index, method="ffill")
 
-        df_merged = pd.concat([df_merged, df_aligned.add_prefix(f"{freq}_")], axis=1)
+        df_merged = pd.concat([df_merged, df_aligned.add_suffix(f"_{freq}")], axis=1)
 
     # import pdb; pdb.set_trace()
     return df_merged
@@ -169,19 +148,18 @@ def create_time_features(index: pd.DatetimeIndex):
     return pd.DataFrame(df_out, index=index)
 
 
-def compute_sma(df: pd.DataFrame, sma_timing: str, sma_window_size: int) -> pd.Series:
+def compute_sma(s: pd.Series, sma_window_size: int) -> pd.Series:
     sma = (
-        df[f"{sma_timing}"]
-            .shift(1)
-            .rolling(sma_window_size)
-            .mean()
-            .astype(np.float32)
+        s
+        .rolling(sma_window_size)
+        .mean()
+        .astype(np.float32)
     )
     return sma
 
 
-def compute_fraction(s: pd.Series, base: float, ndigits: int):
-    return (s / base) % (10 ** ndigits)
+def compute_fraction(s: pd.Series, base: float):
+    return (s / base) % int(1 / base)
 
 
 def create_lagged_features(df: pd.DataFrame, lag_max: int) -> pd.DataFrame:
@@ -202,8 +180,6 @@ def create_features(
     sma_timing: str,
     sma_window_sizes: List[int],
     sma_window_size_center: int,
-    sma_frac_ndigits: int,
-    # centering: bool,
 ) -> Dict[str, pd.DataFrame]:
     pip_scale = common_utils.get_pip_scale(symbol)
 
@@ -214,12 +190,12 @@ def create_features(
     # import pdb; pdb.set_trace()
     for freq in df_dict:
         df_sma = pd.DataFrame({
-            f"sma{sma_window_size}": compute_sma(df_dict[freq], sma_timing, sma_window_size)
+            f"sma{sma_window_size}": compute_sma(df_dict[freq][sma_timing], sma_window_size)
             for sma_window_size in sma_window_sizes
         })
         df_seq_dict[freq] = pd.concat([df_dict[freq][timings], df_sma], axis=1)
 
-        sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale, ndigits=sma_frac_ndigits)
+        sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale)
         sma_frac = sma_frac.shift(1)
         # name: sma* -> sma*_frac
         sma_frac.name = sma_frac.name + "_frac_lag1"

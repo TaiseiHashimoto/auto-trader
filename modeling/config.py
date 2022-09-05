@@ -25,7 +25,6 @@ class FeatureConfig:
     sma_timing: str = "close"
     sma_window_sizes: List[int] = field(default_factory=lambda: [10])
     sma_window_size_center: int = 10
-    sma_frac_ndigits: int = 2
 
 
 # @dataclass
