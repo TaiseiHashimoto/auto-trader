@@ -126,12 +126,12 @@ class CNNNet(nn.Module):
         continuous_dim: int,
         sequential_channels: int,
         freqs: List[str],
-        base_out_dim: int,
         window_size: int,
         out_channels_list: List[int],
         kernel_size_list: List[int],
+        base_out_dim: int,
         hidden_dim_list: List[int],
-        num_labels: int,
+        out_dim: int,
         **kwargs
     ):
         super().__init__()
@@ -156,7 +156,7 @@ class CNNNet(nn.Module):
         for hidden_dim in hidden_dim_list:
             fc_out.append(nn.Linear(in_dim, hidden_dim))
             fc_out.append(nn.ReLU())
-        fc_out.append(nn.Linear(hidden_dim, num_labels))
+        fc_out.append(nn.Linear(hidden_dim, out_dim))
         self.fc_out = nn.Sequential(*fc_out)
 
     def forward(self, t_x: Dict) -> torch.Tensor:
@@ -205,8 +205,8 @@ class CNNModel:
         return cls(model_data["params"], model, stats_mean=model_data["stats_mean"], stats_var=model_data["stats_var"], run=None)
 
     def _calc_stats(self, ds: CNNDataset):
-        data_types = ds.x.keys()
-        freqs = ds.x["sequential"].keys()
+        data_types = ["sequential", "continuous"]
+        freqs = ds.freqs()
 
         stats_count = {data_type: {freq: 0 for freq in freqs} for data_type in data_types}
         self.stats_mean = {data_type: {freq: None for freq in freqs} for data_type in data_types}
@@ -295,7 +295,7 @@ class CNNModel:
         self.model_params["continuous_dim"] = ds_train.continuous_dim()
         self.model_params["freqs"] = ds_train.freqs()
         self.model_params["sequential_channels"] = ds_train.sequential_channels()
-        self.model_params["num_labels"] = len(ds_train.label_names())
+        self.model_params["out_dim"] = len(ds_train.label_names())
 
         self.model = CNNNet(**self.model_params).to(self.device)
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_params["learning_rate"])
