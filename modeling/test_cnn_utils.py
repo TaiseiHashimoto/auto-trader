@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 import torch
+import torch.nn as nn
 
 import cnn_utils
 
@@ -307,32 +308,103 @@ class TestCNNBase:
         window_size = 32
         out_channels_list = [20, 40, 20]
         kernel_size_list = [5, 5, 5]
+        max_pool_list = [True, False, True]
         out_dim = 128
+        batch_norm = False
+        dropout = 0.
         base = cnn_utils.CNNBase(
             in_channels=in_channels,
             window_size=window_size,
             out_channels_list=out_channels_list,
             kernel_size_list=kernel_size_list,
+            max_pool_list=max_pool_list,
             out_dim=out_dim,
+            batch_norm=batch_norm,
+            dropout=dropout,
         )
-        assert len(base.convs) == 3 * 2  # (Conv1d + MaxPool1d) x 3
+        assert len(base.convs) == 3 + 2 + 3
 
         print("CNNBase num params")
 
+        assert isinstance(base.convs[0], nn.Conv1d)
         expected_count = (in_channels * kernel_size_list[0] + 1) * out_channels_list[0]
-        print(f"convs[0]: expected_count = {expected_count}")
+        print(f"convs_0: {expected_count}")
         assert count_params(base.convs[0]) == expected_count
+        assert isinstance(base.convs[1], nn.ReLU)
+        assert isinstance(base.convs[2], nn.MaxPool1d)
 
+        assert isinstance(base.convs[3], nn.Conv1d)
         expected_count = (out_channels_list[0] * kernel_size_list[1] + 1) * out_channels_list[1]
-        print(f"convs[1]: expected_count = {expected_count}")
-        assert count_params(base.convs[2]) == expected_count
+        print(f"convs_1: {expected_count}")
+        assert count_params(base.convs[3]) == expected_count
+        assert isinstance(base.convs[4], nn.ReLU)
 
+        assert isinstance(base.convs[5], nn.Conv1d)
         expected_count = (out_channels_list[1] * kernel_size_list[2] + 1) * out_channels_list[2]
-        print(f"convs[2]: expected_count = {expected_count}")
-        assert count_params(base.convs[4]) == expected_count
+        print(f"convs_2: {expected_count}")
+        assert count_params(base.convs[5]) == expected_count
+        assert isinstance(base.convs[6], nn.ReLU)
+        assert isinstance(base.convs[7], nn.MaxPool1d)
 
-        expected_count = (out_channels_list[-1] * window_size // (2 ** 3) + 1) * out_dim
-        print(f"fc_out: expected_count = {expected_count}")
+        assert isinstance(base.fc_out, nn.Linear)
+        expected_count = (out_channels_list[-1] * window_size // (2 ** 2) + 1) * out_dim
+        print(f"fc_out: {expected_count}")
+        assert count_params(base.fc_out) == expected_count
+
+
+        in_channels = 3
+        window_size = 16
+        out_channels_list = [5, 20, 5]
+        kernel_size_list = [7, 7, 7]
+        max_pool_list = [False, True, False]
+        out_dim = 64
+        batch_norm = True
+        dropout = 0.5
+        base = cnn_utils.CNNBase(
+            in_channels=in_channels,
+            window_size=window_size,
+            out_channels_list=out_channels_list,
+            kernel_size_list=kernel_size_list,
+            max_pool_list=max_pool_list,
+            out_dim=out_dim,
+            batch_norm=batch_norm,
+            dropout=dropout,
+        )
+        assert len(base.convs) == 4 + 5 + 4
+
+        print("CNNBase num params")
+
+        assert isinstance(base.convs[0], nn.Conv1d)
+        expected_count = (in_channels * kernel_size_list[0] + 1) * out_channels_list[0]
+        print(f"convs_0: {expected_count}")
+        assert count_params(base.convs[0]) == expected_count
+        assert isinstance(base.convs[1], nn.BatchNorm1d)
+        assert count_params(base.convs[1]) == out_channels_list[0] * 2
+        assert isinstance(base.convs[2], nn.ReLU)
+        assert isinstance(base.convs[3], nn.Dropout)
+
+        assert isinstance(base.convs[4], nn.Conv1d)
+        expected_count = (out_channels_list[0] * kernel_size_list[1] + 1) * out_channels_list[1]
+        print(f"convs_1: {expected_count}")
+        assert count_params(base.convs[4]) == expected_count
+        assert isinstance(base.convs[5], nn.BatchNorm1d)
+        assert count_params(base.convs[5]) == out_channels_list[1] * 2
+        assert isinstance(base.convs[6], nn.ReLU)
+        assert isinstance(base.convs[7], nn.Dropout)
+        assert isinstance(base.convs[8], nn.MaxPool1d)
+
+        assert isinstance(base.convs[9], nn.Conv1d)
+        expected_count = (out_channels_list[1] * kernel_size_list[2] + 1) * out_channels_list[2]
+        print(f"convs_2: {expected_count}")
+        assert count_params(base.convs[9]) == expected_count
+        assert isinstance(base.convs[10], nn.BatchNorm1d)
+        assert count_params(base.convs[10]) == out_channels_list[2] * 2
+        assert isinstance(base.convs[11], nn.ReLU)
+        assert isinstance(base.convs[12], nn.Dropout)
+
+        assert isinstance(base.fc_out, nn.Linear)
+        expected_count = (out_channels_list[-1] * window_size // (2 ** 1) + 1) * out_dim
+        print(f"fc_out: {expected_count}")
         assert count_params(base.fc_out) == expected_count
 
 
@@ -344,9 +416,14 @@ class TestCNNNet:
         window_size = 32
         out_channels_list = [20, 40, 20]
         kernel_size_list = [5, 5, 5]
+        max_pool_list = [True, False, True]
         base_out_dim = 128
         hidden_dim_list = [256, 128]
         out_dim = 4
+        cnn_batch_norm = True
+        fc_batch_norm = True
+        cnn_dropout = 0.5
+        fc_dropout = 0.5
 
         model = cnn_utils.CNNNet(
             continuous_dim=continuous_dim,
@@ -355,26 +432,32 @@ class TestCNNNet:
             window_size=window_size,
             out_channels_list=out_channels_list,
             kernel_size_list=kernel_size_list,
+            max_pool_list=max_pool_list,
             base_out_dim=base_out_dim,
             hidden_dim_list=hidden_dim_list,
             out_dim=out_dim,
+            cnn_batch_norm=cnn_batch_norm,
+            fc_batch_norm=fc_batch_norm,
+            cnn_dropout=cnn_dropout,
+            fc_dropout=fc_dropout,
         )
 
         print("CNNNet num params")
 
+        # +3 の内訳: Conv1d の bias, BatchNorm1d の weight, bias でそれぞれ +1
         expected_count_convs = (
-            sequential_channels * out_channels_list[0] * kernel_size_list[0] + out_channels_list[0]
-            + out_channels_list[0] * out_channels_list[1] * kernel_size_list[1] + out_channels_list[1]
-            + out_channels_list[1] * out_channels_list[2] * kernel_size_list[2] + out_channels_list[2]
-            + out_channels_list[-1] * window_size // (2 ** 3) * base_out_dim + base_out_dim
+            (sequential_channels * kernel_size_list[0] + 3) * out_channels_list[0]
+            + (out_channels_list[0] * kernel_size_list[1] + 3) * out_channels_list[1]
+            + (out_channels_list[1] * kernel_size_list[2] + 3) * out_channels_list[2]
+            + (out_channels_list[-1] * window_size // (2 ** 2) + 1) * base_out_dim
         )
         print(f"convs (each): expected_count = {expected_count_convs}")
-        for freq in model.convs:
-            assert count_params(model.convs[freq]) == expected_count_convs
+        for conv in model.convs.values():
+            assert count_params(conv) == expected_count_convs
 
         expected_count_fc = (
-            (base_out_dim * len(freqs) + continuous_dim + 1) * hidden_dim_list[0]
-            + (hidden_dim_list[0] + 1) * hidden_dim_list[1]
+            (base_out_dim * len(freqs) + continuous_dim + 3) * hidden_dim_list[0]
+            + (hidden_dim_list[0] + 3) * hidden_dim_list[1]
             + (hidden_dim_list[1] + 1) * out_dim
         )
         print(f"fc_out: expected_count = {expected_count_fc}")
@@ -394,5 +477,5 @@ def assert_np_dict_close(np_dict1, np_dict2, **kwargs):
             assert_np_dict_close(np_dict1[key], np_dict2[key], **kwargs)
 
 
-def count_params(model: torch.nn.Module, only_trainable=False) -> int:
+def count_params(model: nn.Module, only_trainable=False) -> int:
     return sum(p.numel() for p in model.parameters() if not only_trainable or p.requires_grad)

@@ -103,7 +103,10 @@ class CNNBase(nn.Module):
         window_size: int,
         out_channels_list: List[int],
         kernel_size_list: List[int],
+        max_pool_list: List[bool],
         out_dim: int,
+        batch_norm: bool,
+        dropout: float,
     ):
         super().__init__()
 
@@ -111,14 +114,20 @@ class CNNBase(nn.Module):
 
         convs = []
         size = window_size
-        for out_channels, kernel_size in zip(out_channels_list, kernel_size_list):
+        for out_channels, kernel_size, max_pool in zip(out_channels_list, kernel_size_list, max_pool_list):
             convs.append(nn.Conv1d(in_channels, out_channels, kernel_size, padding="same"))
-            convs.append(nn.MaxPool1d(kernel_size=2))
+            if batch_norm:
+                convs.append(nn.BatchNorm1d(out_channels))
+            convs.append(nn.ReLU())
+            if dropout > 0:
+                convs.append(nn.Dropout(dropout))
+            if max_pool:
+                convs.append(nn.MaxPool1d(kernel_size=2))
+                size = (size + 1) // 2
+
             in_channels = out_channels
-            size = (size + 1) // 2
 
         self.convs = nn.Sequential(*convs)
-
         self.fc_out = nn.Linear(out_channels * size, out_dim)
 
     def forward(self, t_x: torch.Tensor):
@@ -136,9 +145,14 @@ class CNNNet(nn.Module):
         window_size: int,
         out_channels_list: List[int],
         kernel_size_list: List[int],
+        max_pool_list: List[bool],
         base_out_dim: int,
         hidden_dim_list: List[int],
         out_dim: int,
+        cnn_batch_norm: bool,
+        fc_batch_norm: bool,
+        cnn_dropout: float,
+        fc_dropout: float,
     ):
         super().__init__()
 
@@ -148,7 +162,10 @@ class CNNNet(nn.Module):
                 window_size,
                 out_channels_list,
                 kernel_size_list,
+                max_pool_list,
                 base_out_dim,
+                cnn_batch_norm,
+                cnn_dropout,
             )
             for freq in freqs
         })
@@ -157,7 +174,11 @@ class CNNNet(nn.Module):
         in_dim = base_out_dim * len(freqs) + continuous_dim
         for hidden_dim in hidden_dim_list:
             fc_out.append(nn.Linear(in_dim, hidden_dim))
+            if fc_batch_norm:
+                fc_out.append(nn.BatchNorm1d(hidden_dim))
             fc_out.append(nn.ReLU())
+            if fc_dropout > 0:
+                fc_out.append(nn.Dropout(fc_dropout))
             in_dim = hidden_dim
         fc_out.append(nn.Linear(hidden_dim, out_dim))
         self.fc_out = nn.Sequential(*fc_out)
@@ -311,7 +332,6 @@ class CNNModel:
     ):
         self._calc_stats(ds_train)
 
-        # 他から導出されるパラメータを計算
         self.init_params = {
             "continuous_dim": ds_train.continuous_dim(),
             "sequential_channels": ds_train.sequential_channels(),
@@ -319,9 +339,14 @@ class CNNModel:
             "window_size": self.model_params["window_size"],
             "out_channels_list": self.model_params["out_channels_list"],
             "kernel_size_list": self.model_params["kernel_size_list"],
+            "max_pool_list": self.model_params["max_pool_list"],
             "base_out_dim": self.model_params["base_out_dim"],
             "hidden_dim_list": self.model_params["hidden_dim_list"],
             "out_dim": len(ds_train.label_names()),
+            "cnn_batch_norm": self.model_params["cnn_batch_norm"],
+            "fc_batch_norm": self.model_params["fc_batch_norm"],
+            "cnn_dropout": self.model_params["cnn_dropout"],
+            "fc_dropout": self.model_params["fc_dropout"],
         }
 
         self.model = CNNNet(**self.init_params).to(self.device)

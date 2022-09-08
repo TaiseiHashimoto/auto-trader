@@ -65,10 +65,15 @@ class CNNModelConfig:
     pos_weight: float = 1.0
     batch_size: int = 256
     window_size: int = 32
-    out_channels_list: List[int] = field(default_factory=lambda: [5, 10, 5])
+    out_channels_list: List[int] = field(default_factory=lambda: [20, 40, 20])
     kernel_size_list: List[int] = field(default_factory=lambda: [5, 5, 5])
-    base_out_dim: int = 32
-    hidden_dim_list: List[int] = field(default_factory=lambda: [128])
+    max_pool_list: List[bool] = field(default_factory=lambda: [True, True, True])
+    base_out_dim: int = 128
+    hidden_dim_list: List[int] = field(default_factory=lambda: [256, 128])
+    cnn_batch_norm: bool = True
+    fc_batch_norm: bool = False
+    cnn_dropout: float = 0
+    fc_dropout: float = 0
 
 
 @dataclass
