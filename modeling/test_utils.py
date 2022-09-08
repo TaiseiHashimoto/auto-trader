@@ -125,9 +125,6 @@ def test_resample():
             "close": [-3, -7],
         }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="4min")),
     }
-    # assert actual_result.keys() == expected_result.keys()
-    # for freq in expected_result:
-    #     pd.testing.assert_frame_equal(expected_result[freq], actual_result[freq])
     assert_df_dict_equal(actual_result, expected_result)
 
 
@@ -291,7 +288,25 @@ def test_compute_ctirical_idxs():
     np.testing.assert_equal(actual_critical_idxs, expected_critical_idxs)
 
 
-# TODO: test_create_labels
+def test_create_labels_sub():
+    def assert_bool_array(actual_bool, expected_idx):
+        expected_bool = np.zeros(len(actual_bool), dtype=bool)
+        expected_bool[expected_idx] = True
+        np.testing.assert_equal(actual_bool, expected_bool)
+
+    values = np.array([1., 2., 3., 0., 2., 1., 4., 3., 1.])
+    actual_idxs = utils.create_labels_sub(values, thresh_entry=2.5, thresh_hold=1.5)
+    assert_bool_array(actual_idxs[0], [3, 5])
+    assert_bool_array(actual_idxs[1], [2, 6])
+    assert_bool_array(actual_idxs[2], [2, 6, 7])
+    assert_bool_array(actual_idxs[3], [0, 3, 4, 5])
+
+    values = np.array([3., 2., 1., 0., 1., 2., 1., 0.9, 0.8])
+    actual_idxs = utils.create_labels_sub(values, thresh_entry=2.5, thresh_hold=1.5)
+    assert_bool_array(actual_idxs[0], [])
+    assert_bool_array(actual_idxs[1], [0])
+    assert_bool_array(actual_idxs[2], [0, 1])
+    assert_bool_array(actual_idxs[3], [3])
 
 
 def assert_df_dict_equal(df_dict1, df_dict2, **kwargs):

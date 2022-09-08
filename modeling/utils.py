@@ -291,6 +291,8 @@ def create_labels_sub(values: np.ndarray, thresh_entry: float, thresh_hold: floa
     for cidx in critical_idxs:
         values_next_critical[prev_cidx:cidx] = values[cidx]
         prev_cidx = cidx
+    # TODO: 最後を無理やり critical index 扱いにしているが問題ない？
+    values_next_critical[prev_cidx:] = values[-1]
 
     values_diff = values_next_critical - values
 
