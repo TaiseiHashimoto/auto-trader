@@ -61,28 +61,35 @@ class CNNDataset:
         if randomize:
             index = index[np.random.permutation(len(index))]
 
+        # それぞれの freq に対応する idx を予め計算しておく
+        idx_dict = {}
+        for freq in x_seq:
+            assert (x_seq[freq].index == x_cont[freq].index).all()
+            index_freq = index.floor(pd.Timedelta(freq))
+            idx_dict[freq] = x_seq[freq].index.get_indexer(index_freq)
+
         done_count = 0
         while done_count < len(index):
-            index_batch = index[done_count:done_count+batch_size]
+            idx_batch_dict = {
+                freq: idx_dict[freq][done_count:done_count+batch_size]
+                for freq in idx_dict
+            }
 
             values_x_seq = {}
             values_x_cont = {}
             for freq in x_seq:
-                index_batch_freq = index_batch.floor(pd.Timedelta(freq))
-                idx_batch_freq = x_seq[freq].index.get_indexer(index_batch_freq)
+                idx_batch_freq = idx_batch_dict[freq]
                 assert (idx_batch_freq >= self.lag_max).all()
 
-                v = [
-                    x_seq[freq].iloc[idx_batch_freq-lag_i].values
-                    for lag_i in range(1, self.lag_max + 1)
-                ]
+                idx_expanded = np.stack([idx_batch_freq - lag_i for lag_i in range(1, self.lag_max + 1)], axis=1)
+                v = x_seq[freq].values[idx_expanded.flatten()].reshape((len(idx_batch_freq), self.lag_max, -1))
                 sma = x_seq[freq][f"sma{self.sma_window_size_center}"].values[idx_batch_freq-1]
                 # shape; (batch_size, lag_max, feature_dim)
-                values_x_seq[freq] = np.stack(v, axis=1) - sma[:, np.newaxis, np.newaxis]
+                values_x_seq[freq] = v - sma[:, np.newaxis, np.newaxis]
 
-                values_x_cont[freq] = x_cont[freq].iloc[idx_batch_freq].values
+                values_x_cont[freq] = x_cont[freq].values[idx_batch_freq]
 
-            values_y = self.y.loc[index_batch].values if self.y is not None else None
+            values_y = self.y.values[idx_batch_dict["1min"]] if self.y is not None else None
 
             yield {"sequential": values_x_seq, "continuous": values_x_cont}, values_y
 
@@ -132,13 +139,8 @@ class CNNNet(nn.Module):
         base_out_dim: int,
         hidden_dim_list: List[int],
         out_dim: int,
-        **kwargs
     ):
         super().__init__()
-
-        # TODO: 使用しないパラメータは渡さないようにする
-        for key in kwargs:
-            warnings.warn(f"[CNNNet] keyword `{key}` is ignored")
 
         self.convs = nn.ModuleDict({
             freq: CNNBase(
@@ -156,6 +158,7 @@ class CNNNet(nn.Module):
         for hidden_dim in hidden_dim_list:
             fc_out.append(nn.Linear(in_dim, hidden_dim))
             fc_out.append(nn.ReLU())
+            in_dim = hidden_dim
         fc_out.append(nn.Linear(hidden_dim, out_dim))
         self.fc_out = nn.Sequential(*fc_out)
 
@@ -178,12 +181,15 @@ class CNNModel:
     def __init__(
         self,
         model_params: Dict,
+        init_params: Dict,
         model: nn.Module,
         stats_mean: Dict,
         stats_var: Dict,
         run: neptune.Run,
     ):
+        # TODO: パラメータを別々に受け取る
         self.model_params = model_params
+        self.init_params = init_params
         self.model = model
         self.run = run
         self.stats_mean = stats_mean
@@ -192,17 +198,31 @@ class CNNModel:
 
     @classmethod
     def from_scratch(cls, model_params: Dict, run: neptune.Run):
-        return cls(model_params, model=None, stats_mean=None, stats_var=None, run=run)
+        return cls(
+            model_params=model_params,
+            init_params=None,
+            model=None,
+            stats_mean=None,
+            stats_var=None,
+            run=run
+        )
 
     @classmethod
     def from_file(cls, model_path: str):
         with open(model_path, "rb") as f:
             model_data = torch.load(f)
 
-        model = CNNNet(**model_data["params"])
+        model = CNNNet(**model_data["init_params"])
         model.load_state_dict(model_data["state_dict"])
 
-        return cls(model_data["params"], model, stats_mean=model_data["stats_mean"], stats_var=model_data["stats_var"], run=None)
+        return cls(
+            model_params=model_data["model_params"],
+            init_params=model_data["init_params"],
+            model=model,
+            stats_mean=model_data["stats_mean"],
+            stats_var=model_data["stats_var"],
+            run=None
+        )
 
     def _calc_stats(self, ds: CNNDataset):
         data_types = ["sequential", "continuous"]
@@ -292,12 +312,19 @@ class CNNModel:
         self._calc_stats(ds_train)
 
         # 他から導出されるパラメータを計算
-        self.model_params["continuous_dim"] = ds_train.continuous_dim()
-        self.model_params["freqs"] = ds_train.freqs()
-        self.model_params["sequential_channels"] = ds_train.sequential_channels()
-        self.model_params["out_dim"] = len(ds_train.label_names())
+        self.init_params = {
+            "continuous_dim": ds_train.continuous_dim(),
+            "sequential_channels": ds_train.sequential_channels(),
+            "freqs": ds_train.freqs(),
+            "window_size": self.model_params["window_size"],
+            "out_channels_list": self.model_params["out_channels_list"],
+            "kernel_size_list": self.model_params["kernel_size_list"],
+            "base_out_dim": self.model_params["base_out_dim"],
+            "hidden_dim_list": self.model_params["hidden_dim_list"],
+            "out_dim": len(ds_train.label_names()),
+        }
 
-        self.model = CNNNet(**self.model_params).to(self.device)
+        self.model = CNNNet(**self.init_params).to(self.device)
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_params["learning_rate"])
 
         for _ in tqdm(range(self.model_params["num_epochs"])):
@@ -371,7 +398,8 @@ class CNNModel:
 
     def save(self, output_path: str):
         model_data = {
-            "params": self.model_params,
+            "model_params": self.model_params,
+            "init_params": self.init_params,
             "state_dict": self.model.state_dict(),
             "stats_mean": self.stats_mean,
             "stats_var": self.stats_var,

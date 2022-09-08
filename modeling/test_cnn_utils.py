@@ -7,6 +7,7 @@ import cnn_utils
 
 class TestCNNDataset:
     def prepare_dataset(self):
+        # TODO: データを増やす
         base_index = pd.date_range("2022-01-01 00:10:00", "2022-01-01 00:11:00", freq="1min")
         x = {
             "sequential": {
@@ -157,6 +158,7 @@ class TestCNNModel:
             model_params={
                 "batch_size": 2,
             },
+            init_params=None,
             model=None,
             stats_mean=None,
             stats_var=None,
@@ -312,10 +314,10 @@ class TestCNNNet:
         sequential_channels = 3
         freqs = ["high", "low", "close"]
         window_size = 32
-        out_channels_list = [5, 10, 5]
+        out_channels_list = [20, 40, 20]
         kernel_size_list = [5, 5, 5]
-        base_out_dim = 32
-        hidden_dim_list = [128]
+        base_out_dim = 128
+        hidden_dim_list = [256, 128]
         out_dim = 4
 
         model = cnn_utils.CNNNet(
@@ -344,7 +346,8 @@ class TestCNNNet:
 
         expected_count_fc = (
             (base_out_dim * len(freqs) + continuous_dim + 1) * hidden_dim_list[0]
-            + (hidden_dim_list[0] + 1) * out_dim
+            + (hidden_dim_list[0] + 1) * hidden_dim_list[1]
+            + (hidden_dim_list[1] + 1) * out_dim
         )
         print(f"fc_out: expected_count = {expected_count_fc}")
         assert count_params(model.fc_out) == expected_count_fc

@@ -135,7 +135,6 @@ def align_frequency(base_index: pd.DatetimeIndex, df_dict: Dict[str, pd.DataFram
 
         df_merged = pd.concat([df_merged, df_aligned.add_suffix(f"_{freq}")], axis=1)
 
-    # import pdb; pdb.set_trace()
     return df_merged
 
 
@@ -187,7 +186,6 @@ def create_features(
 
     df_seq_dict = {}
     df_cont_dict = {}
-    # import pdb; pdb.set_trace()
     for freq in df_dict:
         df_sma = pd.DataFrame({
             f"sma{sma_window_size}": compute_sma(df_dict[freq][sma_timing], sma_window_size)
