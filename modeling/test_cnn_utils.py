@@ -7,54 +7,52 @@ import cnn_utils
 
 class TestCNNDataset:
     def prepare_dataset(self):
-        # TODO: データを増やす
-        base_index = pd.date_range("2022-01-01 00:10:00", "2022-01-01 00:11:00", freq="1min")
+        base_index = pd.date_range("2022-01-01 00:10:00", "2022-01-01 00:15:00", freq="1min")
         x = {
             "sequential": {
                 "1min": pd.DataFrame({
-                    "open": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-                    "low": [0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100, -110],
-                    "sma2": [np.nan, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5],
-                    "sma4": [np.nan, np.nan, np.nan, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5],
-                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
+                    "open": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
+                    "low": [0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100, -110, -120, -130, -140, -150],
+                    "sma2": [np.nan, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5],
+                    "sma4": [np.nan, np.nan, np.nan, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5],
+                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="1min")),
                 "2min": pd.DataFrame({
-                    "open": [0, 2, 4, 6, 8, 10],
-                    "low": [-10, -30, -50, -70, -90, -110],
-                    "sma2": [np.nan, 1, 3, 5, 7, 9],
-                    "sma4": [np.nan, np.nan, np.nan, 3, 5, 7],
-                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="2min")),
+                    "open": [0, 2, 4, 6, 8, 10, 12, 14],
+                    "low": [-10, -30, -50, -70, -90, -110, -130, -150],
+                    "sma2": [np.nan, 1, 3, 5, 7, 9, 11, 13],
+                    "sma4": [np.nan, np.nan, np.nan, 3, 5, 7, 9, 11],
+                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="2min")),
             },
             "continuous": {
                 "1min": pd.DataFrame({
-                    "sma2_frac_lag1": [np.nan, np.nan, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50],
-                    "hour": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    "day_of_week": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
-                    "month": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
+                    "sma2_frac_lag1": [np.nan, np.nan, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50],
+                    "hour": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                    "day_of_week": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
+                    "month": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="1min")),
                 "2min": pd.DataFrame({
-                    "sma2_frac_lag1": [np.nan, np.nan, 0, 0, 0, 0],
-                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="2min")),
+                    "sma2_frac_lag1": [np.nan, np.nan, 0, 0, 0, 0, 0, 0],
+                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="2min")),
             }
         }
         y = pd.DataFrame({
-            "long_entry": [True, False, False, False, True, False, False, False, True, False, False, False],
-            "short_entry": [False, False, False, True, False, False, False, True, False, False, False, True],
-            "long_exit": [False, False, True, True, False, False, True, True, False, False, True, True],
-            "short_exit": [True, True, False, False, True, True, False, False, True, True, False, False],
-        }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min"))
+            "long_entry": [True, False, False, False, True, False, False, False, True, False, False, False, True, False, False, False],
+            "short_entry": [False, False, False, True, False, False, False, True, False, False, False, True, False, False, False, True],
+            "long_exit": [False, False, True, True, False, False, True, True, False, False, True, True, False, False, True, True],
+            "short_exit": [True, True, False, False, True, True, False, False, True, True, False, False, True, True, False, False],
+        }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="1min"))
 
         return cnn_utils.CNNDataset(base_index, x, y, lag_max=2, sma_window_size_center=2)
 
     def test_continuous_dim(self):
         ds = self.prepare_dataset()
-        actual_result = ds.continuous_dim()
-        assert actual_result == 5
+        assert ds.continuous_dim() == 5
 
     def test_train_test_split(self):
         ds = self.prepare_dataset()
         ds_train, ds_test = ds.train_test_split(test_proportion=0.5)
-        assert ds_train.base_index == pd.DatetimeIndex(["2022-01-01 00:10:00"], freq="1min")
-        assert ds_test.base_index == pd.DatetimeIndex(["2022-01-01 00:11:00"], freq="1min")
+        assert (ds_train.base_index == pd.date_range("2022-01-01 00:10:00", "2022-01-01 00:12:00", freq="1min")).all()
+        assert (ds_test.base_index == pd.date_range("2022-01-01 00:13:00", "2022-01-01 00:15:00", freq="1min")).all()
         assert id(ds_train.x) == id(ds.x)
         assert id(ds_train.y) == id(ds.y)
         assert id(ds_test.x) == id(ds.x)
@@ -62,7 +60,7 @@ class TestCNNDataset:
 
     def test_create_loader(self):
         ds = self.prepare_dataset()
-        loader = ds.create_loader(batch_size=1, randomize=False)
+        loader = ds.create_loader(batch_size=5, randomize=False)
 
         actual_data, actual_labels = next(loader)
         expected_data = {
@@ -70,70 +68,100 @@ class TestCNNDataset:
                 "1min": np.array([
                     [
                         # lag1 (open, low, sma2, sma4)
-                        [0.5, -98.5, 0, -1],
+                        [9 - 8.5, -90 - 8.5, 8.5 - 8.5, 7.5 - 8.5],
                         # lag2 (open, low, sma2, sma4)
-                        [-0.5, -88.5, -1, -2]
+                        [8 - 8.5, -80 - 8.5, 7.5 - 8.5, 6.5 - 8.5],
+                    ], [
+                        [10 - 9.5, -100 - 9.5, 9.5 - 9.5, 8.5 - 9.5],
+                        [9 - 9.5, -90 - 9.5, 8.5 - 9.5, 7.5 - 9.5],
+                    ],[
+                        [11 - 10.5, -110 - 10.5, 10.5 - 10.5, 9.5 - 10.5],
+                        [10 - 10.5, -100 - 10.5, 9.5 - 10.5, 8.5 - 10.5],
+                    ], [
+                        [12 - 11.5, -120 - 11.5, 11.5 - 11.5, 10.5 - 11.5],
+                        [11 - 11.5, -110 - 11.5, 10.5 - 11.5, 9.5 - 11.5],
+                    ], [
+                        [13 - 12.5, -130 - 12.5, 12.5 - 12.5, 11.5 - 12.5],
+                        [12 - 12.5, -120 - 12.5, 11.5 - 12.5, 10.5 - 12.5],
                     ]
                 ]),
                 "2min": np.array([
                     [
                         # lag1 (open, low, sma2, sma4)
-                        [1, -97, 0,  -2],
+                        [8 - 7, -90 - 7, 7 - 7, 5 - 7],
                         # lag2 (open, low, sma2, sma4)
-                        [-1, -77, -2, -4]
+                        [6 - 7, -70 - 7, 5 - 7, 3 - 7],
+                    ], [
+                        [8 - 7, -90 - 7, 7 - 7, 5 - 7],
+                        [6 - 7, -70 - 7, 5 - 7, 3 - 7],
+                    ], [
+                        [10 - 9, -110 - 9, 9 - 9, 7 - 9],
+                        [8 - 9, -90 - 9, 7 - 9, 5 - 9],
+                    ], [
+                        [10 - 9, -110 - 9, 9 - 9, 7 - 9],
+                        [8 - 9, -90 - 9, 7 - 9, 5 - 9],
+                    ], [
+                        [12 - 11, -130 - 11, 11 - 11, 9 - 11],
+                        [10 - 11, -110 - 11, 9 - 11, 7 - 11],
                     ]
                 ]),
             },
             "continuous": {
                 "1min": np.array([
                     # sma2_frac_lag1, hour, day_of_week, month
-                    [50, 0, 5, 1]
+                    [50, 0, 5, 1],
+                    [50, 0, 5, 1],
+                    [50, 0, 5, 1],
+                    [50, 0, 5, 1],
+                    [50, 0, 5, 1],
                 ]),
                 "2min": np.array([
                     # sma2frac_lag1
-                    [0]
+                    [0],
+                    [0],
+                    [0],
+                    [0],
+                    [0],
                 ])
             }
         }
         expected_labels = np.array([
-            [False, False, True, False]
+            [False, False, True, False],
+            [False, True, True, False],
+            [True, False, False, True],
+            [False, False, False, True],
+            [False, False, True, False],
         ])
         assert_np_dict_close(actual_data, expected_data)
-        assert (actual_labels == expected_labels).all()
+        np.testing.assert_equal(actual_labels, expected_labels)
 
         actual_data, actual_labels = next(loader)
         expected_data = {
             "sequential": {
                 "1min": np.array([
                     [
-                        # lag1 (open, low, sma2, sma4)
-                        [0.5, -109.5, 0, -1],
-                        # lag2 (open, low, sma2, sma4)
-                        [-0.5, -99.5, -1, -2]
+                        [14 - 13.5, -140 - 13.5, 13.5 - 13.5, 12.5 - 13.5],
+                        [13 - 13.5, -130 - 13.5, 12.5 - 13.5, 11.5 - 13.5],
                     ]
                 ]),
                 "2min": np.array([
                     [
-                        # lag1 (open, low, sma2, sma4)
-                        [1, -97, 0,  -2],
-                        # lag2 (open, low, sma2, sma4)
-                        [-1, -77, -2, -4]
+                        [12 - 11, -130 - 11, 11 - 11, 9 - 11],
+                        [10 - 11, -110 - 11, 9 - 11, 7 - 11],
                     ]
                 ]),
             },
             "continuous": {
                 "1min": np.array([
-                    # sma2_frac_lag1, hour, day_of_week, month
-                    [50, 0, 5, 1]
+                    [50, 0, 5, 1],
                 ]),
                 "2min": np.array([
-                    # sma2frac_lag1
-                    [0]
+                    [0],
                 ])
             }
         }
         expected_labels = np.array([
-            [False, True, True, False]
+            [False, True, True, False],
         ])
         assert_np_dict_close(actual_data, expected_data)
         assert (actual_labels == expected_labels).all()
@@ -277,9 +305,9 @@ class TestCNNBase:
     def test_num_params(self):
         in_channels = 3
         window_size = 32
-        out_channels_list = [5, 10, 5]
+        out_channels_list = [20, 40, 20]
         kernel_size_list = [5, 5, 5]
-        out_dim = 32
+        out_dim = 128
         base = cnn_utils.CNNBase(
             in_channels=in_channels,
             window_size=window_size,
