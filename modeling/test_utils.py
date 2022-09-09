@@ -274,7 +274,7 @@ def test_create_features():
 
 def test_compute_ctirical_idxs():
     actual_critical_idxs = utils.compute_critical_idxs(
-        values = np.array([1., 2., 3., 0., 2., 1., 4., 3., 1.]),
+        values = np.array([1., 2., 3., 0., 2., 1., 5., 3., 1.]),
         thresh_hold = 1.5
     )
     expected_critical_idxs = np.array([2, 3, 6, 8])
@@ -294,7 +294,7 @@ def test_create_labels_sub():
         expected_bool[expected_idx] = True
         np.testing.assert_equal(actual_bool, expected_bool)
 
-    values = np.array([1., 2., 3., 0., 2., 1., 4., 3., 1.])
+    values = np.array([1., 2., 3., 0., 2., 1., 5., 3., 1.])
     actual_idxs = utils.create_labels_sub(values, thresh_entry=2.5, thresh_hold=1.5)
     assert_bool_array(actual_idxs[0], [3, 5])
     assert_bool_array(actual_idxs[1], [2, 6])
