@@ -53,6 +53,9 @@ class CNNDataset:
         ds_test = CNNDataset(self.base_index[train_size:], self.x, self.y, self.lag_max, self.sma_window_size_center)
         return ds_train, ds_test
 
+    def batch_num(self, batch_size: int) -> int:
+        return int(np.ceil(len(self.base_index) / batch_size))
+
     def create_loader(self, batch_size: int, randomize: bool = True) -> Generator[Tuple, None, None]:
         x_seq = self.x["sequential"]
         x_cont = self.x["continuous"]
@@ -254,7 +257,8 @@ class CNNModel:
         self.stats_var = {data_type: {freq: None for freq in freqs} for data_type in data_types}
 
         loader = ds.create_loader(self.model_params["batch_size"], randomize=False)
-        for d_x, _ in loader:
+        batch_num = ds.batch_num(self.model_params["batch_size"])
+        for d_x, _ in tqdm(loader, desc="[stats]", total=batch_num):
             for data_type in data_types:
                 for freq in freqs:
                     # shape: (batch_size, dim) or (batch_size, lag_max, dim)
@@ -352,10 +356,11 @@ class CNNModel:
         self.model = CNNNet(**self.init_params).to(self.device)
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_params["learning_rate"])
 
-        for _ in tqdm(range(self.model_params["num_epochs"])):
+        for epoch in range(self.model_params["num_epochs"]):
             loader_train = ds_train.create_loader(self.model_params["batch_size"])
+            batch_num = ds_train.batch_num(self.model_params["batch_size"])
             loss_train = []
-            for d_x, v_y in loader_train:
+            for d_x, v_y in tqdm(loader_train, desc=f"[train {epoch}]", total=batch_num):
                 t_x = self._to_torch_x(d_x)
                 t_y = self._to_torch_y(v_y)
 
@@ -376,8 +381,9 @@ class CNNModel:
 
             if ds_valid is not None:
                 loader_valid = ds_valid.create_loader(self.model_params["batch_size"])
+                batch_num = ds_train.batch_num(self.model_params["batch_size"])
                 loss_valid = []
-                for d_x, v_y in loader_valid:
+                for d_x, v_y in tqdm(loader_valid, desc=f"[valid {epoch}]"):
                     t_x = self._to_torch_x(d_x)
                     t_y = self._to_torch_y(v_y)
 
@@ -413,8 +419,9 @@ class CNNModel:
 
     def predict_score(self, ds: CNNDataset) -> pd.DataFrame:
         loader = ds.create_loader(self.model_params["batch_size"], randomize=False)
+        batch_num = ds.batch_num(self.model_params["batch_size"])
         preds = []
-        for d_x, _ in loader:
+        for d_x, _ in tqdm(loader, desc="[predict]", total=batch_num):
             t_x = self._to_torch_x(d_x)
             preds.append(self.model.predict_score(t_x).cpu().numpy())
 

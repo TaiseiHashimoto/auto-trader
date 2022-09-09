@@ -176,6 +176,9 @@ class MockedCNNDataset:
     def freqs(self):
         return ["1min", "4h"]
 
+    def batch_num(self, batch_size):
+        return 10
+
     def create_loader(self, batch_size, randomize=True):
         for x_b, y_b in zip(self.x, self.y):
             yield x_b, y_b
