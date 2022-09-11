@@ -67,7 +67,7 @@ def main(config):
     if config.label.label_type == "critical":
         df_y = utils.create_critical_labels(df, thresh_entry=config.label.thresh_entry, thresh_hold=config.label.thresh_hold)
     elif config.label.label_type == "dummy1":
-        df_y = utils.create_dummy1_labels(df)
+        df_y = utils.create_dummy1_labels(df.index)
     elif config.label.label_type == "dummy2":
         df_y = utils.create_dummy2_labels(df_x_dict)
     elif config.label.label_type == "dummy3":
