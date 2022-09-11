@@ -1,11 +1,13 @@
-from typing import List
-from dataclasses import (dataclass, field)
-from omegaconf import OmegaConf
+from typing import List, Any
+from dataclasses import dataclass, field
+from omegaconf import OmegaConf, MISSING
+from hydra import compose, initialize
+from hydra.core.config_store import ConfigStore
 
 import sys
 import pathlib
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
-from common_config import (GCPConfig, NeptuneConfig)
+from common_config import GCPConfig, NeptuneConfig
 
 
 @dataclass
@@ -25,15 +27,12 @@ class FeatureConfig:
     sma_timing: str = "close"
     sma_window_sizes: List[int] = field(default_factory=lambda: [10])
     sma_window_size_center: int = 10
-
-
-# @dataclass
-# class LGBMFeatureConfig(FeatureConfig):
-#     lag_max: int = 5
+    sma_frac_ndigits: int = 2
 
 
 @dataclass
-class LabelConfig:
+class CtiricalLabelConfig:
+    label_type: str = "critical"
     # この値以上に上昇するならエントリーする
     thresh_entry: float = 0.05
     # この値を以下の下落であれば持ち続ける
@@ -41,7 +40,26 @@ class LabelConfig:
 
 
 @dataclass
+class Dummy1LabelConfig:
+    label_type: str = "dummy1"
+    pass
+
+
+@dataclass
+class Dummy2LabelConfig:
+    label_type: str = "dummy2"
+    lag: int = 1
+
+
+@dataclass
+class Dummy3LabelConfig:
+    label_type: str = "dummy3"
+    lag: int = 1
+
+
+@dataclass
 class LGBMModelConfig:
+    model_type: str = "lgbm"
     objective: str = "binary"
     num_iterations: int = 10
     num_leaves: int = 31
@@ -60,11 +78,12 @@ class LGBMModelConfig:
 
 @dataclass
 class CNNModelConfig:
+    model_type: str = "cnn"
     num_epochs: int = 1
     learning_rate: float = 1.0e-3
     pos_weight: float = 1.0
     batch_size: int = 256
-    window_size: int = 32
+
     out_channels_list: List[int] = field(default_factory=lambda: [20, 40, 20])
     kernel_size_list: List[int] = field(default_factory=lambda: [5, 5, 5])
     max_pool_list: List[bool] = field(default_factory=lambda: [True, True, True])
@@ -72,32 +91,28 @@ class CNNModelConfig:
     hidden_dim_list: List[int] = field(default_factory=lambda: [256, 128])
     cnn_batch_norm: bool = True
     fc_batch_norm: bool = False
-    cnn_dropout: float = 0
-    fc_dropout: float = 0
+    cnn_dropout: float = 0.
+    fc_dropout: float = 0.
+    eval_on_valid: bool = True
 
 
 @dataclass
 class TrainConfig:
+    defaults: List[Any] = field(default_factory=lambda: [
+        "_self_",
+        {"label": "critical"},
+        {"model": "lgbm"},
+    ])
+
     random_seed: int = 123
     valid_ratio: float = 0.1
     save_model: bool = True
-
     gcp: GCPConfig = GCPConfig()
     neptune: NeptuneConfig = NeptuneConfig()
     data: DataConfig = DataConfig()
-    label: LabelConfig = LabelConfig()
-
-
-@dataclass
-class LGBMTrainConfig(TrainConfig):
-    feature: FeatureConfig = FeatureConfig(lag_max=5)
-    model: LGBMModelConfig = LGBMModelConfig()
-
-
-@dataclass
-class CNNTrainConfig(TrainConfig):
-    feature: FeatureConfig = FeatureConfig(lag_max=32)
-    model: CNNModelConfig = CNNModelConfig()
+    feature: FeatureConfig = FeatureConfig()
+    label: Any = MISSING
+    model: Any = MISSING
 
 
 @dataclass
@@ -117,6 +132,27 @@ class EvalConfig:
 
 def validate_train_config(config: OmegaConf):
     assert config.feature.sma_window_size_center in config.feature.sma_window_sizes
-    window_size = config.model.get("window_size", None)
-    if window_size is not None:
-        assert window_size == config.feature.lag_max
+
+
+def get_train_config(argv: List[str] = None):
+    cs = ConfigStore.instance(version_base=None)
+    cs.store(name="data", node=DataConfig)
+    cs.store(name="feature", node=FeatureConfig)
+    cs.store(group="label", name="critical", node=CtiricalLabelConfig)
+    cs.store(group="label", name="dummy1", node=Dummy1LabelConfig)
+    cs.store(group="label", name="dummy2", node=Dummy2LabelConfig)
+    cs.store(group="label", name="dummy3", node=Dummy3LabelConfig)
+    cs.store(group="model", name="lgbm", node=LGBMModelConfig)
+    cs.store(group="model", name="cnn", node=CNNModelConfig)
+    cs.store(name="train", node=TrainConfig)
+
+    if argv is None:
+        argv = sys.argv[1:]
+
+    with initialize(version_base=None):
+        config = compose(config_name="train", overrides=argv)
+
+    OmegaConf.resolve(config)
+    validate_train_config(config)
+    return config
+

@@ -61,7 +61,12 @@ class LGBMDataset:
 
 
 class LGBMModel:
-    def __init__(self, model_params: Dict, models: Dict[str, lgb.Booster], run: neptune.Run):
+    def __init__(
+        self,
+        model_params: Dict,
+        models: Dict[str, lgb.Booster],
+        run: neptune.Run,
+    ):
         self.model_params = model_params
         self.models = models
         self.run = run

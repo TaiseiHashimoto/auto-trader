@@ -196,9 +196,14 @@ def test_compute_sma():
 
 
 def test_compute_fraction():
-    s = pd.Series([100.123, 104.456, 90.789])
-    actual_result = utils.compute_fraction(s, base=0.01)
-    expected_result = pd.Series([12.3, 45.6, 78.9])
+    s = pd.Series([100.1234, 104.4567, 90.7890])
+
+    actual_result = utils.compute_fraction(s, base=0.01, ndigits=2)
+    expected_result = pd.Series([12.34, 45.67, 78.90])
+    pd.testing.assert_series_equal(expected_result, actual_result)
+
+    actual_result = utils.compute_fraction(s, base=0.001, ndigits=1)
+    expected_result = pd.Series([3.4, 6.7, 9.0])
     pd.testing.assert_series_equal(expected_result, actual_result)
 
 
@@ -238,7 +243,8 @@ def test_create_features():
         lag_max = 2,
         sma_timing = "open",
         sma_window_sizes = [2, 4],
-        sma_window_size_center = 2
+        sma_window_size_center = 2,
+        sma_frac_ndigits=2
     )
     expected_base_index = pd.date_range("2022-01-01 00:10:00", "2022-01-01 00:11:00", freq="1min")
     expected_data = {
@@ -288,25 +294,27 @@ def test_compute_ctirical_idxs():
     np.testing.assert_equal(actual_critical_idxs, expected_critical_idxs)
 
 
-def test_create_labels_sub():
+def test_critical_create_labels():
     def assert_bool_array(actual_bool, expected_idx):
         expected_bool = np.zeros(len(actual_bool), dtype=bool)
         expected_bool[expected_idx] = True
         np.testing.assert_equal(actual_bool, expected_bool)
 
     values = np.array([1., 2., 3., 0., 2., 1., 5., 3., 1.])
-    actual_idxs = utils.create_labels_sub(values, thresh_entry=2.5, thresh_hold=1.5)
-    assert_bool_array(actual_idxs[0], [3, 5])
-    assert_bool_array(actual_idxs[1], [2, 6])
-    assert_bool_array(actual_idxs[2], [2, 6, 7])
-    assert_bool_array(actual_idxs[3], [0, 3, 4, 5])
+    df = pd.DataFrame({"high": values + 1, "low": values - 1})
+    actual_labels = utils.create_critical_labels(df, thresh_entry=2.5, thresh_hold=1.5)
+    assert_bool_array(actual_labels["long_entry"].values,  [3, 5])
+    assert_bool_array(actual_labels["short_entry"].values, [2, 6])
+    assert_bool_array(actual_labels["long_exit"].values,   [2, 6, 7])
+    assert_bool_array(actual_labels["short_exit"].values,  [0, 3, 4, 5])
 
     values = np.array([3., 2., 1., 0., 1., 2., 1., 0.9, 0.8])
-    actual_idxs = utils.create_labels_sub(values, thresh_entry=2.5, thresh_hold=1.5)
-    assert_bool_array(actual_idxs[0], [])
-    assert_bool_array(actual_idxs[1], [0])
-    assert_bool_array(actual_idxs[2], [0, 1])
-    assert_bool_array(actual_idxs[3], [3])
+    df = pd.DataFrame({"high": values + 2, "low": values - 2})
+    actual_labels = utils.create_critical_labels(df, thresh_entry=2.5, thresh_hold=1.5)
+    assert_bool_array(actual_labels["long_entry"].values,  [])
+    assert_bool_array(actual_labels["short_entry"].values, [0])
+    assert_bool_array(actual_labels["long_exit"].values,   [0, 1])
+    assert_bool_array(actual_labels["short_exit"].values,  [3])
 
 
 def assert_df_dict_equal(df_dict1, df_dict2, **kwargs):

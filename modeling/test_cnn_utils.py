@@ -190,7 +190,6 @@ class TestCNNModel:
             model_params={
                 "batch_size": 2,
             },
-            init_params=None,
             model=None,
             stats_mean=None,
             stats_var=None,

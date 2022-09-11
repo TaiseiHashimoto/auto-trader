@@ -156,7 +156,13 @@ class CNNNet(nn.Module):
         fc_batch_norm: bool,
         cnn_dropout: float,
         fc_dropout: float,
+        **kwargs
     ):
+        # TODO: 可能であれば、使用しないパラメータは渡さないようにする
+        unused_keys = kwargs.keys()
+        if len(unused_keys) > 0:
+            warnings.warn(f"[CNNNet] unused keywords: " + ", ".join(unused_keys))
+
         super().__init__()
 
         self.convs = nn.ModuleDict({
@@ -205,7 +211,6 @@ class CNNModel:
     def __init__(
         self,
         model_params: Dict,
-        init_params: Dict,
         model: nn.Module,
         stats_mean: Dict,
         stats_var: Dict,
@@ -213,18 +218,16 @@ class CNNModel:
     ):
         # TODO: パラメータを別々に受け取る
         self.model_params = model_params
-        self.init_params = init_params
         self.model = model
-        self.run = run
         self.stats_mean = stats_mean
         self.stats_var = stats_var
+        self.run = run
         self.device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
     @classmethod
     def from_scratch(cls, model_params: Dict, run: neptune.Run):
         return cls(
             model_params=model_params,
-            init_params=None,
             model=None,
             stats_mean=None,
             stats_var=None,
@@ -236,19 +239,18 @@ class CNNModel:
         with open(model_path, "rb") as f:
             model_data = torch.load(f)
 
-        model = CNNNet(**model_data["init_params"])
+        model = CNNNet(**model_data["model_params"])
         model.load_state_dict(model_data["state_dict"])
 
         return cls(
             model_params=model_data["model_params"],
-            init_params=model_data["init_params"],
             model=model,
             stats_mean=model_data["stats_mean"],
             stats_var=model_data["stats_var"],
             run=None
         )
 
-    def _calc_stats(self, ds: CNNDataset):
+    def _calc_stats(self, ds: CNNDataset, batch_size: int = 2048):
         data_types = ["sequential", "continuous"]
         freqs = ds.freqs()
 
@@ -256,8 +258,8 @@ class CNNModel:
         self.stats_mean = {data_type: {freq: None for freq in freqs} for data_type in data_types}
         self.stats_var = {data_type: {freq: None for freq in freqs} for data_type in data_types}
 
-        loader = ds.create_loader(self.model_params["batch_size"], randomize=False)
-        batch_num = ds.batch_num(self.model_params["batch_size"])
+        loader = ds.create_loader(batch_size, randomize=False)
+        batch_num = ds.batch_num(batch_size)
         for d_x, _ in tqdm(loader, desc="[stats]", total=batch_num):
             for data_type in data_types:
                 for freq in freqs:
@@ -336,27 +338,20 @@ class CNNModel:
     ):
         self._calc_stats(ds_train)
 
-        self.init_params = {
+        self.model_params.update({
+            "window_size": ds_train.lag_max,
             "continuous_dim": ds_train.continuous_dim(),
             "sequential_channels": ds_train.sequential_channels(),
             "freqs": ds_train.freqs(),
-            "window_size": self.model_params["window_size"],
-            "out_channels_list": self.model_params["out_channels_list"],
-            "kernel_size_list": self.model_params["kernel_size_list"],
-            "max_pool_list": self.model_params["max_pool_list"],
-            "base_out_dim": self.model_params["base_out_dim"],
-            "hidden_dim_list": self.model_params["hidden_dim_list"],
             "out_dim": len(ds_train.label_names()),
-            "cnn_batch_norm": self.model_params["cnn_batch_norm"],
-            "fc_batch_norm": self.model_params["fc_batch_norm"],
-            "cnn_dropout": self.model_params["cnn_dropout"],
-            "fc_dropout": self.model_params["fc_dropout"],
-        }
+        })
 
-        self.model = CNNNet(**self.init_params).to(self.device)
+        self.model = CNNNet(**self.model_params).to(self.device)
         optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_params["learning_rate"])
 
         for epoch in range(self.model_params["num_epochs"]):
+            self.model.train()
+
             loader_train = ds_train.create_loader(self.model_params["batch_size"])
             batch_num = ds_train.batch_num(self.model_params["batch_size"])
             loss_train = []
@@ -380,10 +375,13 @@ class CNNModel:
                 self.run[f"{log_prefix}/loss/train/{label_name}"].log(loss_train[:, i].mean())
 
             if ds_valid is not None:
+                if self.model_params["eval_on_valid"]:
+                    self.model.eval()
+
                 loader_valid = ds_valid.create_loader(self.model_params["batch_size"])
                 batch_num = ds_train.batch_num(self.model_params["batch_size"])
                 loss_valid = []
-                for d_x, v_y in tqdm(loader_valid, desc=f"[valid {epoch}]"):
+                for d_x, v_y in tqdm(loader_valid, desc=f"[valid {epoch}]", total=batch_num):
                     t_x = self._to_torch_x(d_x)
                     t_y = self._to_torch_y(v_y)
 
@@ -417,11 +415,13 @@ class CNNModel:
     def train_without_validation(self, ds_train: CNNDataset):
         self._train(ds_train, log_prefix="train_wo_valid")
 
-    def predict_score(self, ds: CNNDataset) -> pd.DataFrame:
+    def predict_score(self, ds: CNNDataset, eval: bool = True) -> pd.DataFrame:
+        self.model.train(not eval)
+
         loader = ds.create_loader(self.model_params["batch_size"], randomize=False)
         batch_num = ds.batch_num(self.model_params["batch_size"])
         preds = []
-        for d_x, _ in tqdm(loader, desc="[predict]", total=batch_num):
+        for d_x, _ in tqdm(loader, desc="[predict score]", total=batch_num):
             t_x = self._to_torch_x(d_x)
             preds.append(self.model.predict_score(t_x).cpu().numpy())
 
@@ -431,7 +431,6 @@ class CNNModel:
     def save(self, output_path: str):
         model_data = {
             "model_params": self.model_params,
-            "init_params": self.init_params,
             "state_dict": self.model.state_dict(),
             "stats_mean": self.stats_mean,
             "stats_var": self.stats_var,

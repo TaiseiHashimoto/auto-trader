@@ -97,9 +97,9 @@ def aggregate_time(s: pd.Series, freq: str, how: str) -> pd.DataFrame:
 def merge_bid_ask(df):
     # bid と ask の平均値を計算
     return pd.DataFrame({
-        "open": (df["bid_open"] + df["ask_open"]) / 2,
-        "high": (df["bid_high"] + df["ask_high"]) / 2,
-        "low": (df["bid_low"] + df["ask_low"]) / 2,
+        "open":  (df["bid_open"]  + df["ask_open"] ) / 2,
+        "high":  (df["bid_high"]  + df["ask_high"] ) / 2,
+        "low":   (df["bid_low"]   + df["ask_low"]  ) / 2,
         "close": (df["bid_close"] + df["ask_close"]) / 2,
     }, index=df.index)
 
@@ -157,8 +157,8 @@ def compute_sma(s: pd.Series, sma_window_size: int) -> pd.Series:
     return sma
 
 
-def compute_fraction(s: pd.Series, base: float):
-    return (s / base) % int(1 / base)
+def compute_fraction(s: pd.Series, base: float, ndigits: int):
+    return (s / base) % int(10 ** ndigits)
 
 
 def create_lagged_features(df: pd.DataFrame, lag_max: int) -> pd.DataFrame:
@@ -179,6 +179,7 @@ def create_features(
     sma_timing: str,
     sma_window_sizes: List[int],
     sma_window_size_center: int,
+    sma_frac_ndigits: int,
 ) -> Dict[str, pd.DataFrame]:
     pip_scale = common_utils.get_pip_scale(symbol)
 
@@ -193,7 +194,7 @@ def create_features(
         })
         df_seq_dict[freq] = pd.concat([df_dict[freq][timings], df_sma], axis=1)
 
-        sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale)
+        sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale, ndigits=sma_frac_ndigits)
         sma_frac = sma_frac.shift(1)
         # name: sma* -> sma*_frac
         sma_frac.name = sma_frac.name + "_frac_lag1"
@@ -283,7 +284,13 @@ def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> np.ndarray:
     return np.array(critical_idxs)
 
 
-def create_labels_sub(values: np.ndarray, thresh_entry: float, thresh_hold: float):
+def create_critical_labels(
+    df: pd.DataFrame,
+    thresh_entry: float,
+    thresh_hold: float,
+) -> pd.DataFrame:
+    values = (df["high"].values + df["low"].values) / 2
+
     critical_idxs = compute_critical_idxs(values, thresh_hold)
 
     values_next_critical = np.empty(len(values))
@@ -323,30 +330,69 @@ def create_labels_sub(values: np.ndarray, thresh_entry: float, thresh_hold: floa
         done_count = cidx
         is_uptrend = not is_uptrend
 
-    return long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels
+    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
 
 
-def create_labels(
-    df: pd.DataFrame,
-    thresh_entry: float,
-    thresh_hold: float,
-) -> pd.DataFrame:
-    """
-    ラベルを作成する
-    """
+def create_dummy1_labels(df: pd.DataFrame) -> pd.DataFrame:
+    long_entry_labels  = np.zeros(len(df), dtype=bool)
+    short_entry_labels = np.zeros(len(df), dtype=bool)
+    long_exit_labels   = np.zeros(len(df), dtype=bool)
+    short_exit_labels  = np.zeros(len(df), dtype=bool)
+    long_entry_labels[0::4] = True
+    short_entry_labels[1::4] = True
+    long_exit_labels[2::4] = True
+    short_exit_labels[3::4] = True
+    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
 
-    mean_high_low = (df["high"].values + df["low"].values) / 2
-    long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels = create_labels_sub(mean_high_low, thresh_entry, thresh_hold)
+
+def create_dummy2_labels(df_x_dict: Dict[str, Dict[str, pd.DataFrame]]) -> pd.DataFrame:
+    sma_colname = None
+    for colname in df_x_dict["continuous"]["1min"].columns:
+        if colname.startswith("sma"):
+            sma_colname = colname
+            break
+
+    assert sma_colname is not None
+    values = df_x_dict["continuous"]["1min"][sma_colname].values
+
+    long_entry_labels  = (values >=  0) & (values < 25)
+    short_entry_labels = (values >= 25) & (values < 50)
+    long_exit_labels   = (values >= 50) & (values < 75)
+    short_exit_labels  = (values >= 50) & (values < 100)
+
+    index = df_x_dict["continuous"]["1min"].index
+    return merge_labels(index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+
+
+def create_dummy3_labels(df_x_dict: Dict[str, Dict[str, pd.DataFrame]]) -> pd.DataFrame:
+    lag1 = df_x_dict["sequential"]["1min"]["close"].shift(1).values
+    lag2 = df_x_dict["sequential"]["1min"]["close"].shift(2).values
+    lag3 = df_x_dict["sequential"]["1min"]["close"].shift(3).values
+
+    long_entry_labels  = (lag1 <  lag2) & (lag2 <  lag3)
+    short_entry_labels = (lag1 <  lag2) & (lag2 >= lag3)
+    long_exit_labels   = (lag1 >= lag2) & (lag2 <  lag3)
+    short_exit_labels  = (lag1 >= lag2) & (lag2 >= lag3)
+
+    index = df_x_dict["sequential"]["1min"].index
+    return merge_labels(index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+
+
+def merge_labels(
+    index:pd.DatetimeIndex,
+    long_entry_labels: np.ndarray,
+    short_entry_labels: np.ndarray,
+    long_exit_labels: np.ndarray,
+    short_exit_labels: np.ndarray,
+):
+    assert not (long_entry_labels & short_entry_labels).any()
+    assert not (long_entry_labels & long_exit_labels).any()
+    assert not (short_entry_labels & short_exit_labels).any()
 
     df_labels = pd.DataFrame({
         "long_entry": long_entry_labels,
         "short_entry": short_entry_labels,
         "long_exit": long_exit_labels,
         "short_exit": short_exit_labels,
-    }, index=df.index)
-
-    assert not (df_labels["long_entry"] & df_labels["short_entry"]).any()
-    assert not (df_labels["long_entry"] & df_labels["long_exit"]).any()
-    assert not (df_labels["short_entry"] & df_labels["short_exit"]).any()
-
+    }, index=index)
     return df_labels

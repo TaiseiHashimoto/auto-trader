@@ -7,7 +7,7 @@ import neptune.new as neptune
 import utils
 import lgbm_utils
 import cnn_utils
-from config import LGBMTrainConfig, CNNTrainConfig, validate_train_config
+from config import get_train_config, LGBMModelConfig, CNNModelConfig
 
 import sys
 import pathlib
@@ -23,7 +23,7 @@ def index2mask(index: np.ndarray, size: int) -> np.ndarray:
 
 def main(config):
     run = neptune.init_run()
-    run["sys/tags"].add(model_type)
+    run["sys/tags"].add(config.model.model_type)
     run["config"] = OmegaConf.to_yaml(config)
 
     if ON_COLAB:
@@ -63,18 +63,25 @@ def main(config):
     print(f"Train period: {base_index[0]} ~ {base_index[-1]}")
 
     print("Create labels")
-    df_y = utils.create_labels(df, config.label.thresh_entry, config.label.thresh_hold)
+    if config.label.label_type == "critical":
+        df_y = utils.create_critical_labels(df, thresh_entry=config.label.thresh_entry, thresh_hold=config.label.thresh_hold)
+    elif config.label.label_type == "dummy1":
+        df_y = utils.create_dummy1_labels(df)
+    elif config.label.label_type == "dummy2":
+        df_y = utils.create_dummy2_labels(df_x_dict)
+    elif config.label.label_type == "dummy3":
+        df_y = utils.create_dummy3_labels(df_x_dict)
 
-    if model_type == "lgbm":
+    if config.model.model_type == "lgbm":
         ds = lgbm_utils.LGBMDataset(base_index, df_x_dict, df_y, config.feature.lag_max, config.feature.sma_window_size_center)
-    elif model_type == "cnn":
+    elif config.model.model_type == "cnn":
         ds = cnn_utils.CNNDataset(base_index, df_x_dict, df_y, config.feature.lag_max, config.feature.sma_window_size_center)
 
     # 学習用パラメータを準備
-    model_params = common_utils.conf2dict(config.model)
-    if model_type == "lgbm":
+    model_params = {k: v for k, v in common_utils.conf2dict(config.model).items() if k != "model_type"}
+    if config.model.model_type == "lgbm":
         model = lgbm_utils.LGBMModel.from_scratch(model_params, run)
-    elif model_type == "cnn":
+    elif config.model.model_type == "cnn":
         model = cnn_utils.CNNModel.from_scratch(model_params, run)
 
     # 学習データとテストデータに分けて学習・評価
@@ -84,10 +91,13 @@ def main(config):
     run["label/positive_ratio/valid"] = ds_valid.get_labels().mean().to_dict()
     model.train_with_validation(ds_train, ds_valid)
 
+    if not config.save_model:
+        return
+
     # 全データで再学習
     print("Re-train")
     importance_dict = model.train_without_validation(ds)
-    if model_type == "lgbm":
+    if config.model.model_type == "lgbm":
         for label_name in importance_dict:
             importance_path = f"{OUTPUT_DIRECTORY}/importance_{label_name}.csv"
             importance_dict[label_name].to_csv(importance_path)
@@ -98,7 +108,7 @@ def main(config):
     model_path = f"{OUTPUT_DIRECTORY}/model.bin"
     model.save(model_path)
 
-    model_id = common_utils.get_neptune_model_id(config.neptune.project_key, model_type)
+    model_id = common_utils.get_neptune_model_id(config.neptune.project_key, config.model.model_type)
     model_version = neptune.init_model_version(model=model_id)
     model_version["binary"].upload(model_path)
 
@@ -111,24 +121,10 @@ def main(config):
 
     run["model_version_url"] = model_version.get_url()
 
-    # 後片付け
-    run.stop()
-    model_version.stop()
-
 
 if __name__ == "__main__":
-    model_type = sys.argv[1]
-    if model_type == "lgbm":
-        base_config = OmegaConf.structured(LGBMTrainConfig)
-    elif model_type == "cnn":
-        base_config = OmegaConf.structured(CNNTrainConfig)
-    else:
-        raise ValueError(f"Unknown model_type \"{model_type}\"")
-
-    cli_config = OmegaConf.from_cli(sys.argv[2:])
-    config = OmegaConf.merge(base_config, cli_config)
+    config = get_train_config()
     print(OmegaConf.to_yaml(config))
-    validate_train_config(config)
 
     common_utils.set_random_seed(config.random_seed)
 
