@@ -24,6 +24,7 @@ def index2mask(index: np.ndarray, size: int) -> np.ndarray:
 def main(config):
     run = neptune.init_run()
     run["sys/tags"].add(config.model.model_type)
+    run["sys/tags"].add(config.label.label_type)
     run["config"] = OmegaConf.to_yaml(config)
 
     if ON_COLAB:
