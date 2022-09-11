@@ -333,16 +333,12 @@ def create_critical_labels(
     return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
 
 
-def create_dummy1_labels(df: pd.DataFrame) -> pd.DataFrame:
-    long_entry_labels  = np.zeros(len(df), dtype=bool)
-    short_entry_labels = np.zeros(len(df), dtype=bool)
-    long_exit_labels   = np.zeros(len(df), dtype=bool)
-    short_exit_labels  = np.zeros(len(df), dtype=bool)
-    long_entry_labels[0::4] = True
-    short_entry_labels[1::4] = True
-    long_exit_labels[2::4] = True
-    short_exit_labels[3::4] = True
-    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+def create_dummy1_labels(index: pd.DatetimeIndex) -> pd.DataFrame:
+    long_entry_labels  = (index.hour >= 0)  & (index.hour < 6)
+    short_entry_labels = (index.hour >= 6)  & (index.hour < 12)
+    long_exit_labels   = (index.hour >= 12) & (index.hour < 18)
+    short_exit_labels  = (index.hour >= 18) & (index.hour < 24)
+    return merge_labels(index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
 
 
 def create_dummy2_labels(df_x_dict: Dict[str, Dict[str, pd.DataFrame]]) -> pd.DataFrame:

@@ -313,12 +313,12 @@ def test_critical_create_labels():
 
 
 def test_create_dummy1_labels():
-    df = pd.DataFrame(index=np.arange(10))
-    actual_labels = utils.create_dummy1_labels(df)
-    assert_bool_array(actual_labels["long_entry"].values,  [0, 4, 8])
-    assert_bool_array(actual_labels["short_entry"].values, [1, 5, 9])
-    assert_bool_array(actual_labels["long_exit"].values,   [2, 6])
-    assert_bool_array(actual_labels["short_exit"].values,  [3, 7])
+    index = pd.date_range("2022-01-01 00:00:00", "2022-01-02 23:59:59", freq="4h")
+    actual_labels = utils.create_dummy1_labels(index)
+    assert_bool_array(actual_labels["long_entry"].values,  [0, 1, 6, 7])
+    assert_bool_array(actual_labels["short_entry"].values, [2, 8])
+    assert_bool_array(actual_labels["long_exit"].values,   [3, 4, 9, 10])
+    assert_bool_array(actual_labels["short_exit"].values,  [5, 11])
 
 
 def test_create_dummy2_labels():
