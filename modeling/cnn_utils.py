@@ -379,7 +379,7 @@ class CNNModel:
                     self.model.eval()
 
                 loader_valid = ds_valid.create_loader(self.model_params["batch_size"])
-                batch_num = ds_train.batch_num(self.model_params["batch_size"])
+                batch_num = ds_valid.batch_num(self.model_params["batch_size"])
                 loss_valid = []
                 for d_x, v_y in tqdm(loader_valid, desc=f"[valid {epoch}]", total=batch_num):
                     t_x = self._to_torch_x(d_x)
