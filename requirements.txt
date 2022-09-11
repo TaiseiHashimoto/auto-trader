@@ -3,5 +3,5 @@ google-cloud-storage
 lightgbm >= 3.3.2
 neptune-client
 numpy
-omegaconf
+hydra-core
 pandas >= 1.3.5
