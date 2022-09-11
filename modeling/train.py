@@ -64,14 +64,17 @@ def main(config):
     print(f"Train period: {base_index[0]} ~ {base_index[-1]}")
 
     print("Create labels")
+    label_params = {k: v for k, v in common_utils.conf2dict(config.label).items() if k != "label_type"}
     if config.label.label_type == "critical":
-        df_y = utils.create_critical_labels(df, thresh_entry=config.label.thresh_entry, thresh_hold=config.label.thresh_hold)
+        df_y = utils.create_critical_labels(df, **label_params)
+    elif config.label.label_type == "smadiff":
+        df_y = utils.create_smadiff_labels(df, **label_params)
     elif config.label.label_type == "dummy1":
-        df_y = utils.create_dummy1_labels(df.index)
+        df_y = utils.create_dummy1_labels(df.index, **label_params)
     elif config.label.label_type == "dummy2":
-        df_y = utils.create_dummy2_labels(df_x_dict)
+        df_y = utils.create_dummy2_labels(df_x_dict, **label_params)
     elif config.label.label_type == "dummy3":
-        df_y = utils.create_dummy3_labels(df_x_dict)
+        df_y = utils.create_dummy3_labels(df_x_dict, **label_params)
 
     if config.model.model_type == "lgbm":
         ds = lgbm_utils.LGBMDataset(base_index, df_x_dict, df_y, config.feature.lag_max, config.feature.sma_window_size_center)

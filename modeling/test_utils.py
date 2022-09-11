@@ -312,6 +312,27 @@ def test_critical_create_labels():
     assert_bool_array(actual_labels["short_exit"].values,  [3])
 
 
+def test_create_smadiff_labels():
+    values = np.array([1., 2., 3., 0., 2., 1., -1, 0., 1.])
+    df = pd.DataFrame({"high": values + 1, "low": values - 1})
+    actual_labels = utils.create_smadiff_labels(df, window_size=3, thresh_entry=1.5, thresh_hold=0.)
+    # sma_before: [np.nan, np.nan, np.nan, 2,    5/3,  5/3,  1,      2/3,    0]
+    # sma_after:  [5/3,    5/3,    1,      2/3,  0,    0,    np.nan, np.nan, np.nan]
+    # sma_diff:   [np.nan, np.nan, np.nan, -4/3, -5/3, -5/3, np.nan, np.nan, np.nan]
+    assert_bool_array(actual_labels["long_entry"].values,  [])
+    assert_bool_array(actual_labels["short_entry"].values, [4, 5])
+    assert_bool_array(actual_labels["long_exit"].values,   [3, 4, 5])
+    assert_bool_array(actual_labels["short_exit"].values,  [])
+
+    values = -np.array([1., 2., 3., 0., 2., 1., -1, 0., 1.])
+    df = pd.DataFrame({"high": values + 1, "low": values - 1})
+    actual_labels = utils.create_smadiff_labels(df, window_size=3, thresh_entry=1.5, thresh_hold=0.)
+    assert_bool_array(actual_labels["long_entry"].values,  [4, 5])
+    assert_bool_array(actual_labels["short_entry"].values, [])
+    assert_bool_array(actual_labels["long_exit"].values,   [])
+    assert_bool_array(actual_labels["short_exit"].values,  [3, 4, 5])
+
+
 def test_create_dummy1_labels():
     index = pd.date_range("2022-01-01 00:00:00", "2022-01-02 23:59:59", freq="4h")
     actual_labels = utils.create_dummy1_labels(index)

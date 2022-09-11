@@ -40,21 +40,26 @@ class CtiricalLabelConfig:
 
 
 @dataclass
+class SMADiffLabelConfig:
+    label_type: str = "smadiff"
+    window_size: int = 10
+    thresh_entry: float = 0.025
+    thresh_hold: float = 0.0
+
+
+@dataclass
 class Dummy1LabelConfig:
     label_type: str = "dummy1"
-    pass
 
 
 @dataclass
 class Dummy2LabelConfig:
     label_type: str = "dummy2"
-    lag: int = 1
 
 
 @dataclass
 class Dummy3LabelConfig:
     label_type: str = "dummy3"
-    lag: int = 1
 
 
 @dataclass
@@ -139,6 +144,7 @@ def get_train_config(argv: List[str] = None):
     cs.store(name="data", node=DataConfig)
     cs.store(name="feature", node=FeatureConfig)
     cs.store(group="label", name="critical", node=CtiricalLabelConfig)
+    cs.store(group="label", name="smadiff", node=SMADiffLabelConfig)
     cs.store(group="label", name="dummy1", node=Dummy1LabelConfig)
     cs.store(group="label", name="dummy2", node=Dummy2LabelConfig)
     cs.store(group="label", name="dummy3", node=Dummy3LabelConfig)

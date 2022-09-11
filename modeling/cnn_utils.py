@@ -216,7 +216,6 @@ class CNNModel:
         stats_var: Dict,
         run: neptune.Run,
     ):
-        # TODO: パラメータを別々に受け取る
         self.model_params = model_params
         self.model = model
         self.stats_mean = stats_mean

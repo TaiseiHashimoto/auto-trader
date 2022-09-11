@@ -333,6 +333,26 @@ def create_critical_labels(
     return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
 
 
+def create_smadiff_labels(
+    df: pd.DataFrame,
+    window_size: int,
+    thresh_entry: float,
+    thresh_hold: float,
+):
+    values = pd.Series((df["high"].values + df["low"].values) / 2, index=df.index)
+    sma = compute_sma(values, window_size)
+    sma_before = sma.shift(1)
+    sma_after = sma.shift(-window_size)
+    sma_diff = sma_after.values - sma_before.values
+
+    long_entry_labels  = sma_diff > thresh_entry
+    short_entry_labels = sma_diff < -thresh_entry
+    long_exit_labels   = sma_diff < -thresh_hold
+    short_exit_labels  = sma_diff > thresh_hold
+
+    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+
+
 def create_dummy1_labels(index: pd.DatetimeIndex) -> pd.DataFrame:
     long_entry_labels  = (index.hour >= 0)  & (index.hour < 6)
     short_entry_labels = (index.hour >= 6)  & (index.hour < 12)
