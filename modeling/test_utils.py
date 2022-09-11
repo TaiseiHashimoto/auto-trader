@@ -295,11 +295,6 @@ def test_compute_ctirical_idxs():
 
 
 def test_critical_create_labels():
-    def assert_bool_array(actual_bool, expected_idx):
-        expected_bool = np.zeros(len(actual_bool), dtype=bool)
-        expected_bool[expected_idx] = True
-        np.testing.assert_equal(actual_bool, expected_bool)
-
     values = np.array([1., 2., 3., 0., 2., 1., 5., 3., 1.])
     df = pd.DataFrame({"high": values + 1, "low": values - 1})
     actual_labels = utils.create_critical_labels(df, thresh_entry=2.5, thresh_hold=1.5)
@@ -317,6 +312,45 @@ def test_critical_create_labels():
     assert_bool_array(actual_labels["short_exit"].values,  [3])
 
 
+def test_create_dummy1_labels():
+    df = pd.DataFrame(index=np.arange(10))
+    actual_labels = utils.create_dummy1_labels(df)
+    assert_bool_array(actual_labels["long_entry"].values,  [0, 4, 8])
+    assert_bool_array(actual_labels["short_entry"].values, [1, 5, 9])
+    assert_bool_array(actual_labels["long_exit"].values,   [2, 6])
+    assert_bool_array(actual_labels["short_exit"].values,  [3, 7])
+
+
+def test_create_dummy2_labels():
+    df_x_dict = {
+        "continuous": {
+            "1min": pd.DataFrame({
+                "sma10_frac_lag1": np.arange(0, 100, 10)
+            })
+        }
+    }
+    actual_labels = utils.create_dummy2_labels(df_x_dict)
+    assert_bool_array(actual_labels["long_entry"].values,  [0, 1, 2])
+    assert_bool_array(actual_labels["short_entry"].values, [3, 4])
+    assert_bool_array(actual_labels["long_exit"].values,   [5, 6, 7])
+    assert_bool_array(actual_labels["short_exit"].values,  [8, 9])
+
+
+def test_create_dummy3_labels():
+    df_x_dict = {
+        "sequential": {
+            "1min": pd.DataFrame({
+                "close": [0, 10, 20, 30, 30, 25, 15, 20, 0]
+            })
+        }
+    }
+    actual_labels = utils.create_dummy3_labels(df_x_dict)
+    assert_bool_array(actual_labels["long_entry"].values,  [3, 4])
+    assert_bool_array(actual_labels["short_entry"].values, [8])
+    assert_bool_array(actual_labels["long_exit"].values,   [5])
+    assert_bool_array(actual_labels["short_exit"].values,  [6, 7])
+
+
 def assert_df_dict_equal(df_dict1, df_dict2, **kwargs):
     if isinstance(df_dict1, pd.DataFrame):
         pd.testing.assert_frame_equal(df_dict1, df_dict2, **kwargs)
@@ -324,3 +358,9 @@ def assert_df_dict_equal(df_dict1, df_dict2, **kwargs):
         assert df_dict1.keys() == df_dict2.keys()
         for key in df_dict1:
             assert_df_dict_equal(df_dict1[key], df_dict2[key], **kwargs)
+
+
+def assert_bool_array(actual_bool, expected_idx):
+        expected_bool = np.zeros(len(actual_bool), dtype=bool)
+        expected_bool[expected_idx] = True
+        np.testing.assert_equal(actual_bool, expected_bool)

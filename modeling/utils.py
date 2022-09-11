@@ -358,7 +358,7 @@ def create_dummy2_labels(df_x_dict: Dict[str, Dict[str, pd.DataFrame]]) -> pd.Da
     long_entry_labels  = (values >=  0) & (values < 25)
     short_entry_labels = (values >= 25) & (values < 50)
     long_exit_labels   = (values >= 50) & (values < 75)
-    short_exit_labels  = (values >= 50) & (values < 100)
+    short_exit_labels  = (values >= 75) & (values < 100)
 
     index = df_x_dict["continuous"]["1min"].index
     return merge_labels(index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
@@ -369,10 +369,10 @@ def create_dummy3_labels(df_x_dict: Dict[str, Dict[str, pd.DataFrame]]) -> pd.Da
     lag2 = df_x_dict["sequential"]["1min"]["close"].shift(2).values
     lag3 = df_x_dict["sequential"]["1min"]["close"].shift(3).values
 
-    long_entry_labels  = (lag1 <  lag2) & (lag2 <  lag3)
-    short_entry_labels = (lag1 <  lag2) & (lag2 >= lag3)
-    long_exit_labels   = (lag1 >= lag2) & (lag2 <  lag3)
-    short_exit_labels  = (lag1 >= lag2) & (lag2 >= lag3)
+    long_entry_labels  = (lag1 >  lag2) & (lag2 >  lag3)
+    short_entry_labels = (lag1 >  lag2) & (lag2 <= lag3)
+    long_exit_labels   = (lag1 <= lag2) & (lag2 >  lag3)
+    short_exit_labels  = (lag1 <= lag2) & (lag2 <= lag3)
 
     index = df_x_dict["sequential"]["1min"].index
     return merge_labels(index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
