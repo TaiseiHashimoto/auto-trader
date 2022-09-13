@@ -212,6 +212,7 @@ def create_features(
         first_idx = notnan_idxs[0] + lag_max
         first_index = max(first_index, df_seq_dict[freq].index[first_idx])
 
+    # TODO: 学習に適した時間帯だけ抽出
     base_index = df.index[df.index >= first_index]
 
     return base_index, {"sequential": df_seq_dict, "continuous": df_cont_dict}

@@ -19,12 +19,3 @@ def test_remove_flat_data():
     assert ((index_returned.month == 1) & (index_returned.day == 1)).sum() == 0
     # 12/25 は 9:59 まで含む
     assert ((index_returned.month == 12) & (index_returned.day == 25)).sum() == 60 * 10
-
-
-def test_calc_year_month_offset():
-    assert utils.calc_year_month_offset(2020, 1, month_offset=2) == (2020, 3)
-    assert utils.calc_year_month_offset(2020, 1, month_offset=11) == (2020, 12)
-    assert utils.calc_year_month_offset(2020, 1, month_offset=12) == (2021, 1)
-    assert utils.calc_year_month_offset(2020, 1, month_offset=-1) == (2019, 12)
-    assert utils.calc_year_month_offset(2020, 2, month_offset=-1) == (2020, 1)
-    assert utils.calc_year_month_offset(2020, 2, month_offset=0) == (2020, 2)

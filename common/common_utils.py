@@ -43,7 +43,6 @@ class Order():
         elif self.position_type == PositionType.SHORT:
             return -rate_diff
 
-
     def __repr__(self) -> str:
         gain = None
         if self.exit_rate is not None:
@@ -79,22 +78,22 @@ class OrderSimulator:
         )
 
         # 決済する条件: ポジションをもっている and (取引時間外 or モデルが決済を選択 or 損切り)
-        if ((self.has_position(PositionType.LONG) and
-            (not is_open or long_exit or self.open_position.entry_rate - rate > self.thresh_loss_cut)) or
-            (self.has_position(PositionType.SHORT) and
-            (not is_open or short_exit or rate - self.open_position.entry_rate > self.thresh_loss_cut))
+        if ((self._has_position(PositionType.LONG) and
+            (not is_open or long_exit  or self.open_position.entry_rate - rate >= self.thresh_loss_cut)) or
+            (self._has_position(PositionType.SHORT) and
+            (not is_open or short_exit or rate - self.open_position.entry_rate >= self.thresh_loss_cut))
         ):
             self.open_position.exit(timestamp, rate)
             self.order_history.append(self.open_position)
             self.open_position = None
 
         if is_open:
-            if not self.has_position() and long_entry:
+            if not self._has_position() and long_entry:
                 self.open_position = Order(PositionType.LONG, timestamp, rate)
-            if not self.has_position() and short_entry:
+            if not self._has_position() and short_entry:
                 self.open_position = Order(PositionType.SHORT, timestamp, rate)
 
-    def has_position(self, position_type: Optional[PositionType] = None) -> bool:
+    def _has_position(self, position_type: Optional[PositionType] = None) -> bool:
         if position_type is None:
             return self.open_position is not None
         else:

@@ -95,7 +95,7 @@ def main(config):
                 print(f"{symbol}: {year_month_str}")
 
                 # 元データファイルは UTC+0 基準で保存されているので, UTC+2/+3 に合わせるために前月のデータが2/3時間分だけ必要
-                prev_year, prev_month = utils.calc_year_month_offset(year, month, month_offset=-1)
+                prev_year, prev_month = common_utils.calc_year_month_offset(year, month, month_offset=-1)
                 df_source = pd.concat([
                     utils.read_raw_data(
                         symbol, prev_year, prev_month,
@@ -115,7 +115,7 @@ def main(config):
 
                 df.to_pickle(file_path)
 
-            year, month = utils.calc_year_month_offset(year, month, month_offset=1)
+            year, month = common_utils.calc_year_month_offset(year, month, month_offset=1)
 
     #####
     # データを GCS に送信

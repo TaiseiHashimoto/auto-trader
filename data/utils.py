@@ -71,13 +71,3 @@ def remove_flat_data(df: pd.DataFrame):
 #     )
 
 #     return df.loc[mask]
-
-
-def calc_year_month_offset(year: int, month: int, month_offset: int):
-    """
-    ある年月からnヶ月後/前の年月を求める
-    """
-    month = month + month_offset
-    year = year + (month - 1) // 12
-    month = (month - 1) % 12 + 1
-    return year, month
