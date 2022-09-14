@@ -346,21 +346,38 @@ def create_critical_labels(
 
 def create_smadiff_labels(
     df: pd.DataFrame,
-    window_size: int,
+    window_size_before: int,
+    window_size_after: int,
     thresh_entry: float,
     thresh_hold: float,
-):
+) -> pd.DataFrame:
     values = pd.Series((df["high"].values + df["low"].values) / 2, index=df.index)
-    # TODO: window_size を前後で変える？
-    sma = compute_sma(values, window_size)
-    sma_before = sma.shift(1)
-    sma_after = sma.shift(-window_size)
+    sma_before = compute_sma(values, window_size_before)
+    sma_after = compute_sma(values.shift(-window_size_after), window_size_after)
     sma_diff = sma_after.values - sma_before.values
 
     long_entry_labels  = sma_diff > thresh_entry
     short_entry_labels = sma_diff < -thresh_entry
     long_exit_labels   = sma_diff < -thresh_hold
     short_exit_labels  = sma_diff > thresh_hold
+
+    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+
+
+def create_future_labels(
+    df: pd.DataFrame,
+    future_step: int,
+    thresh_entry: float,
+    thresh_hold: float,
+) -> pd.DataFrame:
+    values = pd.Series((df["high"].values + df["low"].values) / 2, index=df.index)
+    values_future = values.shift(-future_step)
+    values_diff = values_future.values - values.values
+
+    long_entry_labels  = values_diff > thresh_entry
+    short_entry_labels = values_diff < -thresh_entry
+    long_exit_labels   = values_diff < -thresh_hold
+    short_exit_labels  = values_diff > thresh_hold
 
     return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
 

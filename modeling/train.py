@@ -69,6 +69,8 @@ def main(config):
         df_y = utils.create_critical_labels(df, **label_params)
     elif config.label.label_type == "smadiff":
         df_y = utils.create_smadiff_labels(df, **label_params)
+    elif config.label.label_type == "future":
+        df_y = utils.create_future_labels(df, **label_params)
     elif config.label.label_type == "dummy1":
         df_y = utils.create_dummy1_labels(df.index, **label_params)
     elif config.label.label_type == "dummy2":

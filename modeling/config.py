@@ -44,8 +44,17 @@ class CtiricalLabelConfig:
 @dataclass
 class SMADiffLabelConfig:
     label_type: str = "smadiff"
-    window_size: int = 10
+    window_size_before: int = 10
+    window_size_after: int = 10
     thresh_entry: float = 0.025
+    thresh_hold: float = 0.0
+
+
+@dataclass
+class FutureLabelConfig:
+    label_type: str = "future"
+    future_step: int = 10
+    thresh_entry: float = 0.05
     thresh_hold: float = 0.0
 
 
@@ -148,6 +157,7 @@ def get_train_config(argv: List[str] = None):
     cs.store(name="feature", node=FeatureConfig)
     cs.store(group="label", name="critical", node=CtiricalLabelConfig)
     cs.store(group="label", name="smadiff", node=SMADiffLabelConfig)
+    cs.store(group="label", name="future", node=FutureLabelConfig)
     cs.store(group="label", name="dummy1", node=Dummy1LabelConfig)
     cs.store(group="label", name="dummy2", node=Dummy2LabelConfig)
     cs.store(group="label", name="dummy3", node=Dummy3LabelConfig)
