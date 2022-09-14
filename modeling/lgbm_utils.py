@@ -24,15 +24,18 @@ class LGBMDataset:
         self.lag_max = lag_max
         self.sma_window_size_center = sma_window_size_center
 
-    def label_names(self) -> List[str]:
+    def get_label_names(self) -> List[str]:
         return list(self.y.columns)
 
-    def freqs(self) -> List[str]:
+    def get_freqs(self) -> List[str]:
         return list(self.x["sequential"].keys())
+
+    def get_base_index(self) -> pd.DatetimeIndex:
+        return self.base_index
 
     def bundle_features(self) -> pd.DataFrame:
         df_seq_dict = {}
-        for freq in self.freqs():
+        for freq in self.get_freqs():
             df_lagged = utils.create_lagged_features(self.x["sequential"][freq], self.lag_max)
             sma_colname = f"sma{self.sma_window_size_center}_lag1"
             sma = df_lagged[sma_colname]
@@ -98,7 +101,7 @@ class LGBMModel:
 
         self.models = {}
 
-        for label_name in ds_train.label_names():
+        for label_name in ds_train.get_label_names():
             df_y_train = ds_train.get_labels(label_name)
             lds_train = lgb.Dataset(df_x_train, df_y_train)
             valid_sets = [lds_train]
@@ -148,7 +151,7 @@ class LGBMModel:
         preds = {}
         for label_name, model in self.models.items():
             preds[label_name] = model.predict(df_x).astype(np.float32)
-        return pd.DataFrame(preds, index=ds.base_index)
+        return pd.DataFrame(preds, index=ds.get_base_index())
 
     def save(self, output_path: str):
         assert self.models is not None and len(self.models) > 0

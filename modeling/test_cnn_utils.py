@@ -45,9 +45,9 @@ class TestCNNDataset:
 
         return cnn_utils.CNNDataset(base_index, x, y, lag_max=2, sma_window_size_center=2)
 
-    def test_continuous_dim(self):
+    def test_get_continuous_dim(self):
         ds = self.prepare_dataset()
-        assert ds.continuous_dim() == 5
+        assert ds.get_continuous_dim() == 5
 
     def test_train_test_split(self):
         ds = self.prepare_dataset()
@@ -173,10 +173,10 @@ class MockedCNNDataset:
         self.x = x
         self.y = y
 
-    def freqs(self):
+    def get_freqs(self):
         return ["1min", "4h"]
 
-    def batch_num(self, batch_size):
+    def calc_batch_num(self, batch_size):
         return 10
 
     def create_loader(self, batch_size, randomize=True):

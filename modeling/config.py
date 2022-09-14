@@ -23,11 +23,13 @@ class DataConfig:
 class FeatureConfig:
     timings: List[str] = field(default_factory=lambda: ["high", "low", "close"])
     freqs: List[str] = field(default_factory=lambda: ["1min", "5min", "15min", "1h", "4h"])
-    lag_max: int = 5
     sma_timing: str = "close"
     sma_window_sizes: List[int] = field(default_factory=lambda: [10])
     sma_window_size_center: int = 10
     sma_frac_ndigits: int = 2
+    lag_max: int = 5
+    start_hour: int = 2
+    end_hour: int = 22
 
 
 @dataclass
@@ -136,6 +138,7 @@ class EvalConfig:
 
 
 def validate_train_config(config: OmegaConf):
+    assert "1min" in config.feature.freqs
     assert config.feature.sma_window_size_center in config.feature.sma_window_sizes
 
 

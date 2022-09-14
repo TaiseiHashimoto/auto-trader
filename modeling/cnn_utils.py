@@ -28,17 +28,23 @@ class CNNDataset:
         self.lag_max = lag_max
         self.sma_window_size_center = sma_window_size_center
 
-    def label_names(self) -> List[str]:
+    def get_label_names(self) -> List[str]:
         return list(self.y.columns)
 
-    def freqs(self) -> List[str]:
+    def get_freqs(self) -> List[str]:
         return list(self.x["sequential"].keys())
 
-    def continuous_dim(self) -> int:
+    def get_lag_max(self) -> int:
+        return self.lag_max
+
+    def get_continuous_dim(self) -> int:
         return sum([v.shape[1] for v in self.x["continuous"].values()])
 
-    def sequential_channels(self) -> int:
+    def get_sequential_channels(self) -> int:
         return self.x["sequential"]["1min"].shape[1]
+
+    def get_base_index(self) -> pd.DatetimeIndex:
+        return self.base_index
 
     def get_labels(self, label_name: str = None) -> Union[pd.DataFrame, pd.Series]:
         if label_name is None:
@@ -53,7 +59,7 @@ class CNNDataset:
         ds_test = CNNDataset(self.base_index[train_size:], self.x, self.y, self.lag_max, self.sma_window_size_center)
         return ds_train, ds_test
 
-    def batch_num(self, batch_size: int) -> int:
+    def calc_batch_num(self, batch_size: int) -> int:
         return int(np.ceil(len(self.base_index) / batch_size))
 
     def create_loader(self, batch_size: int, randomize: bool = True) -> Generator[Tuple, None, None]:
@@ -67,7 +73,7 @@ class CNNDataset:
         # それぞれの freq に対応する idx を予め計算しておく
         idx_dict = {}
         for freq in x_seq:
-            assert (x_seq[freq].index == x_cont[freq].index).all()
+            # assert (x_seq[freq].index == x_cont[freq].index).all()
             index_freq = index.floor(pd.Timedelta(freq))
             idx_dict[freq] = x_seq[freq].index.get_indexer(index_freq)
 
@@ -251,14 +257,14 @@ class CNNModel:
 
     def _calc_stats(self, ds: CNNDataset, batch_size: int = 2048):
         data_types = ["sequential", "continuous"]
-        freqs = ds.freqs()
+        freqs = ds.get_freqs()
 
         stats_count = {data_type: {freq: 0 for freq in freqs} for data_type in data_types}
         self.stats_mean = {data_type: {freq: None for freq in freqs} for data_type in data_types}
         self.stats_var = {data_type: {freq: None for freq in freqs} for data_type in data_types}
 
         loader = ds.create_loader(batch_size, randomize=False)
-        batch_num = ds.batch_num(batch_size)
+        batch_num = ds.calc_batch_num(batch_size)
         for d_x, _ in tqdm(loader, desc="[stats]", total=batch_num):
             for data_type in data_types:
                 for freq in freqs:
@@ -291,7 +297,7 @@ class CNNModel:
                     self.stats_mean[data_type][freq] = mean_new
                     self.stats_var[data_type][freq] = var_new
 
-    def _normalize(self, d_x: Dict, eps: Optional[float] = 1e-3):
+    def _normalize(self, d_x: Dict, eps: Optional[float] = 1e-6):
         d_x_norm = {"sequential": {}, "continuous": {}}
 
         data_types = d_x.keys()
@@ -338,11 +344,11 @@ class CNNModel:
         self._calc_stats(ds_train)
 
         self.model_params.update({
-            "window_size": ds_train.lag_max,
-            "continuous_dim": ds_train.continuous_dim(),
-            "sequential_channels": ds_train.sequential_channels(),
-            "freqs": ds_train.freqs(),
-            "out_dim": len(ds_train.label_names()),
+            "window_size": ds_train.get_lag_max(),
+            "continuous_dim": ds_train.get_continuous_dim(),
+            "sequential_channels": ds_train.get_sequential_channels(),
+            "freqs": ds_train.get_freqs(),
+            "out_dim": len(ds_train.get_label_names()),
         })
 
         self.model = CNNNet(**self.model_params).to(self.device)
@@ -352,7 +358,7 @@ class CNNModel:
             self.model.train()
 
             loader_train = ds_train.create_loader(self.model_params["batch_size"])
-            batch_num = ds_train.batch_num(self.model_params["batch_size"])
+            batch_num = ds_train.calc_batch_num(self.model_params["batch_size"])
             loss_train = []
             for d_x, v_y in tqdm(loader_train, desc=f"[train {epoch}]", total=batch_num):
                 t_x = self._to_torch_x(d_x)
@@ -370,7 +376,7 @@ class CNNModel:
 
             loss_train = np.concatenate(loss_train, axis=0)
             self.run[f"{log_prefix}/loss/train/mean"].log(loss_train.mean())
-            for i, label_name in enumerate(ds_train.label_names()):
+            for i, label_name in enumerate(ds_train.get_label_names()):
                 self.run[f"{log_prefix}/loss/train/{label_name}"].log(loss_train[:, i].mean())
 
             if ds_valid is not None:
@@ -378,7 +384,7 @@ class CNNModel:
                     self.model.eval()
 
                 loader_valid = ds_valid.create_loader(self.model_params["batch_size"])
-                batch_num = ds_valid.batch_num(self.model_params["batch_size"])
+                batch_num = ds_valid.calc_batch_num(self.model_params["batch_size"])
                 loss_valid = []
                 for d_x, v_y in tqdm(loader_valid, desc=f"[valid {epoch}]", total=batch_num):
                     t_x = self._to_torch_x(d_x)
@@ -392,13 +398,13 @@ class CNNModel:
 
                 loss_valid = np.concatenate(loss_valid, axis=0)
                 self.run[f"{log_prefix}/loss/valid/mean"].log(loss_valid.mean())
-                for i, label_name in enumerate(ds_valid.label_names()):
+                for i, label_name in enumerate(ds_valid.get_label_names()):
                     self.run[f"{log_prefix}/loss/valid/{label_name}"].log(loss_valid[:, i].mean())
 
         def evaluate_auc(ds: CNNDataset) -> Dict[str, float]:
             pred_df = self.predict_score(ds)
             auc_dict = {}
-            for label_name in ds.label_names():
+            for label_name in ds.get_label_names():
                 train_label = ds.get_labels(label_name).values
                 train_pred = pred_df[label_name].values
                 auc_dict[label_name] = roc_auc_score(train_label, train_pred)
@@ -418,14 +424,14 @@ class CNNModel:
         self.model.train(not eval)
 
         loader = ds.create_loader(self.model_params["batch_size"], randomize=False)
-        batch_num = ds.batch_num(self.model_params["batch_size"])
+        batch_num = ds.calc_batch_num(self.model_params["batch_size"])
         preds = []
         for d_x, _ in tqdm(loader, desc="[predict score]", total=batch_num):
             t_x = self._to_torch_x(d_x)
             preds.append(self.model.predict_score(t_x).cpu().numpy())
 
         preds = np.concatenate(preds, axis=0)
-        return pd.DataFrame(preds, index=ds.base_index, columns=ds.label_names())
+        return pd.DataFrame(preds, index=ds.get_base_index(), columns=ds.get_label_names())
 
     def save(self, output_path: str):
         model_data = {

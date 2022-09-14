@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 
 import sys
 import pathlib
@@ -139,10 +139,11 @@ def align_frequency(base_index: pd.DatetimeIndex, df_dict: Dict[str, pd.DataFram
 
 
 def create_time_features(index: pd.DatetimeIndex):
+    # TODO: config で使用する特徴量を変えられるように (month は不要？)
     df_out = {
-        "hour": index.hour,
-        "day_of_week": index.day_of_week,
-        "month": index.month,
+        "hour": index.hour.astype(np.int32),
+        "day_of_week": index.day_of_week.astype(np.int32),
+        "month": index.month.astype(np.int32),
     }
     return pd.DataFrame(df_out, index=index)
 
@@ -175,12 +176,14 @@ def create_features(
     symbol: str,
     timings: List[str],
     freqs: List[str],
-    lag_max: int,
     sma_timing: str,
     sma_window_sizes: List[int],
     sma_window_size_center: int,
     sma_frac_ndigits: int,
-) -> Dict[str, pd.DataFrame]:
+    lag_max: int,
+    start_hour: int,
+    end_hour: int,
+) -> Tuple[pd.DatetimeIndex, Dict[str, pd.DataFrame]]:
     pip_scale = common_utils.get_pip_scale(symbol)
 
     df_dict = resample(df, freqs)
@@ -204,16 +207,23 @@ def create_features(
     df_time = create_time_features(df.index)
     df_cont_dict["1min"] = pd.concat([df_cont_dict["1min"], df_time], axis=1)
 
-    # データが足りない行を削除
+    # データが足りている最初の時刻を求める
     first_index = pd.Timestamp("1900-1-1 00:00:00")
     for freq in df_dict:
+        assert (df_seq_dict[freq].index == df_cont_dict[freq].index).all()
+
         nan_mask = df_seq_dict[freq].isnull().any(axis=1)
         notnan_idxs = (~nan_mask).values.nonzero()[0]
         first_idx = notnan_idxs[0] + lag_max
         first_index = max(first_index, df_seq_dict[freq].index[first_idx])
 
-    # TODO: 学習に適した時間帯だけ抽出
-    base_index = df.index[df.index >= first_index]
+    available_mask = (
+        (df.index >= first_index)
+        & (df.index.hour >= start_hour)
+        & (df.index.hour <  end_hour)
+        & ~((df.index.month == 12) & (df.index.day == 25))
+    )
+    base_index = df.index[available_mask]
 
     return base_index, {"sequential": df_seq_dict, "continuous": df_cont_dict}
 
@@ -341,6 +351,7 @@ def create_smadiff_labels(
     thresh_hold: float,
 ):
     values = pd.Series((df["high"].values + df["low"].values) / 2, index=df.index)
+    # TODO: window_size を前後で変える？
     sma = compute_sma(values, window_size)
     sma_before = sma.shift(1)
     sma_after = sma.shift(-window_size)

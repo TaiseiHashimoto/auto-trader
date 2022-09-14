@@ -232,34 +232,36 @@ def test_create_lagged_features():
 def test_create_features():
     actual_base_index, actual_data = utils.create_features(
         df = pd.DataFrame({
-            "open": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-            "high": [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110],
-            "low": [0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100, -110],
-            "close": [0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11],
+            "open":  [0, 1,   2,   3,   4,   5,   6,   7,   8,   9,   10,   11],
+            "high":  [0, 10,  20,  30,  40,  50,  60,  70,  80,  90,  100,  110],
+            "low":   [0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100, -110],
+            "close": [0, -1,  -2,  -3,  -4,  -5,  -6,  -7,  -8,  -9,  -10,  -11],
         }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
         symbol = "usdjpy",
         timings = ["open", "low"],
         freqs = ["1min", "2min"],
-        lag_max = 2,
         sma_timing = "open",
         sma_window_sizes = [2, 4],
         sma_window_size_center = 2,
-        sma_frac_ndigits=2
+        sma_frac_ndigits = 2,
+        lag_max = 2,
+        start_hour = 0,
+        end_hour = 1,
     )
     expected_base_index = pd.date_range("2022-01-01 00:10:00", "2022-01-01 00:11:00", freq="1min")
     expected_data = {
         "sequential": {
             "1min": pd.DataFrame({
-                "open": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-                "low": [0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100, -110],
-                "sma2": [np.nan, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5],
-                "sma4": [np.nan, np.nan, np.nan, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5],
+                "open": [0,      1,      2,      3,   4,   5,   6,   7,   8,   9,   10,   11],
+                "low":  [0,      -10,    -20,    -30, -40, -50, -60, -70, -80, -90, -100, -110],
+                "sma2": [np.nan, 0.5,    1.5,    2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5,  9.5, 10.5],
+                "sma4": [np.nan, np.nan, np.nan, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5,  8.5, 9.5],
             }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
             "2min": pd.DataFrame({
-                "open": [0, 2, 4, 6, 8, 10],
-                "low": [-10, -30, -50, -70, -90, -110],
-                "sma2": [np.nan, 1, 3, 5, 7, 9],
-                "sma4": [np.nan, np.nan, np.nan, 3, 5, 7],
+                "open": [0,      2,      4,      6,   8,   10],
+                "low":  [-10,    -30,    -50,    -70, -90, -110],
+                "sma2": [np.nan, 1,      3,      5,   7,   9],
+                "sma4": [np.nan, np.nan, np.nan, 3,   5,   7],
             }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="2min")),
         },
         "continuous": {
@@ -276,6 +278,31 @@ def test_create_features():
     }
     assert (actual_base_index == expected_base_index).all()
     assert_df_dict_equal(actual_data, expected_data, check_dtype=False)
+
+
+    actual_base_index, _ = utils.create_features(
+        df = pd.DataFrame({
+            "open":  np.zeros(60 * 72),
+            "high":  np.zeros(60 * 72),
+            "low":   np.zeros(60 * 72),
+            "close": np.zeros(60 * 72),
+        }, index=pd.date_range("2022-12-24 00:00:00", "2022-12-26 23:59:59", freq="1min")),
+        symbol = "usdjpy",
+        timings = ["open", "low"],
+        freqs = ["1min", "2min"],
+        sma_timing = "open",
+        sma_window_sizes = [2, 4],
+        sma_window_size_center = 2,
+        sma_frac_ndigits = 2,
+        lag_max = 2,
+        start_hour = 2,
+        end_hour = 22,
+    )
+    expected_base_index = pd.DatetimeIndex([
+        *pd.date_range("2022-12-24 02:00:00", "2022-12-24 21:59:59", freq="1min"),
+        *pd.date_range("2022-12-26 02:00:00", "2022-12-26 21:59:59", freq="1min"),
+    ])
+    assert (actual_base_index == expected_base_index).all()
 
 
 def test_compute_ctirical_idxs():
