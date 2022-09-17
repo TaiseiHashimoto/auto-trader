@@ -71,7 +71,7 @@ def main(config):
         ds = cnn_utils.CNNDataset(base_index, df_x_dict, df_y, config.feature.lag_max, config.feature.sma_window_size_center)
 
     # 学習用パラメータを準備
-    model_params = common_utils.conf2dict(config.label, exclude_keys=["model_type"])
+    model_params = common_utils.conf2dict(config.model, exclude_keys=["model_type"])
     if config.model.model_type == "lgbm":
         model = lgbm_utils.LGBMModel.from_scratch(model_params, run)
     elif config.model.model_type == "cnn":
