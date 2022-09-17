@@ -380,6 +380,25 @@ def test_create_future_labels():
     assert_bool_array(actual_labels["short_exit"].values,  [0, 2, 3, 4])
 
 
+def test_create_smatrend_labels():
+    values = np.array([0,      1, 2, 3, 7, 8, 6,  16, 14, 3, 10, 8, -6, 7, 5])
+    # sma:            [np.nan, 1, 2, 4, 6, 7, 10, 12, 11, 9, 7,  4, 3,  2, np.nan]
+    df = pd.DataFrame({"high": values + 1, "low": values - 1})
+    actual_labels = utils.create_smatrend_labels(df, window_size=3, step_before=2, step_after=2, thresh_entry=4)
+    assert_bool_array(actual_labels["long_entry"].values,  [4])
+    assert_bool_array(actual_labels["short_entry"].values, [10])
+    assert_bool_array(actual_labels["long_exit"].values,   [7, 8, 9, 10, 11, 12])
+    assert_bool_array(actual_labels["short_exit"].values,  [1, 2, 3, 4, 5, 6])
+
+    values = -np.array([0,      1, 2, 3, 7, 8, 6,  16, 14, 3, 10, 8, -6, 7, 5])
+    df = pd.DataFrame({"high": values + 1, "low": values - 1})
+    actual_labels = utils.create_smatrend_labels(df, window_size=3, step_before=2, step_after=2, thresh_entry=4)
+    assert_bool_array(actual_labels["long_entry"].values,  [10])
+    assert_bool_array(actual_labels["short_entry"].values, [4])
+    assert_bool_array(actual_labels["long_exit"].values,   [1, 2, 3, 4, 5, 6])
+    assert_bool_array(actual_labels["short_exit"].values,  [7, 8, 9, 10, 11, 12])
+
+
 def test_create_dummy1_labels():
     index = pd.date_range("2022-01-01 00:00:00", "2022-01-02 23:59:59", freq="4h")
     actual_labels = utils.create_dummy1_labels(index)

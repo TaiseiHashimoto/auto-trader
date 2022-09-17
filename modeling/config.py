@@ -59,6 +59,15 @@ class FutureLabelConfig:
 
 
 @dataclass
+class SMATrendConfig:
+    label_type: str = "smatrend"
+    window_size: int = 9
+    step_before: int = 5
+    step_after: int = 5
+    thresh_entry: float = 0.025
+
+
+@dataclass
 class Dummy1LabelConfig:
     label_type: str = "dummy1"
 
@@ -153,6 +162,7 @@ cs.store(name="feature", node=FeatureConfig)
 cs.store(group="label", name="critical", node=CtiricalLabelConfig)
 cs.store(group="label", name="smadiff", node=SMADiffLabelConfig)
 cs.store(group="label", name="future", node=FutureLabelConfig)
+cs.store(group="label", name="smatrend", node=SMATrendConfig)
 cs.store(group="label", name="dummy1", node=Dummy1LabelConfig)
 cs.store(group="label", name="dummy2", node=Dummy2LabelConfig)
 cs.store(group="label", name="dummy3", node=Dummy3LabelConfig)

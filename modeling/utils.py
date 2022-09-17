@@ -382,6 +382,50 @@ def create_future_labels(
     return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
 
 
+def create_smatrend_labels(
+    df: pd.DataFrame,
+    window_size: int,
+    step_before: int,
+    step_after: int,
+    thresh_entry: float,
+) -> pd.DataFrame:
+    assert window_size % 2 == 1
+
+    values = pd.Series((df["high"].values + df["low"].values) / 2, index=df.index)
+    sma = compute_sma(values, window_size).shift(-(window_size//2))
+
+    ascending  = sma > sma.shift(1)
+    descending = sma < sma.shift(1)
+
+    ascending_before  = np.ones(len(df), dtype=bool)
+    descending_before = np.ones(len(df), dtype=bool)
+    for i in range(step_before):
+        ascending_before  &= ascending.shift(i).fillna(False).values
+        descending_before &= descending.shift(i).fillna(False).values
+
+    ascending_after  = np.ones(len(df), dtype=bool)
+    descending_after = np.ones(len(df), dtype=bool)
+    for i in range(step_after):
+        ascending_after  &= ascending.shift(-(i+1)).fillna(False).values
+        descending_after &= descending.shift(-(i+1)).fillna(False).values
+
+    lift_before = sma - sma.shift(step_before)
+    lift_after  = sma.shift(-step_after) - sma
+
+    long_entry_labels = (
+        ascending_before & ascending_after
+        & (lift_before >= thresh_entry) & (lift_after >= thresh_entry)
+    )
+    short_entry_labels = (
+        descending_before & descending_after
+        & (lift_before <= -thresh_entry) & (lift_after <= -thresh_entry)
+    )
+    long_exit_labels  = (sma.shift(-1) <= sma).values
+    short_exit_labels = (sma.shift(-1) >= sma).values
+
+    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+
+
 def create_dummy1_labels(index: pd.DatetimeIndex) -> pd.DataFrame:
     long_entry_labels  = (index.hour >= 0)  & (index.hour < 6)
     short_entry_labels = (index.hour >= 6)  & (index.hour < 12)
@@ -455,6 +499,8 @@ def create_labels(
         df_y = create_smadiff_labels(df, **label_params)
     elif label_type == "future":
         df_y = create_future_labels(df, **label_params)
+    elif label_type == "smatrend":
+        df_y = create_smatrend_labels(df, **label_params)
     elif label_type == "dummy1":
         df_y = create_dummy1_labels(df.index, **label_params)
     elif label_type == "dummy2":
