@@ -84,7 +84,7 @@ class LGBMModel:
             models = pickle.load(f)
         return cls(model_params=None, models=models, run=None)
 
-    def _train(
+    def train(
         self,
         ds_train: LGBMDataset,
         ds_valid: Optional[LGBMDataset] = None,
@@ -133,12 +133,7 @@ class LGBMModel:
             if ds_valid is not None:
                 self.run[f"{log_prefix}/auc/valid/{label_name}"] = evaluate_auc(model, df_x_valid, df_y_valid)
 
-    def train_with_validation(self, ds_train: LGBMDataset, ds_valid: LGBMDataset):
-        self._train(ds_train, ds_valid, log_prefix="train_w_valid")
-
-    def train_without_validation(self, ds_train: LGBMDataset) -> Dict[str, pd.Series]:
-        self._train(ds_train, log_prefix="train_wo_valid")
-
+    def get_importance(self) -> Dict[str, pd.Series]:
         importance_dict = {}
         for label_name, model in self.models.items():
             importance = pd.Series(model.feature_importance("gain"), index=model.feature_name())

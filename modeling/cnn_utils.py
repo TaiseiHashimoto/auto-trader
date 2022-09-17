@@ -335,7 +335,7 @@ class CNNModel:
             pos_weight=torch.tensor(pos_weight, device=self.device),
         )
 
-    def _train(
+    def train(
         self,
         ds_train: CNNDataset,
         ds_valid: Optional[CNNDataset] = None,
@@ -413,12 +413,6 @@ class CNNModel:
         self.run[f"{log_prefix}/auc/train"] = evaluate_auc(ds_train)
         if ds_valid is not None:
             self.run[f"{log_prefix}/auc/valid"] = evaluate_auc(ds_valid)
-
-    def train_with_validation(self, ds_train: CNNDataset, ds_valid: CNNDataset):
-        self._train(ds_train, ds_valid, log_prefix="train_w_valid")
-
-    def train_without_validation(self, ds_train: CNNDataset):
-        self._train(ds_train, log_prefix="train_wo_valid")
 
     def predict_score(self, ds: CNNDataset, eval: bool = True) -> pd.DataFrame:
         self.model.train(not eval)

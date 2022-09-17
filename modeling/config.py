@@ -131,7 +131,7 @@ class TrainConfig:
 
     random_seed: int = 123
     valid_ratio: float = 0.1
-    save_model: bool = True
+    retrain: bool = True
     gcp: GCPConfig = GCPConfig()
     neptune: NeptuneConfig = NeptuneConfig()
     data: DataConfig = DataConfig()

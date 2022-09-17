@@ -82,19 +82,20 @@ def main(config):
     ds_train, ds_valid = ds.train_test_split(config.valid_ratio)
     run["label/positive_ratio/train"] = ds_train.get_labels().mean().to_dict()
     run["label/positive_ratio/valid"] = ds_valid.get_labels().mean().to_dict()
-    model.train_with_validation(ds_train, ds_valid)
+    model.train(ds_train, ds_valid, log_prefix="train_w_valid")
 
-    if not config.save_model:
-        return
+    if config.retrain:
+        # 全データで再学習
+        print("Re-train")
+        model.train(ds, log_prefix="train_wo_valid")
 
-    # 全データで再学習
-    print("Re-train")
-    importance_dict = model.train_without_validation(ds)
     if config.model.model_type == "lgbm":
+        importance_dict = model.get_importance()
+        log_prefix = "train_wo_valid" if config.retrain else "train_w_valid"
         for label_name in importance_dict:
             importance_path = f"{OUTPUT_DIRECTORY}/importance_{label_name}.csv"
             importance_dict[label_name].to_csv(importance_path)
-            run[f"train_wo_valid/importance/{label_name}"].upload(importance_path)
+            run[f"{log_prefix}/importance/{label_name}"].upload(importance_path)
 
     # モデル保存
     print("Save model")
