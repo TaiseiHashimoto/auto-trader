@@ -5,3 +5,4 @@ __pycache__
 auto-trader-sa.json
 .pytest_cache
 lprof/
+*.ipynb

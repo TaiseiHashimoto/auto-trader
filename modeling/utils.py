@@ -1,6 +1,6 @@
 import numpy as np
 import pandas as pd
-from typing import Optional, List, Dict, Tuple
+from typing import Optional, List, Dict, Tuple, Any
 
 import sys
 import pathlib
@@ -441,3 +441,31 @@ def merge_labels(
         "short_exit": short_exit_labels,
     }, index=index)
     return df_labels
+
+
+def create_labels(
+    label_type: str,
+    df: pd.DataFrame,
+    df_x_dict: Dict[str, Dict[str, pd.DataFrame]],
+    label_params: Dict[str, Any],
+) -> pd.DataFrame:
+    if label_type == "critical":
+        df_y = create_critical_labels(df, **label_params)
+    elif label_type == "smadiff":
+        df_y = create_smadiff_labels(df, **label_params)
+    elif label_type == "future":
+        df_y = create_future_labels(df, **label_params)
+    elif label_type == "dummy1":
+        df_y = create_dummy1_labels(df.index, **label_params)
+    elif label_type == "dummy2":
+        df_y = create_dummy2_labels(df_x_dict, **label_params)
+    elif label_type == "dummy3":
+        df_y = create_dummy3_labels(df_x_dict, **label_params)
+
+    return df_y
+
+
+def calc_tpr_fpr(label: np.ndarray, pred: np.ndarray):
+    tpr = (label & pred).sum() / label.sum()
+    fpr = ((~label) & pred).sum() / (~label).sum()
+    return tpr, fpr

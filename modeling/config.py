@@ -133,6 +133,7 @@ class TrainConfig:
 
 @dataclass
 class EvalConfig:
+    model_type: str = "lgbm"
     start_hour: int = 2
     end_hour: int = 22
     thresh_loss_cut: float = 0.05
@@ -146,25 +147,27 @@ class EvalConfig:
     data: DataConfig = DataConfig()
 
 
+cs = ConfigStore.instance(version_base=None)
+cs.store(name="data", node=DataConfig)
+cs.store(name="feature", node=FeatureConfig)
+cs.store(group="label", name="critical", node=CtiricalLabelConfig)
+cs.store(group="label", name="smadiff", node=SMADiffLabelConfig)
+cs.store(group="label", name="future", node=FutureLabelConfig)
+cs.store(group="label", name="dummy1", node=Dummy1LabelConfig)
+cs.store(group="label", name="dummy2", node=Dummy2LabelConfig)
+cs.store(group="label", name="dummy3", node=Dummy3LabelConfig)
+cs.store(group="model", name="lgbm", node=LGBMModelConfig)
+cs.store(group="model", name="cnn", node=CNNModelConfig)
+cs.store(name="train", node=TrainConfig)
+cs.store(name="eval", node=EvalConfig)
+
+
 def validate_train_config(config: OmegaConf):
     assert "1min" in config.feature.freqs
     assert config.feature.sma_window_size_center in config.feature.sma_window_sizes
 
 
 def get_train_config(argv: List[str] = None):
-    cs = ConfigStore.instance(version_base=None)
-    cs.store(name="data", node=DataConfig)
-    cs.store(name="feature", node=FeatureConfig)
-    cs.store(group="label", name="critical", node=CtiricalLabelConfig)
-    cs.store(group="label", name="smadiff", node=SMADiffLabelConfig)
-    cs.store(group="label", name="future", node=FutureLabelConfig)
-    cs.store(group="label", name="dummy1", node=Dummy1LabelConfig)
-    cs.store(group="label", name="dummy2", node=Dummy2LabelConfig)
-    cs.store(group="label", name="dummy3", node=Dummy3LabelConfig)
-    cs.store(group="model", name="lgbm", node=LGBMModelConfig)
-    cs.store(group="model", name="cnn", node=CNNModelConfig)
-    cs.store(name="train", node=TrainConfig)
-
     if argv is None:
         argv = sys.argv[1:]
 
@@ -175,3 +178,13 @@ def get_train_config(argv: List[str] = None):
     validate_train_config(config)
     return config
 
+
+def get_eval_config(argv: List[str] = None):
+    if argv is None:
+        argv = sys.argv[1:]
+
+    with initialize(version_base=None):
+        config = compose(config_name="eval", overrides=argv)
+
+    OmegaConf.resolve(config)
+    return config

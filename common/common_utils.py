@@ -3,7 +3,7 @@ import pandas as pd
 import torch
 import random
 import os
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 from enum import Enum
 from omegaconf import OmegaConf
 from google.cloud import (storage, secretmanager)
@@ -195,8 +195,12 @@ def calc_year_month_offset(year: int, month: int, month_offset: int):
     return year, month
 
 
-def conf2dict(config: OmegaConf) -> Dict:
-    return OmegaConf.to_container(config, resolve=True)
+def conf2dict(config: OmegaConf, exclude_keys: List[str] = None) -> Dict:
+    if exclude_keys is None:
+        exclude_keys = []
+
+    d = OmegaConf.to_container(config, resolve=True)
+    return {k: v for k, v in d.items() if k not in exclude_keys}
 
 
 def get_pip_scale(symbol: str) -> float:

@@ -7,7 +7,7 @@ import neptune.new as neptune
 import utils
 import lgbm_utils
 import cnn_utils
-from config import get_train_config, LGBMModelConfig, CNNModelConfig
+from config import get_train_config
 
 import sys
 import pathlib
@@ -22,9 +22,7 @@ def index2mask(index: np.ndarray, size: int) -> np.ndarray:
 
 
 def main(config):
-    run = neptune.init_run()
-    run["sys/tags"].add(config.model.model_type)
-    run["sys/tags"].add(config.label.label_type)
+    run = neptune.init_run(tags=["train", config.model.model_type, config.label.label_type])
     run["config"] = OmegaConf.to_yaml(config)
 
     if ON_COLAB:
@@ -64,19 +62,8 @@ def main(config):
     print(f"Train period: {base_index[0]} ~ {base_index[-1]}")
 
     print("Create labels")
-    label_params = {k: v for k, v in common_utils.conf2dict(config.label).items() if k != "label_type"}
-    if config.label.label_type == "critical":
-        df_y = utils.create_critical_labels(df, **label_params)
-    elif config.label.label_type == "smadiff":
-        df_y = utils.create_smadiff_labels(df, **label_params)
-    elif config.label.label_type == "future":
-        df_y = utils.create_future_labels(df, **label_params)
-    elif config.label.label_type == "dummy1":
-        df_y = utils.create_dummy1_labels(df.index, **label_params)
-    elif config.label.label_type == "dummy2":
-        df_y = utils.create_dummy2_labels(df_x_dict, **label_params)
-    elif config.label.label_type == "dummy3":
-        df_y = utils.create_dummy3_labels(df_x_dict, **label_params)
+    label_params = common_utils.conf2dict(config.label, exclude_keys=["label_type"])
+    df_y = utils.create_labels(config.label.label_type, df, df_x_dict, label_params)
 
     if config.model.model_type == "lgbm":
         ds = lgbm_utils.LGBMDataset(base_index, df_x_dict, df_y, config.feature.lag_max, config.feature.sma_window_size_center)
@@ -84,7 +71,7 @@ def main(config):
         ds = cnn_utils.CNNDataset(base_index, df_x_dict, df_y, config.feature.lag_max, config.feature.sma_window_size_center)
 
     # 学習用パラメータを準備
-    model_params = {k: v for k, v in common_utils.conf2dict(config.model).items() if k != "model_type"}
+    model_params = common_utils.conf2dict(config.label, exclude_keys=["model_type"])
     if config.model.model_type == "lgbm":
         model = lgbm_utils.LGBMModel.from_scratch(model_params, run)
     elif config.model.model_type == "cnn":
@@ -120,7 +107,7 @@ def main(config):
 
     # メタデータ保存
     model_version["config"] = OmegaConf.to_yaml(config)
-    model_version["run_url"] = run.get_url()
+    model_version["train_run_url"] = run.get_url()
     # config だけからでは学習データの期間が正確にはわからないため、別途記録する
     model_version["train/first_timestamp"] = str(base_index[0])
     model_version["train/last_timestamp"] = str(base_index[-1])

@@ -1,5 +1,6 @@
 import numpy as np
 import pandas as pd
+from pytest import approx
 
 import utils
 
@@ -416,6 +417,19 @@ def test_create_dummy3_labels():
     assert_bool_array(actual_labels["short_entry"].values, [8])
     assert_bool_array(actual_labels["long_exit"].values,   [5])
     assert_bool_array(actual_labels["short_exit"].values,  [6, 7])
+
+
+def test_create_labels():
+    # TODO: テスト追加
+    pass
+
+
+def test_calc_tpr_fpr():
+    label = np.array([True, True, True, False, False])
+    pred = np.array([True, True, False, False, True])
+    tpr, fpr = utils.calc_tpr_fpr(label, pred)
+    assert tpr == approx(2 / 3)
+    assert fpr == approx(1 / 2)
 
 
 def assert_df_dict_equal(df_dict1, df_dict2, **kwargs):
