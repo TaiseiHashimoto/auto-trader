@@ -106,6 +106,7 @@ class CNNModelConfig:
     model_type: str = "cnn"
     num_epochs: int = 1
     learning_rate: float = 1.0e-3
+    weight_decay: float = 0.
     pos_weight: float = 1.0
     batch_size: int = 256
 

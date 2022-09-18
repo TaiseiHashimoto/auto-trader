@@ -351,7 +351,10 @@ class CNNModel:
         })
 
         self.model = CNNNet(**self.model_params).to(self.device)
-        optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_params["learning_rate"])
+        if self.model_params["weight_decay"] == 0:
+            optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_params["learning_rate"])
+        else:
+            optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.model_params["learning_rate"], weight_decay=self.model_params["weight_decay"])
 
         for epoch in range(self.model_params["num_epochs"]):
             self.model.train()
