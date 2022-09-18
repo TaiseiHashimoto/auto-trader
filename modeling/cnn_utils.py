@@ -228,6 +228,9 @@ class CNNModel:
         self.run = run
         self.device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
 
+        if self.model is not None:
+            self.model.to(self.device)
+
     @classmethod
     def from_scratch(cls, model_params: Dict, run: neptune.Run):
         return cls(
@@ -241,7 +244,7 @@ class CNNModel:
     @classmethod
     def from_file(cls, model_path: str):
         with open(model_path, "rb") as f:
-            model_data = torch.load(f)
+            model_data = torch.load(f, map_location=torch.device("cpu"))
 
         model = CNNNet(**model_data["model_params"])
         model.load_state_dict(model_data["state_dict"])
@@ -404,7 +407,7 @@ class CNNModel:
                     self.run[f"{log_prefix}/loss/valid/{label_name}"].log(loss_valid[:, i].mean())
 
         def log_auc(ds: CNNDataset, log_suffix: str):
-            pred_df = self.predict_score(ds)
+            pred_df = self.predict_score(ds, eval=self.model_params["eval_on_valid"])
             for label_name in ds.get_label_names():
                 label = ds.get_labels(label_name).values
                 pred = pred_df[label_name].values

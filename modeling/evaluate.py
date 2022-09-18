@@ -151,7 +151,7 @@ def main(config):
             preds_binary[label_name][percentile] = pred_binary.values
 
             y_label = df_y.loc[base_index, label_name].values
-            y_pred = pred_binary.loc[base_index]
+            y_pred = pred_binary.loc[base_index].values
             run[f"stats/precision/{label_name}/{percentile}"] = precision_score(y_label, y_pred)
             run[f"stats/recall/{label_name}/{percentile}"] = recall_score(y_label, y_pred)
             run[f"stats/specificity/{label_name}/{percentile}"] = utils.calc_specificity(y_label, y_pred)

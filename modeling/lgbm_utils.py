@@ -40,7 +40,7 @@ class LGBMDataset:
             sma_colname = f"sma{self.sma_window_size_center}_lag1"
             sma = df_lagged[sma_colname]
             df_lagged_centered = df_lagged - sma.values[:, np.newaxis]
-            # sma のカラムは常に 0 なので削除する
+            # 基準となる sma のカラムは常に 0 なので削除する
             df_seq_dict[freq] = df_lagged_centered.drop(sma_colname, axis=1)
 
         df_seq = utils.align_frequency(self.base_index, df_seq_dict)
