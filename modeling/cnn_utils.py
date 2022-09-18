@@ -1,7 +1,7 @@
 import numpy as np
 import pandas as pd
 from typing import Optional, List, Dict, Tuple, Union, Generator
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, average_precision_score
 from tqdm import tqdm
 import neptune.new as neptune
 import warnings
@@ -73,7 +73,6 @@ class CNNDataset:
         # それぞれの freq に対応する idx を予め計算しておく
         idx_dict = {}
         for freq in x_seq:
-            # assert (x_seq[freq].index == x_cont[freq].index).all()
             index_freq = index.floor(pd.Timedelta(freq))
             idx_dict[freq] = x_seq[freq].index.get_indexer(index_freq)
 
@@ -93,7 +92,7 @@ class CNNDataset:
                 idx_expanded = np.stack([idx_batch_freq - lag_i for lag_i in range(1, self.lag_max + 1)], axis=1)
                 v = x_seq[freq].values[idx_expanded.flatten()].reshape((len(idx_batch_freq), self.lag_max, -1))
                 sma = x_seq[freq][f"sma{self.sma_window_size_center}"].values[idx_batch_freq-1]
-                # shape; (batch_size, lag_max, feature_dim)
+                # shape: (batch_size, lag_max, feature_dim)
                 values_x_seq[freq] = v - sma[:, np.newaxis, np.newaxis]
 
                 values_x_cont[freq] = x_cont[freq].values[idx_batch_freq]
@@ -167,7 +166,7 @@ class CNNNet(nn.Module):
         # TODO: 可能であれば、使用しないパラメータは渡さないようにする
         unused_keys = kwargs.keys()
         if len(unused_keys) > 0:
-            warnings.warn(f"[CNNNet] unused keywords: " + ", ".join(unused_keys))
+            warnings.warn(f"[CNNNet] unused keywords: " + ", ".join(unused_keys), stacklevel=2)
 
         super().__init__()
 
@@ -401,18 +400,17 @@ class CNNModel:
                 for i, label_name in enumerate(ds_valid.get_label_names()):
                     self.run[f"{log_prefix}/loss/valid/{label_name}"].log(loss_valid[:, i].mean())
 
-        def evaluate_auc(ds: CNNDataset) -> Dict[str, float]:
+        def log_auc(ds: CNNDataset, log_suffix: str):
             pred_df = self.predict_score(ds)
-            auc_dict = {}
             for label_name in ds.get_label_names():
-                train_label = ds.get_labels(label_name).values
-                train_pred = pred_df[label_name].values
-                auc_dict[label_name] = roc_auc_score(train_label, train_pred)
-            return auc_dict
+                label = ds.get_labels(label_name).values
+                pred = pred_df[label_name].values
+                self.run[f"{log_prefix}/auc/roc/{log_suffix}/{label_name}"] = roc_auc_score(label, pred)
+                self.run[f"{log_prefix}/auc/pr/{log_suffix}/{label_name}"] = average_precision_score(label, pred)
 
-        self.run[f"{log_prefix}/auc/train"] = evaluate_auc(ds_train)
+        log_auc(ds_train, log_suffix="train")
         if ds_valid is not None:
-            self.run[f"{log_prefix}/auc/valid"] = evaluate_auc(ds_valid)
+            log_auc(ds_valid, log_suffix="valid")
 
     def predict_score(self, ds: CNNDataset, eval: bool = True) -> pd.DataFrame:
         self.model.train(not eval)

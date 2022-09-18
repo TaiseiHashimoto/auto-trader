@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 from typing import Optional, List, Dict, Tuple, Union
 import lightgbm as lgb
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, average_precision_score
 import pickle
 import neptune.new as neptune
 
@@ -90,10 +90,12 @@ class LGBMModel:
         ds_valid: Optional[LGBMDataset] = None,
         log_prefix: str = "train",
     ):
-        def evaluate_auc(model: lgb.Booster, df_x: pd.DataFrame, df_y: pd.Series):
+        # TODO: log はできるだけ外 (呼び出し側) で行う
+        def log_auc(model: lgb.Booster, df_x: pd.DataFrame, df_y: pd.Series, log_suffix: str):
             label = df_y.values
             pred = model.predict(df_x).astype(np.float32)
-            return roc_auc_score(label, pred)
+            self.run[f"{log_prefix}/auc/roc/{log_suffix}"] = roc_auc_score(label, pred)
+            self.run[f"{log_prefix}/auc/pr/{log_suffix}"] = average_precision_score(label, pred)
 
         df_x_train = ds_train.bundle_features()
         if ds_valid is not None:
@@ -129,9 +131,9 @@ class LGBMModel:
                 for loss in evals_results[valid_name]["binary_logloss"]:
                     self.run[f"{log_prefix}/loss/{valid_name}/{label_name}"].log(loss)
 
-            self.run[f"{log_prefix}/auc/train/{label_name}"] = evaluate_auc(model, df_x_train, df_y_train)
+            log_auc(model, df_x_train, df_y_train, log_suffix=f"train/{label_name}")
             if ds_valid is not None:
-                self.run[f"{log_prefix}/auc/valid/{label_name}"] = evaluate_auc(model, df_x_valid, df_y_valid)
+                log_auc(model, df_x_valid, df_y_valid, log_suffix=f"valid/{label_name}")
 
     def get_importance(self) -> Dict[str, pd.Series]:
         importance_dict = {}

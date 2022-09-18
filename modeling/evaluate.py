@@ -2,7 +2,7 @@ import numpy as np
 import os
 import sys
 from tqdm import tqdm
-from sklearn.metrics import roc_auc_score
+from sklearn.metrics import roc_auc_score, average_precision_score
 from omegaconf import OmegaConf
 import itertools
 import neptune.new as neptune
@@ -113,13 +113,15 @@ def main(config):
 
     # 予測
     preds = model.predict_score(ds)
+    preds = preds.reindex(df.index, fill_value=0.)
 
     # 予測スコアの AUC とパーセンタイルを計算
     PERCENTILES = [0, 5, 10, 25, 50, 75, 90, 95, 100]
     for label_name in preds.columns:
-        pred = preds[label_name].values
+        pred = preds.loc[base_index, label_name].values
         label = df_y.loc[base_index, label_name].values
-        run[f"auc/{label_name}"] = roc_auc_score(label, pred)
+        run[f"auc/roc/{label_name}"] = roc_auc_score(label, pred)
+        run[f"auc/pr/{label_name}"] = average_precision_score(label, pred)
         run[f"score_percentile/{label_name}"] = {
             p: np.percentile(pred, p) for p in PERCENTILES
         }
@@ -132,9 +134,8 @@ def main(config):
     run["dump/scores"].upload(scores_path)
     run["dump/labels"].upload(labels_path)
 
-
     # パーセンタイルとリフトを計算
-    rates = df.loc[base_index, config.simulate_timing]
+    rates = df[config.simulate_timing]
     FUTURE_STEPS = [5, 10, 20, 30, 60]
     preds_binary = {}
     for label_name in preds:
@@ -145,20 +146,21 @@ def main(config):
 
         preds_binary[label_name] = {}
         for percentile in percentile_list:
-            pred_binary = preds[label_name].values >= np.percentile(preds[label_name].values,  percentile)
-            preds_binary[label_name][percentile] = pred_binary
+            p = np.percentile(preds.loc[base_index, label_name].values,  percentile)
+            pred_binary = preds[label_name] >= p
+            preds_binary[label_name][percentile] = pred_binary.values
 
-            tpr, fpr = utils.calc_tpr_fpr(df_y.loc[base_index, label_name].values, pred_binary)
+            tpr, fpr = utils.calc_tpr_fpr(df_y.loc[base_index, label_name].values, pred_binary.loc[base_index])
             run[f"tpr/{label_name}/{percentile}"] = tpr
             run[f"fpr/{label_name}/{percentile}"] = fpr
 
             for fs in FUTURE_STEPS:
-                rates_diff = rates.shift(-fs).values - rates.values
-                lift = np.nanmean(rates_diff[pred_binary])
+                rates_diff = rates.shift(-fs) - rates
+                lift = rates_diff[pred_binary].mean()
                 run[f"lift/{label_name}/{percentile}/{fs}"] = lift
 
     # シミュレーション
-    rates = df.loc[base_index, config.simulate_timing].values
+    rates = df[config.simulate_timing].values
     params_list = list(itertools.product(config.percentile_entry_list, config.percentile_exit_list))
     for percentile_entry, percentile_exit in tqdm(params_list):
         param_str = f"{percentile_entry},{percentile_exit}"
@@ -169,14 +171,15 @@ def main(config):
             config.thresh_loss_cut
         )
 
-        for i, timestamp in enumerate(base_index):
-            simulator.step(timestamp,
-            rates[i],
-            preds_binary["long_entry"][percentile_entry][i],
-            preds_binary["short_entry"][percentile_entry][i],
-            preds_binary["long_exit"][percentile_exit][i],
-            preds_binary["short_exit"][percentile_exit][i],
-        )
+        for i, timestamp in enumerate(df.index):
+            simulator.step(
+                timestamp,
+                rates[i],
+                preds_binary["long_entry"][percentile_entry][i],
+                preds_binary["short_entry"][percentile_entry][i],
+                preds_binary["long_exit"][percentile_exit][i],
+                preds_binary["short_exit"][percentile_exit][i],
+            )
 
         profits = np.array([order.gain for order in simulator.order_history]) - config.spread
         timedeltas = np.array([
