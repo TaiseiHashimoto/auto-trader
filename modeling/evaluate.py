@@ -2,7 +2,7 @@ import numpy as np
 import os
 import sys
 from tqdm import tqdm
-from sklearn.metrics import roc_auc_score, average_precision_score
+from sklearn.metrics import roc_auc_score, average_precision_score, recall_score, precision_score
 from omegaconf import OmegaConf
 import itertools
 import neptune.new as neptune
@@ -106,8 +106,8 @@ def main(config):
     eval_first_timestamp = base_index[0]
     eval_last_timestamp = base_index[-1]
     print(f"Evaluation period: {eval_first_timestamp} ~ {eval_last_timestamp}")
-    run["first_timestamp"] = str(eval_first_timestamp)
-    run["last_timestamp"] = str(eval_last_timestamp)
+    run["data/first_timestamp"] = str(eval_first_timestamp)
+    run["data/last_timestamp"] = str(eval_last_timestamp)
     days = (eval_last_timestamp - eval_first_timestamp).days * (5/7)
     months = (eval_last_timestamp - eval_first_timestamp).days / 30
 
@@ -120,9 +120,9 @@ def main(config):
     for label_name in preds.columns:
         pred = preds.loc[base_index, label_name].values
         label = df_y.loc[base_index, label_name].values
-        run[f"auc/roc/{label_name}"] = roc_auc_score(label, pred)
-        run[f"auc/pr/{label_name}"] = average_precision_score(label, pred)
-        run[f"score_percentile/{label_name}"] = {
+        run[f"stats/auc/roc/{label_name}"] = roc_auc_score(label, pred)
+        run[f"stats/auc/pr/{label_name}"] = average_precision_score(label, pred)
+        run[f"stats/score_percentile/{label_name}"] = {
             p: np.percentile(pred, p) for p in PERCENTILES
         }
 
@@ -150,9 +150,11 @@ def main(config):
             pred_binary = preds[label_name] >= p
             preds_binary[label_name][percentile] = pred_binary.values
 
-            tpr, fpr = utils.calc_tpr_fpr(df_y.loc[base_index, label_name].values, pred_binary.loc[base_index])
-            run[f"tpr/{label_name}/{percentile}"] = tpr
-            run[f"fpr/{label_name}/{percentile}"] = fpr
+            y_label = df_y.loc[base_index, label_name].values
+            y_pred = pred_binary.loc[base_index]
+            run[f"stats/precision/{label_name}/{percentile}"] = precision_score(y_label, y_pred)
+            run[f"stats/recall/{label_name}/{percentile}"] = recall_score(y_label, y_pred)
+            run[f"stats/specificity/{label_name}/{percentile}"] = utils.calc_specificity(y_label, y_pred)
 
             for fs in FUTURE_STEPS:
                 rates_diff = rates.shift(-fs) - rates

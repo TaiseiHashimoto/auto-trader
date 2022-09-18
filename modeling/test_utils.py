@@ -443,12 +443,10 @@ def test_create_labels():
     pass
 
 
-def test_calc_tpr_fpr():
-    label = np.array([True, True, True, False, False])
+def test_calc_specificity():
+    label = np.array([True, True, False, False, False])
     pred = np.array([True, True, False, False, True])
-    tpr, fpr = utils.calc_tpr_fpr(label, pred)
-    assert tpr == approx(2 / 3)
-    assert fpr == approx(1 / 2)
+    assert utils.calc_specificity(label, pred) == approx(2 / 3)
 
 
 def assert_df_dict_equal(df_dict1, df_dict2, **kwargs):

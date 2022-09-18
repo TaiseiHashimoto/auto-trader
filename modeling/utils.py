@@ -511,7 +511,5 @@ def create_labels(
     return df_y
 
 
-def calc_tpr_fpr(label: np.ndarray, pred: np.ndarray):
-    tpr = (label & pred).sum() / label.sum()
-    fpr = ((~label) & pred).sum() / (~label).sum()
-    return tpr, fpr
+def calc_specificity(label: np.ndarray, pred: np.ndarray) -> float:
+    return ((~label) & (~pred)).sum() / (~label).sum()
