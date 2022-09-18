@@ -110,8 +110,10 @@ def main(config):
     model_version["config"] = OmegaConf.to_yaml(config)
     model_version["train_run_url"] = run.get_url()
     # config だけからでは学習データの期間が正確にはわからないため、別途記録する
-    model_version["train/first_timestamp"] = str(base_index[0])
-    model_version["train/last_timestamp"] = str(base_index[-1])
+    first_timestamp = ds.base_index[0]
+    last_timestamp = ds.base_index[-1] if config.retrain else ds_train.base_index[-1]
+    model_version["train/first_timestamp"] = str(first_timestamp)
+    model_version["train/last_timestamp"] = str(last_timestamp)
 
     run["model_version_url"] = model_version.get_url()
 
