@@ -200,24 +200,24 @@ def create_features(
         df_seq_dict[freq] = pd.concat([df_dict[freq][timings], df_sma], axis=1)
 
         sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale, ndigits=sma_frac_ndigits)
-        sma_frac = sma_frac.shift(1)
-        # name: sma* -> sma*_frac
-        sma_frac.name = sma_frac.name + "_frac_lag1"
         # seq と形式を合わせるため、Series から DataFrame に変換
-        df_cont_dict[freq] = sma_frac.to_frame()
+        df_cont_dict[freq] = sma_frac.shift(1).to_frame().add_suffix("_frac_lag1")
 
     df_time = create_time_features(df.index)
 
     assert (df.index == df_critical.index).all()
     df_critical_values = df_critical[[c for c in df_critical.columns if re.match(r"prev[0-9]+_pre_critical_values", c)]]
     df_critical_idxs = df_critical[[c for c in df_critical.columns if re.match(r"prev[0-9]+_pre_critical_idxs", c)]]
-    df_critical_recencies = df_critical_idxs - np.arange(len(df))[:, np.newaxis]
+    # HACK: 該当なしの場合に -1 になることを使っている
+    df_critical_idxs_relative = (df_critical_idxs.replace(-1, np.nan) - np.arange(len(df))[:, np.newaxis]).add_suffix("_relative")
+    df_critical_uptrends = df_critical[["pre_uptrends"]].astype(np.int32)
 
     df_cont_dict["1min"] = pd.concat([
         df_cont_dict["1min"],
         df_time,
-        df_critical_values,
-        df_critical_recencies,
+        df_critical_values.shift(1).add_suffix("_lag1"),
+        df_critical_idxs_relative.shift(1).add_suffix("_lag1"),
+        df_critical_uptrends.shift(1).add_suffix("_lag1"),
     ], axis=1)
 
     # データが足りている最初の時刻を求める

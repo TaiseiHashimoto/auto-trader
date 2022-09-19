@@ -245,6 +245,7 @@ def test_create_features():
             "prev1_pre_critical_idxs": [-1, 0, 0, 0, 1, 1, 5, 5, 5, 5, 8, 9],
             "prev2_pre_critical_idxs": [-1, -1, -1, -1, 0, 0, 1, 1, 1, 1, 5, 8],
             "prev3_pre_critical_idxs": [-1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 1, 5],
+            "pre_uptrends": [True, True, False, False, True, True, True, True, False, False, False, True],
         }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
         symbol = "usdjpy",
         timings = ["open", "low"],
@@ -279,12 +280,13 @@ def test_create_features():
                 "hour": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                 "day_of_week": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
                 "month": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                "prev1_pre_critical_values": [np.nan, 0, 0, 0, 1, 1, 5, 5, 5, 5, 8, 9],
-                "prev2_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, 0, 0, 1, 1, 1, 1, 5, 8],
-                "prev3_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 0, 0, 0, 0, 1, 5],
-                "prev1_pre_critical_idxs": [-1, -1, -2, -3, -3, -4, -1, -2, -3, -4, -2, -2],
-                "prev2_pre_critical_idxs": [-1, -2, -3, -4, -4, -5, -5, -6, -7, -8, -5, -3],
-                "prev3_pre_critical_idxs": [-1, -2, -3, -4, -5, -6, -6, -7, -8, -9, -9, -6],
+                "prev1_pre_critical_values_lag1": [np.nan, np.nan, 0, 0, 0, 1, 1, 5, 5, 5, 5, 8],
+                "prev2_pre_critical_values_lag1": [np.nan, np.nan, np.nan, np.nan, np.nan, 0, 0, 1, 1, 1, 1, 5],
+                "prev3_pre_critical_values_lag1": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 0, 0, 0, 0, 1],
+                "prev1_pre_critical_idxs_relative_lag1": [np.nan, np.nan, -1, -2, -3, -3, -4, -1, -2, -3, -4, -2],
+                "prev2_pre_critical_idxs_relative_lag1": [np.nan, np.nan, np.nan, np.nan, np.nan, -4, -5, -5, -6, -7, -8, -5],
+                "prev3_pre_critical_idxs_relative_lag1": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, -6, -7, -8, -9, -9],
+                "pre_uptrends_lag1": [np.nan, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0],
             }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
             "2min": pd.DataFrame({
                 "sma2_frac_lag1": [np.nan, np.nan, 0, 0, 0, 0],
@@ -293,7 +295,6 @@ def test_create_features():
     }
     assert (actual_base_index == expected_base_index).all()
     assert_df_dict_equal(actual_data, expected_data, check_dtype=False)
-
 
     size = 60 * 72
     actual_base_index, _ = utils.create_features(
@@ -310,6 +311,7 @@ def test_create_features():
             "prev1_pre_critical_idxs": [0] * size,
             "prev2_pre_critical_idxs": [1] * size,
             "prev3_pre_critical_idxs": [2] * size,
+            "pre_uptrends": [True] * size,
         }, index=pd.date_range("2022-12-24 00:00:00", "2022-12-26 23:59:59", freq="1min")),
         symbol = "usdjpy",
         timings = ["open", "low"],
