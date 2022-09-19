@@ -207,17 +207,19 @@ def create_features(
 
     assert (df.index == df_critical.index).all()
     df_critical_values = df_critical[[c for c in df_critical.columns if re.match(r"prev[0-9]+_pre_critical_values", c)]]
+    # 中心化
+    df_critical_values = df_critical_values - df_seq_dict["1min"][f"sma{sma_window_size_center}"].values[:, np.newaxis]
     df_critical_idxs = df_critical[[c for c in df_critical.columns if re.match(r"prev[0-9]+_pre_critical_idxs", c)]]
     # HACK: 該当なしの場合に -1 になることを使っている
-    df_critical_idxs_relative = (df_critical_idxs.replace(-1, np.nan) - np.arange(len(df))[:, np.newaxis]).add_suffix("_relative")
-    df_critical_uptrends = df_critical[["pre_uptrends"]].astype(np.int32)
+    df_critical_idxs = (df_critical_idxs.replace(-1, np.nan) - np.arange(len(df))[:, np.newaxis])
+    # df_critical_uptrends = df_critical[["pre_uptrends"]].astype(np.int32)
 
     df_cont_dict["1min"] = pd.concat([
         df_cont_dict["1min"],
         df_time,
         df_critical_values.shift(1).add_suffix("_lag1"),
-        df_critical_idxs_relative.shift(1).add_suffix("_lag1"),
-        df_critical_uptrends.shift(1).add_suffix("_lag1"),
+        df_critical_idxs.shift(1).add_suffix("_lag1"),
+        # df_critical_uptrends.shift(1).add_suffix("_lag1"),
     ], axis=1)
 
     # データが足りている最初の時刻を求める
