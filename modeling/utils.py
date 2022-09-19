@@ -398,6 +398,14 @@ def compute_critical_info(
         return v
 
     for prev_i in range(1, prev_max + 1):
+        prev_critical_idxs = compute_neighbor_critical_idxs(
+            size=len(df),
+            critical_idxs=critical_idxs,
+            offset=-prev_i,
+        )
+        critical_info[f"prev{prev_i}_critical_idxs"] = prev_critical_idxs
+        critical_info[f"prev{prev_i}_critical_values"] = get_values_from_idxs(values, prev_critical_idxs)
+
         prev_pre_critical_idxs = compute_neighbor_pre_critical_idxs(
             size=len(df),
             critical_idxs=critical_idxs,
@@ -478,11 +486,13 @@ def create_critical2_labels(
     next_critical_values = df_critical["next_critical_values"].values
     uptrends = df_critical["uptrends"].values
     pre_uptrends = df_critical["pre_uptrends"].values
+    pre_uptrends_lag1 = df_critical["pre_uptrends"].shift(1, fill_value=True).values
     values_diff = next_critical_values - values
 
     # entry: 利益が出る and 暫定トレンドが順方向
-    long_entry_labels  = (values_diff >= thresh_entry)  & pre_uptrends
-    short_entry_labels = (values_diff <= -thresh_entry) & ~pre_uptrends
+    # pre_uptrends_lag1 だけでは周回遅れになる可能性がため、pre_uptrends についてもチェックする
+    long_entry_labels  = (values_diff >= thresh_entry)  & pre_uptrends  & pre_uptrends_lag1
+    short_entry_labels = (values_diff <= -thresh_entry) & ~pre_uptrends & ~pre_uptrends_lag1
     # exit: トレンドが逆方向
     long_exit_labels  = ~uptrends
     short_exit_labels = uptrends

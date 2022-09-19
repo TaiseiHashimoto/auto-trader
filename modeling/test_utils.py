@@ -433,15 +433,21 @@ def test_compute_critical_info():
     )
     expected_critical_info = pd.DataFrame({
         "values": values,
-        "prev1_pre_critical_idxs": [-1, -1, -1, 2,  3,  3,  3,  6, 6],
-        "prev1_pre_critical_values": [np.nan, np.nan, np.nan, 3,      0,      0,      0,      5, 5],
-        "prev2_pre_critical_idxs": [-1, -1, -1, -1, 2,  2,  2,  3, 3],
-        "prev2_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, 3,      3,      3,      0, 0],
+        "prev1_critical_idxs": [-1, -1, 2, 3,  3,  3,  6,  6, 8],
+        "prev1_critical_values": [np.nan, np.nan, 3, 0, 0, 0, 5, 5, 1],
+        "prev1_pre_critical_idxs": [-1, -1, -1, 2, 3, 3, 3,  6, 6],
+        "prev1_pre_critical_values": [np.nan, np.nan, np.nan, 3, 0, 0, 0, 5, 5],
+        "prev2_critical_idxs": [-1, -1, -1, 2, 2, 2, 3, 3, 6],
+        "prev2_critical_values": [np.nan, np.nan, np.nan, 3, 3, 3, 0, 0, 5],
+        "prev2_pre_critical_idxs": [-1, -1, -1, -1, 2, 2, 2, 3, 3],
+        "prev2_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, 3, 3, 3, 0, 0],
+        "prev3_critical_idxs": [-1, -1, -1, -1, -1, -1, 2, 2, 3],
+        "prev3_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 3, 3, 0],
         "prev3_pre_critical_idxs": [-1, -1, -1, -1, -1, -1, -1, 2, 2],
         "prev3_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 3, 3],
         "next_critical_idxs": [2, 2, 3, 6, 6, 6, 8, 8, -1],
         "next_critical_values": [3, 3, 0, 5, 5, 5, 1, 1, np.nan],
-        "uptrends":     [True, True, False, True,  True, True, False, False, True],
+        "uptrends": [True, True, False, True,  True, True, False, False, True],
         "pre_uptrends": [True, True, True,  False, True, True, True,  False, False],
     })
     pd.testing.assert_frame_equal(expected_critical_info, actual_critical_info, check_dtype=False)
@@ -455,15 +461,21 @@ def test_compute_critical_info():
     )
     expected_critical_info = pd.DataFrame({
         "values": values,
-        "prev1_pre_critical_idxs": [-1, -1, 0,  0,  0,  3,  3,  3,  3],
-        "prev1_pre_critical_values": [np.nan, np.nan, 3,      3,      3,      0,      0,      0,      0],
+        "prev1_critical_idxs": [0, 0, 0, 3, 3, 5, 5, 5, 5],
+        "prev1_critical_values": [3, 3, 3, 0, 0, 2, 2, 2, 2],
+        "prev1_pre_critical_idxs": [-1, -1, 0, 0, 0, 3, 3, 3, 3],
+        "prev1_pre_critical_values": [np.nan, np.nan, 3, 3, 3, 0, 0, 0, 0],
+        "prev2_critical_idxs": [-1, -1, -1, 0, 0, 3, 3, 3, 3],
+        "prev2_critical_values": [np.nan, np.nan, np.nan, 3, 3, 0, 0, 0, 0],
         "prev2_pre_critical_idxs": [-1, -1, -1, -1, -1, 0,  0,  0,  0],
-        "prev2_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, 3,      3,      3,      3],
+        "prev2_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, 3, 3, 3, 3],
+        "prev3_critical_idxs": [-1, -1, -1, -1, -1, 0, 0, 0, 0],
+        "prev3_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, 3, 3, 3, 3],
         "prev3_pre_critical_idxs": [-1, -1, -1, -1, -1, -1, -1, -1, -1],
         "prev3_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan],
         "next_critical_idxs": [3, 3, 3, 5, 5, -1, -1, -1, -1],
-        "next_critical_values": [0, 0, 0, 2, 2, np.nan, np.nan, np.nan, np.nan],
-        "uptrends":     [False, False, False, True, True, False, False, False, False],
+        "next_critical_values":[0, 0, 0, 2, 2, np.nan, np.nan, np.nan, np.nan],
+        "uptrends": [False, False, False, True, True, False, False, False, False],
         "pre_uptrends": [True, True, False, False, False, True, True, True, True],
     })
     pd.testing.assert_frame_equal(expected_critical_info, actual_critical_info, check_dtype=False)
@@ -491,11 +503,11 @@ def test_create_critical2_labels():
     df_critical = pd.DataFrame({
         "values":               [1.,   2.,   3.,    0.,    2.,   1.,   5.,    3.,    1.],
         "next_critical_values": [3,    3,    0,     5,     5,    5,    1,     1,     np.nan],
-        "uptrends":              [True, True, False, True,  True, True, False, False, True],
-        "pre_uptrends":          [True, True, True,  False, True, True, True,  False, False],
+        "uptrends":             [True, True, False, True,  True, True, False, False, True],
+        "pre_uptrends":         [True, True, True,  False, True, True, True,  False, False],
     })
     actual_labels = utils.create_critical2_labels(df_critical, thresh_entry=2.5)
-    assert_bool_array(actual_labels["long_entry"].values,  [4, 5])
+    assert_bool_array(actual_labels["long_entry"].values,  [5])
     assert_bool_array(actual_labels["short_entry"].values, [])
     assert_bool_array(actual_labels["long_exit"].values,   [2, 6, 7])
     assert_bool_array(actual_labels["short_exit"].values,  [0, 1, 3, 4, 5, 8])
@@ -503,8 +515,8 @@ def test_create_critical2_labels():
     df_critical = pd.DataFrame({
         "values":               [3.,    2.,    1.,    0.,    1.,    2.,     1.,     0.9,    0.8],
         "next_critical_values": [0,     0,     0,     2,     2,     np.nan, np.nan, np.nan, np.nan],
-        "uptrends":              [False, False, False, True,  True,  False,  False,  False,  False],
-        "pre_uptrends":          [True,  True,  False, False, False, True,   True,   True,   True],
+        "uptrends":             [False, False, False, True,  True,  False,  False,  False,  False],
+        "pre_uptrends":         [True,  True,  False, False, False, True,   True,   True,   True],
     })
     actual_labels = utils.create_critical2_labels(df_critical, thresh_entry=2.5)
     assert_bool_array(actual_labels["long_entry"].values,  [])
