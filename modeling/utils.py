@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from typing import Optional, List, Dict, Tuple, Any
+import re
 
 import sys
 import pathlib
@@ -173,6 +174,7 @@ def create_lagged_features(df: pd.DataFrame, lag_max: int) -> pd.DataFrame:
 
 def create_features(
     df: pd.DataFrame,
+    df_critical: pd.DataFrame,
     symbol: str,
     timings: List[str],
     freqs: List[str],
@@ -205,7 +207,18 @@ def create_features(
         df_cont_dict[freq] = sma_frac.to_frame()
 
     df_time = create_time_features(df.index)
-    df_cont_dict["1min"] = pd.concat([df_cont_dict["1min"], df_time], axis=1)
+
+    assert (df.index == df_critical.index).all()
+    df_critical_values = df_critical[[c for c in df_critical.columns if re.match(r"prev[0-9]+_pre_critical_values", c)]]
+    df_critical_idxs = df_critical[[c for c in df_critical.columns if re.match(r"prev[0-9]+_pre_critical_idxs", c)]]
+    df_critical_recencies = df_critical_idxs - np.arange(len(df))[:, np.newaxis]
+
+    df_cont_dict["1min"] = pd.concat([
+        df_cont_dict["1min"],
+        df_time,
+        df_critical_values,
+        df_critical_recencies,
+    ], axis=1)
 
     # データが足りている最初の時刻を求める
     first_index = pd.Timestamp("1900-1-1 00:00:00")
@@ -228,7 +241,7 @@ def create_features(
     return base_index, {"sequential": df_seq_dict, "continuous": df_cont_dict}
 
 
-def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> np.ndarray:
+def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> Tuple[np.ndarray, np.ndarray]:
     """
     極大・極小をとるインデックスの配列を取得する。
     thresh_hold 以下の変動は無視する。
@@ -240,9 +253,9 @@ def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> np.ndarray:
     min_idx = None
     min_value = np.inf
     critical_idxs = []
+    critical_switch_idxs = []
     for i in range(1, len(values)):
         v = values[i]
-        # print(i, v, is_uptrend)
         if is_uptrend:
             if v > max_value:
                 # 上昇中にさらに高値が更新された場合
@@ -257,10 +270,9 @@ def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> np.ndarray:
                 min_value = v
 
                 if max_value - min_value > thresh_hold:
-                    # print("Add max_idx", max_idx)
-                    # print("To downtrend")
                     # 下降に転換
                     critical_idxs.append(max_idx)
+                    critical_switch_idxs.append(i)
                     is_uptrend = False
                     max_idx = None
                     max_value = -np.inf
@@ -278,21 +290,133 @@ def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> np.ndarray:
                 max_value = v
 
                 if max_value - min_value > thresh_hold:
-                    # print("Add min_idx", min_idx)
-                    # print("To uptrend")
                     # 上昇に転換
                     critical_idxs.append(min_idx)
+                    critical_switch_idxs.append(i)
                     is_uptrend = True
                     min_idx = None
                     min_value = np.inf
-        # print(max_value, min_value)
 
+    # TODO: 最後を特別扱いする必要はないかも
     if is_uptrend:
         critical_idxs.append(max_idx)
     else:
         critical_idxs.append(min_idx)
 
-    return np.array(critical_idxs)
+    critical_switch_idxs.append(len(values))
+
+    assert len(critical_idxs) == len(critical_switch_idxs)
+
+    return np.array(critical_idxs), np.array(critical_switch_idxs)
+
+
+def compute_neighbor_critical_idxs(
+    size: int,
+    critical_idxs: np.ndarray,
+    offset: int,  # 0 のとき次の critical_idx を求める
+) -> np.ndarray:
+    neighbor_critical_idxs = np.empty(size, dtype=np.int32)
+    prev_cidx = 0
+    for i in range(len(critical_idxs) + 1):
+        if i < len(critical_idxs):
+            cidx = critical_idxs[i]
+        else:
+            cidx = size
+
+        j = i + offset
+        if 0 <= j < len(critical_idxs):
+            ncidx = critical_idxs[j]
+        else:
+            # HACK: 対応する critical_idx がない場合 -1 にしている
+            ncidx = -1
+
+        neighbor_critical_idxs[prev_cidx:cidx] = ncidx
+        prev_cidx = cidx
+
+    return neighbor_critical_idxs
+
+
+def compute_neighbor_pre_critical_idxs(
+    size: int,
+    critical_idxs: np.ndarray,
+    critical_switch_idxs: np.ndarray,
+    offset: int,  # 0 のとき次の critical_idx を求める
+) -> np.ndarray:
+    assert critical_switch_idxs[-1] == size
+
+    neighbor_critical_idxs = np.empty(size, dtype=np.int32)
+    prev_csidx = 0
+    for i in range(len(critical_switch_idxs)):
+        csidx = critical_switch_idxs[i]
+
+        j = i + offset
+        if 0 <= j < len(critical_idxs):
+            ncidx = critical_idxs[j]
+        else:
+            # HACK: 対応する critical_idx がない場合 -1 にしている
+            ncidx = -1
+
+        neighbor_critical_idxs[prev_csidx:csidx] = ncidx
+        prev_csidx = csidx
+
+    return neighbor_critical_idxs
+
+
+def compute_trends(size: int, critical_idxs: np.ndarray) -> np.array:
+    uptrend = True
+    prev_cidx = 0
+    uptrends = np.empty(size, dtype=bool)
+    for cidx in critical_idxs:
+        uptrends[prev_cidx:cidx] = uptrend
+        uptrend = not uptrend
+        prev_cidx = cidx
+
+    if critical_idxs[-1] < size:
+        uptrends[critical_idxs[-1]:size] = uptrend
+
+    return uptrends
+
+
+def compute_critical_info(
+    df: pd.DataFrame,
+    thresh_hold: float,
+    prev_max: int,
+) -> pd.DataFrame:
+    critical_info = {}
+
+    values = (df["high"].values + df["low"].values) / 2
+    critical_info["values"] = values
+
+    critical_idxs, critical_switch_idxs = compute_critical_idxs(values, thresh_hold)
+
+    def get_values_from_idxs(values: np.ndarray, idxs: np.ndarray):
+        v = values[idxs].copy()
+        missing = idxs == -1
+        v[missing] = np.nan
+        return v
+
+    for prev_i in range(1, prev_max + 1):
+        prev_pre_critical_idxs = compute_neighbor_pre_critical_idxs(
+            size=len(df),
+            critical_idxs=critical_idxs,
+            critical_switch_idxs=critical_switch_idxs,
+            offset=-prev_i,
+        )
+        critical_info[f"prev{prev_i}_pre_critical_idxs"] = prev_pre_critical_idxs
+        critical_info[f"prev{prev_i}_pre_critical_values"] = get_values_from_idxs(values, prev_pre_critical_idxs)
+
+    next_critical_idxs = compute_neighbor_critical_idxs(
+        size=len(df),
+        critical_idxs=critical_idxs,
+        offset=0
+    )
+    critical_info["next_critical_idxs"] = next_critical_idxs
+    critical_info["next_critical_values"] = get_values_from_idxs(values, next_critical_idxs)
+
+    critical_info["uptrends"] = compute_trends(len(df), critical_idxs)
+    critical_info["pre_uptrends"] = compute_trends(len(df), critical_switch_idxs)
+
+    return pd.DataFrame(critical_info, index=df.index)
 
 
 def create_critical_labels(
@@ -302,7 +426,7 @@ def create_critical_labels(
 ) -> pd.DataFrame:
     values = (df["high"].values + df["low"].values) / 2
 
-    critical_idxs = compute_critical_idxs(values, thresh_hold)
+    critical_idxs, _ = compute_critical_idxs(values, thresh_hold)
 
     values_next_critical = np.empty(len(values))
     prev_cidx = 0
@@ -342,6 +466,26 @@ def create_critical_labels(
         is_uptrend = not is_uptrend
 
     return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+
+
+def create_critical2_labels(
+    df_critical: pd.DataFrame,
+    thresh_entry: float,
+) -> pd.DataFrame:
+    values = df_critical["values"].values
+    next_critical_values = df_critical["next_critical_values"].values
+    uptrends = df_critical["uptrends"].values
+    pre_uptrends = df_critical["pre_uptrends"].values
+    values_diff = next_critical_values - values
+
+    # entry: 利益が出る and 暫定トレンドが順方向
+    long_entry_labels  = (values_diff >= thresh_entry)  & pre_uptrends
+    short_entry_labels = (values_diff <= -thresh_entry) & ~pre_uptrends
+    # exit: トレンドが逆方向
+    long_exit_labels  = ~uptrends
+    short_exit_labels = uptrends
+
+    return merge_labels(df_critical.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
 
 
 def create_smadiff_labels(
@@ -491,10 +635,13 @@ def create_labels(
     label_type: str,
     df: pd.DataFrame,
     df_x_dict: Dict[str, Dict[str, pd.DataFrame]],
+    df_critical,
     label_params: Dict[str, Any],
 ) -> pd.DataFrame:
     if label_type == "critical":
         df_y = create_critical_labels(df, **label_params)
+    elif label_type == "critical2":
+        df_y = create_critical2_labels(df_critical, **label_params)
     elif label_type == "smadiff":
         df_y = create_smadiff_labels(df, **label_params)
     elif label_type == "future":
@@ -507,6 +654,8 @@ def create_labels(
         df_y = create_dummy2_labels(df_x_dict, **label_params)
     elif label_type == "dummy3":
         df_y = create_dummy3_labels(df_x_dict, **label_params)
+    else:
+        raise ValueError(f"Unknown label_type `{label_type}`")
 
     return df_y
 

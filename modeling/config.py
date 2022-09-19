@@ -20,6 +20,13 @@ class DataConfig:
 
 
 @dataclass
+class CriticalConfig:
+    thresh_hold: float = 0.02
+    # TODO: FeatureConfig に置く方がいい
+    prev_max: int = 4
+
+
+@dataclass
 class FeatureConfig:
     timings: List[str] = field(default_factory=lambda: ["high", "low", "close"])
     freqs: List[str] = field(default_factory=lambda: ["1min", "5min", "15min", "1h", "4h"])
@@ -39,6 +46,12 @@ class CtiricalLabelConfig:
     thresh_entry: float = 0.05
     # この値を以下の下落であれば持ち続ける
     thresh_hold: float = 0.025
+
+
+@dataclass
+class Ctirical2LabelConfig:
+    label_type: str = "critical2"
+    thresh_entry: float = 0.05
 
 
 @dataclass
@@ -136,6 +149,7 @@ class TrainConfig:
     gcp: GCPConfig = GCPConfig()
     neptune: NeptuneConfig = NeptuneConfig()
     data: DataConfig = DataConfig()
+    critical: CriticalConfig = CriticalConfig()
     feature: FeatureConfig = FeatureConfig()
     label: Any = MISSING
     model: Any = MISSING
@@ -160,7 +174,9 @@ class EvalConfig:
 cs = ConfigStore.instance(version_base=None)
 cs.store(name="data", node=DataConfig)
 cs.store(name="feature", node=FeatureConfig)
+cs.store(name="critical", node=CriticalConfig)
 cs.store(group="label", name="critical", node=CtiricalLabelConfig)
+cs.store(group="label", name="critical2", node=Ctirical2LabelConfig)
 cs.store(group="label", name="smadiff", node=SMADiffLabelConfig)
 cs.store(group="label", name="future", node=FutureLabelConfig)
 cs.store(group="label", name="smatrend", node=SMATrendConfig)

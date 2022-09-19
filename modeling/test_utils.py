@@ -238,6 +238,14 @@ def test_create_features():
             "low":   [0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100, -110],
             "close": [0, -1,  -2,  -3,  -4,  -5,  -6,  -7,  -8,  -9,  -10,  -11],
         }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
+        df_critical = pd.DataFrame({
+            "prev1_pre_critical_values": [np.nan, 0, 0, 0, 1, 1, 5, 5, 5, 5, 8, 9],
+            "prev2_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, 0, 0, 1, 1, 1, 1, 5, 8],
+            "prev3_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 0, 0, 0, 0, 1, 5],
+            "prev1_pre_critical_idxs": [-1, 0, 0, 0, 1, 1, 5, 5, 5, 5, 8, 9],
+            "prev2_pre_critical_idxs": [-1, -1, -1, -1, 0, 0, 1, 1, 1, 1, 5, 8],
+            "prev3_pre_critical_idxs": [-1, -1, -1, -1, -1, -1, 0, 0, 0, 0, 1, 5],
+        }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
         symbol = "usdjpy",
         timings = ["open", "low"],
         freqs = ["1min", "2min"],
@@ -271,6 +279,12 @@ def test_create_features():
                 "hour": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                 "day_of_week": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
                 "month": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                "prev1_pre_critical_values": [np.nan, 0, 0, 0, 1, 1, 5, 5, 5, 5, 8, 9],
+                "prev2_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, 0, 0, 1, 1, 1, 1, 5, 8],
+                "prev3_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 0, 0, 0, 0, 1, 5],
+                "prev1_pre_critical_idxs": [-1, -1, -2, -3, -3, -4, -1, -2, -3, -4, -2, -2],
+                "prev2_pre_critical_idxs": [-1, -2, -3, -4, -4, -5, -5, -6, -7, -8, -5, -3],
+                "prev3_pre_critical_idxs": [-1, -2, -3, -4, -5, -6, -6, -7, -8, -9, -9, -6],
             }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
             "2min": pd.DataFrame({
                 "sma2_frac_lag1": [np.nan, np.nan, 0, 0, 0, 0],
@@ -281,12 +295,21 @@ def test_create_features():
     assert_df_dict_equal(actual_data, expected_data, check_dtype=False)
 
 
+    size = 60 * 72
     actual_base_index, _ = utils.create_features(
         df = pd.DataFrame({
-            "open":  np.zeros(60 * 72),
-            "high":  np.zeros(60 * 72),
-            "low":   np.zeros(60 * 72),
-            "close": np.zeros(60 * 72),
+            "open":  np.zeros(size),
+            "high":  np.zeros(size),
+            "low":   np.zeros(size),
+            "close": np.zeros(size),
+        }, index=pd.date_range("2022-12-24 00:00:00", "2022-12-26 23:59:59", freq="1min")),
+        df_critical = pd.DataFrame({
+            "prev1_pre_critical_values": [0] * size,
+            "prev2_pre_critical_values": [1] * size,
+            "prev3_pre_critical_values": [2] * size,
+            "prev1_pre_critical_idxs": [0] * size,
+            "prev2_pre_critical_idxs": [1] * size,
+            "prev3_pre_critical_idxs": [2] * size,
         }, index=pd.date_range("2022-12-24 00:00:00", "2022-12-26 23:59:59", freq="1min")),
         symbol = "usdjpy",
         timings = ["open", "low"],
@@ -307,22 +330,144 @@ def test_create_features():
 
 
 def test_compute_ctirical_idxs():
-    actual_critical_idxs = utils.compute_critical_idxs(
+    actual_critical_idxs, actual_critical_switch_idxs = utils.compute_critical_idxs(
         values = np.array([1., 2., 3., 0., 2., 1., 5., 3., 1.]),
         thresh_hold = 1.5
     )
-    expected_critical_idxs = np.array([2, 3, 6, 8])
-    np.testing.assert_equal(actual_critical_idxs, expected_critical_idxs)
+    np.testing.assert_equal(actual_critical_idxs, np.array([2, 3, 6, 8]))
+    np.testing.assert_equal(actual_critical_switch_idxs, np.array([3, 4, 7, 9]))
 
-    actual_critical_idxs = utils.compute_critical_idxs(
+    actual_critical_idxs, actual_critical_switch_idxs = utils.compute_critical_idxs(
         values = np.array([3., 2., 1., 0., 1., 2., 1., 0.9, 0.8]),
         thresh_hold = 1.5
     )
-    expected_critical_idxs = np.array([0, 3, 5])
-    np.testing.assert_equal(actual_critical_idxs, expected_critical_idxs)
+    np.testing.assert_equal(actual_critical_idxs, np.array([0, 3, 5]))
+    np.testing.assert_equal(actual_critical_switch_idxs, np.array([2, 5, 9]))
 
 
-def test_critical_create_labels():
+def test_compute_neighbor_critical_idxs():
+    actual = utils.compute_neighbor_critical_idxs(
+        size = 9,
+        critical_idxs = np.array([2, 3, 6, 8]),
+        offset = 0,
+    )
+    np.testing.assert_equal(actual, np.array([2, 2, 3, 6, 6, 6, 8, 8, -1]))
+
+    actual = utils.compute_neighbor_critical_idxs(
+        size = 9,
+        critical_idxs = np.array([2, 3, 6, 8]),
+        offset = -1,
+    )
+    np.testing.assert_equal(actual, np.array([-1, -1, 2, 3, 3, 3, 6, 6, 8]))
+
+    actual = utils.compute_neighbor_critical_idxs(
+        size = 9,
+        critical_idxs = np.array([0, 3, 5]),
+        offset = 0,
+    )
+    np.testing.assert_equal(actual, np.array([3, 3, 3, 5, 5, -1, -1, -1, -1]))
+
+    actual = utils.compute_neighbor_critical_idxs(
+        size = 9,
+        critical_idxs = np.array([0, 3, 5]),
+        offset = 1,
+    )
+    np.testing.assert_equal(actual, np.array([5, 5, 5, -1, -1, -1, -1, -1, -1]))
+
+
+def test_compute_neighbor_pre_critical_idxs():
+    actual = utils.compute_neighbor_pre_critical_idxs(
+        size = 9,
+        critical_idxs = np.array([2, 3, 6, 8]),
+        critical_switch_idxs = np.array([3, 4, 7, 9]),
+        offset = 0,
+    )
+    np.testing.assert_equal(actual, np.array([2, 2, 2, 3, 6, 6, 6, 8, 8]))
+
+    actual = utils.compute_neighbor_pre_critical_idxs(
+        size = 9,
+        critical_idxs = np.array([2, 3, 6, 8]),
+        critical_switch_idxs = np.array([3, 4, 7, 9]),
+        offset = -1,
+    )
+    np.testing.assert_equal(actual, np.array([-1, -1, -1, 2, 3, 3, 3, 6, 6]))
+
+    actual = utils.compute_neighbor_pre_critical_idxs(
+        size = 9,
+        critical_idxs = np.array([0, 3, 5]),
+        critical_switch_idxs = np.array([2, 5, 9]),
+        offset = 0,
+    )
+    np.testing.assert_equal(actual, np.array([0, 0, 3, 3, 3, 5, 5, 5, 5]))
+
+    actual = utils.compute_neighbor_pre_critical_idxs(
+        size = 9,
+        critical_idxs = np.array([0, 3, 5]),
+        critical_switch_idxs = np.array([2, 5, 9]),
+        offset = 1,
+    )
+    np.testing.assert_equal(actual, np.array([3, 3, 5, 5, 5, -1, -1, -1, -1]))
+
+
+def test_compute_trends():
+    critical_idxs = np.array([2, 3, 6, 8])
+    actual_uptrends = utils.compute_trends(size=9, critical_idxs=critical_idxs)
+    expected_uptrends = np.array([True, True, False, True, True, True, False, False, True])
+    np.testing.assert_equal(actual_uptrends, expected_uptrends)
+
+    critical_idxs = np.array([0, 3, 5])
+    actual_uptrends = utils.compute_trends(size=9, critical_idxs=critical_idxs)
+    expected_uptrends = np.array([False, False, False, True, True, False, False, False, False])
+    np.testing.assert_equal(actual_uptrends, expected_uptrends)
+
+
+def test_compute_critical_info():
+    values = np.array([1., 2., 3., 0., 2., 1., 5., 3., 1.])
+    df = pd.DataFrame({"high": values + 1, "low": values - 1})
+    actual_critical_info = utils.compute_critical_info(
+        df,
+        thresh_hold=1.5,
+        prev_max=3,
+    )
+    expected_critical_info = pd.DataFrame({
+        "values": values,
+        "prev1_pre_critical_idxs": [-1, -1, -1, 2,  3,  3,  3,  6, 6],
+        "prev1_pre_critical_values": [np.nan, np.nan, np.nan, 3,      0,      0,      0,      5, 5],
+        "prev2_pre_critical_idxs": [-1, -1, -1, -1, 2,  2,  2,  3, 3],
+        "prev2_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, 3,      3,      3,      0, 0],
+        "prev3_pre_critical_idxs": [-1, -1, -1, -1, -1, -1, -1, 2, 2],
+        "prev3_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 3, 3],
+        "next_critical_idxs": [2, 2, 3, 6, 6, 6, 8, 8, -1],
+        "next_critical_values": [3, 3, 0, 5, 5, 5, 1, 1, np.nan],
+        "uptrends":     [True, True, False, True,  True, True, False, False, True],
+        "pre_uptrends": [True, True, True,  False, True, True, True,  False, False],
+    })
+    pd.testing.assert_frame_equal(expected_critical_info, actual_critical_info, check_dtype=False)
+
+    values = np.array([3., 2., 1., 0., 1., 2., 1., 0.9, 0.8])
+    df = pd.DataFrame({"high": values + 2, "low": values - 2})
+    actual_critical_info = utils.compute_critical_info(
+        df,
+        thresh_hold=1.5,
+        prev_max=3,
+    )
+    expected_critical_info = pd.DataFrame({
+        "values": values,
+        "prev1_pre_critical_idxs": [-1, -1, 0,  0,  0,  3,  3,  3,  3],
+        "prev1_pre_critical_values": [np.nan, np.nan, 3,      3,      3,      0,      0,      0,      0],
+        "prev2_pre_critical_idxs": [-1, -1, -1, -1, -1, 0,  0,  0,  0],
+        "prev2_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, 3,      3,      3,      3],
+        "prev3_pre_critical_idxs": [-1, -1, -1, -1, -1, -1, -1, -1, -1],
+        "prev3_pre_critical_values": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan],
+        "next_critical_idxs": [3, 3, 3, 5, 5, -1, -1, -1, -1],
+        "next_critical_values": [0, 0, 0, 2, 2, np.nan, np.nan, np.nan, np.nan],
+        "uptrends":     [False, False, False, True, True, False, False, False, False],
+        "pre_uptrends": [True, True, False, False, False, True, True, True, True],
+    })
+    pd.testing.assert_frame_equal(expected_critical_info, actual_critical_info, check_dtype=False)
+
+
+def test_create_critical_labels():
     values = np.array([1., 2., 3., 0., 2., 1., 5., 3., 1.])
     df = pd.DataFrame({"high": values + 1, "low": values - 1})
     actual_labels = utils.create_critical_labels(df, thresh_entry=2.5, thresh_hold=1.5)
@@ -338,6 +483,32 @@ def test_critical_create_labels():
     assert_bool_array(actual_labels["short_entry"].values, [0])
     assert_bool_array(actual_labels["long_exit"].values,   [0, 1])
     assert_bool_array(actual_labels["short_exit"].values,  [3])
+
+
+def test_create_critical2_labels():
+    df_critical = pd.DataFrame({
+        "values":               [1.,   2.,   3.,    0.,    2.,   1.,   5.,    3.,    1.],
+        "next_critical_values": [3,    3,    0,     5,     5,    5,    1,     1,     np.nan],
+        "uptrends":              [True, True, False, True,  True, True, False, False, True],
+        "pre_uptrends":          [True, True, True,  False, True, True, True,  False, False],
+    })
+    actual_labels = utils.create_critical2_labels(df_critical, thresh_entry=2.5)
+    assert_bool_array(actual_labels["long_entry"].values,  [4, 5])
+    assert_bool_array(actual_labels["short_entry"].values, [])
+    assert_bool_array(actual_labels["long_exit"].values,   [2, 6, 7])
+    assert_bool_array(actual_labels["short_exit"].values,  [0, 1, 3, 4, 5, 8])
+
+    df_critical = pd.DataFrame({
+        "values":               [3.,    2.,    1.,    0.,    1.,    2.,     1.,     0.9,    0.8],
+        "next_critical_values": [0,     0,     0,     2,     2,     np.nan, np.nan, np.nan, np.nan],
+        "uptrends":              [False, False, False, True,  True,  False,  False,  False,  False],
+        "pre_uptrends":          [True,  True,  False, False, False, True,   True,   True,   True],
+    })
+    actual_labels = utils.create_critical2_labels(df_critical, thresh_entry=2.5)
+    assert_bool_array(actual_labels["long_entry"].values,  [])
+    assert_bool_array(actual_labels["short_entry"].values, [])
+    assert_bool_array(actual_labels["long_exit"].values,   [0, 1, 2, 5, 6, 7, 8])
+    assert_bool_array(actual_labels["short_exit"].values,  [3, 4])
 
 
 def test_create_smadiff_labels():

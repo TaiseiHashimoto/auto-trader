@@ -87,12 +87,13 @@ def main(config):
 
     # 評価データを準備
     print("Create features")
+    df_critical = utils.compute_critical_info(df, config.critical.thresh_hold, config.critical.prev_max)
     feature_params = common_utils.conf2dict(train_config.feature)
-    base_index, df_x_dict = utils.create_features(df, train_config.data.symbol, **feature_params)
+    base_index, df_x_dict = utils.create_features(df, df_critical, train_config.data.symbol, **feature_params)
 
     print("Create labels")
     label_params = common_utils.conf2dict(train_config.label, exclude_keys=["label_type"])
-    df_y = utils.create_labels(train_config.label.label_type, df, df_x_dict, label_params)
+    df_y = utils.create_labels(train_config.label.label_type, df, df_x_dict, df_critical, label_params)
 
     # 学習に使われた行を削除
     train_last_timestamp = model_version["train/last_timestamp"].fetch()
