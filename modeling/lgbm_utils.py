@@ -67,7 +67,6 @@ class LGBMDataset:
 def gain_loss(preds_raw: np.ndarray, lds: lgb.Dataset) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     # HACK: preds_raw = 0 で始まると hessian が 0 になり学習が進まないため、意図的にずらしている
     preds_raw_adjusted = preds_raw - 1.
-    # preds_raw_adjusted = preds_raw
     preds = utils.sigmoid(preds_raw_adjusted)
     loss = -lds.label * preds
     grad = loss * (1 - preds)

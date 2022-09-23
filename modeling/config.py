@@ -113,6 +113,7 @@ class LGBMModelConfig:
     learning_rate: float = 0.1
     lambda_l1: float = 0.0
     lambda_l2: float = 0.0
+    min_data_in_leaf: int = 20
     feature_fraction: float = 1.0
     bagging_fraction: float = 1.0
     pos_bagging_fraction: float = 1.0
@@ -125,6 +126,7 @@ class LGBMModelConfig:
 
 @dataclass
 class CNNModelConfig:
+    objective: str = "binary"
     model_type: str = "cnn"
     num_epochs: int = 1
     learning_rate: float = 1.0e-3

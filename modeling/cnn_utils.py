@@ -212,6 +212,18 @@ class CNNNet(nn.Module):
         return torch.sigmoid(self.forward(t_x))
 
 
+def binary_loss(pred: torch.Tensor, target: torch.Tensor, pos_weight: float):
+    return F.binary_cross_entropy_with_logits(
+        pred,
+        target,
+        reduction="none",
+        pos_weight=torch.tensor(pos_weight, device=pred.device),
+    )
+
+def gain_loss(pred: torch.Tensor, target: torch.Tensor, pos_weight: float):
+    return -target * torch.sigmoid(pred)
+
+
 class CNNModel:
     def __init__(
         self,
@@ -329,14 +341,6 @@ class CNNModel:
     def _to_torch_y(self, v_y: np.ndarray) -> torch.Tensor:
         return torch.from_numpy(v_y).float().to(self.device)
 
-    def _compute_loss(self, pred: torch.Tensor, target: torch.Tensor, pos_weight: float):
-        return F.binary_cross_entropy_with_logits(
-            pred,
-            target,
-            reduction="none",
-            pos_weight=torch.tensor(pos_weight, device=self.device),
-        )
-
     def train(
         self,
         ds_train: CNNDataset,
@@ -352,6 +356,11 @@ class CNNModel:
             "freqs": ds_train.get_freqs(),
             "out_dim": len(ds_train.get_label_names()),
         })
+
+        if self.model_params["objective"] == "binary":
+            loss_func = binary_loss
+        elif self.model_params["objective"] == "gain":
+            loss_func = gain_loss
 
         self.model = CNNNet(**self.model_params).to(self.device)
         if self.model_params["weight_decay"] == 0:
@@ -371,7 +380,7 @@ class CNNModel:
 
                 pred = self.model(t_x)
                 # shape: (batch_size, label_num)
-                loss = self._compute_loss(pred, t_y, self.model_params["pos_weight"])
+                loss = loss_func(pred, t_y, self.model_params["pos_weight"])
 
                 optimizer.zero_grad()
                 loss.mean().backward()
@@ -397,7 +406,7 @@ class CNNModel:
 
                     with torch.no_grad():
                         pred = self.model(t_x)
-                        loss = self._compute_loss(pred, t_y, self.model_params["pos_weight"])
+                        loss = loss_func(pred, t_y, self.model_params["pos_weight"])
 
                     loss_valid.append(loss.cpu().numpy())
 
@@ -406,17 +415,18 @@ class CNNModel:
                 for i, label_name in enumerate(ds_valid.get_label_names()):
                     self.run[f"{log_prefix}/loss/valid/{label_name}"].log(loss_valid[:, i].mean())
 
-        def log_auc(ds: CNNDataset, log_suffix: str):
-            pred_df = self.predict_score(ds, eval=self.model_params["eval_on_valid"])
-            for label_name in ds.get_label_names():
-                label = ds.get_labels(label_name).values
-                pred = pred_df[label_name].values
-                self.run[f"{log_prefix}/auc/roc/{log_suffix}/{label_name}"] = roc_auc_score(label, pred)
-                self.run[f"{log_prefix}/auc/pr/{log_suffix}/{label_name}"] = average_precision_score(label, pred)
+        if self.model_params["objective"] == "binary":
+            def log_auc(ds: CNNDataset, log_suffix: str):
+                pred_df = self.predict_score(ds, eval=self.model_params["eval_on_valid"])
+                for label_name in ds.get_label_names():
+                    label = ds.get_labels(label_name).values
+                    pred = pred_df[label_name].values
+                    self.run[f"{log_prefix}/auc/roc/{log_suffix}/{label_name}"] = roc_auc_score(label, pred)
+                    self.run[f"{log_prefix}/auc/pr/{log_suffix}/{label_name}"] = average_precision_score(label, pred)
 
-        log_auc(ds_train, log_suffix="train")
-        if ds_valid is not None:
-            log_auc(ds_valid, log_suffix="valid")
+            log_auc(ds_train, log_suffix="train")
+            if ds_valid is not None:
+                log_auc(ds_valid, log_suffix="valid")
 
     def predict_score(self, ds: CNNDataset, eval: bool = True) -> pd.DataFrame:
         self.model.train(not eval)
