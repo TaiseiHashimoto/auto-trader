@@ -69,7 +69,9 @@ def gain_loss(preds_raw: np.ndarray, lds: lgb.Dataset) -> Tuple[np.ndarray, np.n
     preds_raw_adjusted = preds_raw - 1.
     preds = utils.sigmoid(preds_raw_adjusted)
     loss = -lds.label * preds
-    grad = loss * (1 - preds)
+
+    mask = ((preds > 0.01) | (lds.label > 0)).astype(np.float32)
+    grad = loss * (1 - preds) * mask
     hess = grad * (1 - preds * 2)
     return loss, grad, hess
 

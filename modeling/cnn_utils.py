@@ -220,8 +220,11 @@ def binary_loss(pred: torch.Tensor, target: torch.Tensor, pos_weight: float):
         pos_weight=torch.tensor(pos_weight, device=pred.device),
     )
 
-def gain_loss(pred: torch.Tensor, target: torch.Tensor, pos_weight: float):
-    return -target * torch.sigmoid(pred)
+
+def gain_loss(pred_raw: torch.Tensor, target: torch.Tensor, pos_weight: float):
+    pred = torch.sigmoid(pred_raw)
+    mask = ((pred > 0.01) | (target > 0)).float()
+    return -target * (mask * pred + (1 - mask) * pred.detach())
 
 
 class CNNModel:
