@@ -394,7 +394,7 @@ class CNNModel:
 
                 if (l_i + 1) % log_freq == 0:
                     loss_train_np = np.array(loss_train)
-                    step = (l_i + 1) / batch_num
+                    step = epoch + (l_i + 1) / batch_num
                     self.run[f"{log_prefix}/loss/train/mean"].log(loss_train_np.mean(), step)
                     for i, label_name in enumerate(ds_train.get_label_names()):
                         self.run[f"{log_prefix}/loss/train/{label_name}"].log(loss_train_np[:, i].mean(), step)
