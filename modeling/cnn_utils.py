@@ -346,6 +346,7 @@ class CNNModel:
         ds_train: CNNDataset,
         ds_valid: Optional[CNNDataset] = None,
         log_prefix: str = "train",
+        log_freq: int = 100,
     ):
         self._calc_stats(ds_train)
 
@@ -374,7 +375,7 @@ class CNNModel:
             loader_train = ds_train.create_loader(self.model_params["batch_size"])
             batch_num = ds_train.calc_batch_num(self.model_params["batch_size"])
             loss_train = []
-            for d_x, v_y in tqdm(loader_train, desc=f"[train {epoch}]", total=batch_num):
+            for l_i, (d_x, v_y) in enumerate(tqdm(loader_train, desc=f"[train {epoch}]", total=batch_num)):
                 t_x = self._to_torch_x(d_x)
                 t_y = self._to_torch_y(v_y)
 
@@ -386,12 +387,16 @@ class CNNModel:
                 loss.mean().backward()
                 optimizer.step()
 
-                loss_train.append(loss.detach().cpu().numpy())
+                loss_train.append(loss.mean(dim=0).detach().cpu().numpy())
 
-            loss_train = np.concatenate(loss_train, axis=0)
-            self.run[f"{log_prefix}/loss/train/mean"].log(loss_train.mean())
-            for i, label_name in enumerate(ds_train.get_label_names()):
-                self.run[f"{log_prefix}/loss/train/{label_name}"].log(loss_train[:, i].mean())
+                if (l_i + 1) % log_freq == 0:
+                    loss_train_np = np.array(loss_train)
+                    step = (l_i + 1) / batch_num
+                    self.run[f"{log_prefix}/loss/train/mean"].log(loss_train_np.mean(), step)
+                    for i, label_name in enumerate(ds_train.get_label_names()):
+                        self.run[f"{log_prefix}/loss/train/{label_name}"].log(loss_train_np[:, i].mean(), step)
+
+                    loss_train = []
 
             if ds_valid is not None:
                 if self.model_params["eval_on_valid"]:
@@ -411,9 +416,9 @@ class CNNModel:
                     loss_valid.append(loss.cpu().numpy())
 
                 loss_valid = np.concatenate(loss_valid, axis=0)
-                self.run[f"{log_prefix}/loss/valid/mean"].log(loss_valid.mean())
+                self.run[f"{log_prefix}/loss/valid/mean"].log(loss_valid.mean(), epoch + 1)
                 for i, label_name in enumerate(ds_valid.get_label_names()):
-                    self.run[f"{log_prefix}/loss/valid/{label_name}"].log(loss_valid[:, i].mean())
+                    self.run[f"{log_prefix}/loss/valid/{label_name}"].log(loss_valid[:, i].mean(), epoch + 1)
 
         if self.model_params["objective"] == "binary":
             def log_auc(ds: CNNDataset, log_suffix: str):

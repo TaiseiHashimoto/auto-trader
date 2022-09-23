@@ -185,8 +185,8 @@ class LGBMModel:
             for valid_name in valid_names:
                 assert len(evals_results[valid_name]) == 1
                 loss_name = list(evals_results[valid_name].keys())[0]
-                for loss in evals_results[valid_name][loss_name]:
-                    self.run[f"{log_prefix}/loss/{valid_name}/{label_name}"].log(loss)
+                for itr, loss in enumerate(evals_results[valid_name][loss_name]):
+                    self.run[f"{log_prefix}/loss/{valid_name}/{label_name}"].log(loss, itr + 1)
 
             if self.log_auc:
                 log_auc(model, df_x_train, df_y_train, log_suffix=f"train/{label_name}")
