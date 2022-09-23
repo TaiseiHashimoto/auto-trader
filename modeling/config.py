@@ -72,12 +72,21 @@ class FutureLabelConfig:
 
 
 @dataclass
-class SMATrendConfig:
+class SMATrendLabelConfig:
     label_type: str = "smatrend"
     window_size: int = 9
     step_before: int = 5
     step_after: int = 5
     thresh_entry: float = 0.025
+
+
+@dataclass
+class GainLabelConfig:
+    label_type: str = "gain"
+    future_step_min: int = 8
+    future_step_max: int = 12
+    entry_bias: float = -0.02
+    exit_bias: float = 0.0
 
 
 @dataclass
@@ -179,7 +188,8 @@ cs.store(group="label", name="critical", node=CtiricalLabelConfig)
 cs.store(group="label", name="critical2", node=Ctirical2LabelConfig)
 cs.store(group="label", name="smadiff", node=SMADiffLabelConfig)
 cs.store(group="label", name="future", node=FutureLabelConfig)
-cs.store(group="label", name="smatrend", node=SMATrendConfig)
+cs.store(group="label", name="smatrend", node=SMATrendLabelConfig)
+cs.store(group="label", name="gain", node=GainLabelConfig)
 cs.store(group="label", name="dummy1", node=Dummy1LabelConfig)
 cs.store(group="label", name="dummy2", node=Dummy2LabelConfig)
 cs.store(group="label", name="dummy3", node=Dummy3LabelConfig)
@@ -192,6 +202,7 @@ cs.store(name="eval", node=EvalConfig)
 def validate_train_config(config: OmegaConf):
     assert "1min" in config.feature.freqs
     assert config.feature.sma_window_size_center in config.feature.sma_window_sizes
+    assert bool(config.model.objective == "gain") == bool(config.label.label_type == "gain")
 
 
 def get_train_config(argv: List[str] = None):

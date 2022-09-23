@@ -63,6 +63,43 @@ class LGBMDataset:
         return ds_train, ds_test
 
 
+
+def gain_loss(preds_raw: np.ndarray, lds: lgb.Dataset) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+    # HACK: preds_raw = 0 で始まると hessian が 0 になり学習が進まないため、意図的にずらしている
+    preds_raw_adjusted = preds_raw - 1.
+    # preds_raw_adjusted = preds_raw
+    preds = utils.sigmoid(preds_raw_adjusted)
+    loss = -lds.label * preds
+    grad = loss * (1 - preds)
+    hess = grad * (1 - preds * 2)
+    return loss, grad, hess
+
+
+def gain_metric(preds_raw: np.ndarray, lds: lgb.Dataset):
+    loss, _, _ = gain_loss(preds_raw, lds)
+    return "gain_loss", loss.mean(), False
+
+
+def gain_objective(preds_raw: np.ndarray, lds: lgb.Dataset):
+    _, grad, hess = gain_loss(preds_raw, lds)
+    return grad, hess
+
+
+def binary_metric(pred_raw, data):
+    y_train = data.get_label()
+    pred = utils.sigmoid(pred_raw)
+    loss = -(y_train * np.log(pred) + (1-y_train)*np.log(1-pred))
+    return 'original_binary_logloss', np.mean(loss), False
+
+
+def binary_objective(pred_raw, data):
+    y_true = data.get_label()
+    pred = utils.sigmoid(pred_raw)
+    grad = pred - y_true
+    hess = pred * (1-pred)
+    return grad, hess
+
+
 class LGBMModel:
     def __init__(
         self,
@@ -73,6 +110,23 @@ class LGBMModel:
         self.model_params = model_params
         self.models = models
         self.run = run
+        self.additional_params = {}
+        self.log_auc = True
+        self.sigmoid_after_predict = False
+
+        # TODO: リファクタリング
+        if self.model_params is not None and self.model_params["objective"] == "gain":
+            self.model_params = {k:v for k, v in model_params.items() if k != "objective"}
+            self.additional_params["fobj"] = gain_objective
+            self.additional_params["feval"] = gain_metric
+            self.log_auc = False
+            self.sigmoid_after_predict = True
+
+        # elif self.model_params is not None and self.model_params["objective"] == "binary":
+        #     self.model_params = {k:v for k, v in model_params.items() if k != "objective"}
+        #     self.additional_params["fobj"] = binary_objective
+        #     self.additional_params["feval"] = binary_metric
+
 
     @classmethod
     def from_scratch(cls, model_params: Dict, run: neptune.Run):
@@ -104,6 +158,7 @@ class LGBMModel:
         self.models = {}
 
         for label_name in ds_train.get_label_names():
+            print(f"label_name = {label_name}")
             df_y_train = ds_train.get_labels(label_name)
             lds_train = lgb.Dataset(df_x_train, df_y_train)
             valid_sets = [lds_train]
@@ -123,17 +178,21 @@ class LGBMModel:
                 callbacks=[
                     lgb.callback.record_evaluation(evals_results),
                     lgb.callback.log_evaluation()
-                ]
+                ],
+                **self.additional_params
             )
             self.models[label_name] = model
 
             for valid_name in valid_names:
-                for loss in evals_results[valid_name]["binary_logloss"]:
+                assert len(evals_results[valid_name]) == 1
+                loss_name = list(evals_results[valid_name].keys())[0]
+                for loss in evals_results[valid_name][loss_name]:
                     self.run[f"{log_prefix}/loss/{valid_name}/{label_name}"].log(loss)
 
-            log_auc(model, df_x_train, df_y_train, log_suffix=f"train/{label_name}")
-            if ds_valid is not None:
-                log_auc(model, df_x_valid, df_y_valid, log_suffix=f"valid/{label_name}")
+            if self.log_auc:
+                log_auc(model, df_x_train, df_y_train, log_suffix=f"train/{label_name}")
+                if ds_valid is not None:
+                    log_auc(model, df_x_valid, df_y_valid, log_suffix=f"valid/{label_name}")
 
     def get_importance(self) -> Dict[str, pd.Series]:
         importance_dict = {}
@@ -147,7 +206,10 @@ class LGBMModel:
         df_x = ds.bundle_features()
         preds = {}
         for label_name, model in self.models.items():
-            preds[label_name] = model.predict(df_x).astype(np.float32)
+            pred = model.predict(df_x).astype(np.float32)
+            if self.sigmoid_after_predict:
+                pred = utils.sigmoid(pred)
+            preds[label_name] = pred
         return pd.DataFrame(preds, index=ds.get_base_index())
 
     def save(self, output_path: str):

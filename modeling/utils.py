@@ -582,6 +582,25 @@ def create_smatrend_labels(
     return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
 
 
+def create_gain_labels(
+    df: pd.DataFrame,
+    future_step_min: int,
+    future_step_max: int,
+    entry_bias: float,
+    exit_bias: float,
+):
+    values = pd.Series((df["high"].values + df["low"].values) / 2, index=df.index)
+    future_sma = compute_sma(values, future_step_max - future_step_min + 1).shift(-future_step_max)
+    diff = future_sma - values
+
+    long_entry_labels  = diff + entry_bias
+    short_entry_labels = -diff + entry_bias
+    long_exit_labels   = diff + exit_bias
+    short_exit_labels  = -diff + exit_bias
+
+    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels, validate=False)
+
+
 def create_dummy1_labels(index: pd.DatetimeIndex) -> pd.DataFrame:
     long_entry_labels  = (index.hour >= 0)  & (index.hour < 6)
     short_entry_labels = (index.hour >= 6)  & (index.hour < 12)
@@ -629,10 +648,12 @@ def merge_labels(
     short_entry_labels: np.ndarray,
     long_exit_labels: np.ndarray,
     short_exit_labels: np.ndarray,
+    validate: bool = True,
 ):
-    assert not (long_entry_labels & short_entry_labels).any()
-    assert not (long_entry_labels & long_exit_labels).any()
-    assert not (short_entry_labels & short_exit_labels).any()
+    if validate:
+        assert not (long_entry_labels & short_entry_labels).any()
+        assert not (long_entry_labels & long_exit_labels).any()
+        assert not (short_entry_labels & short_exit_labels).any()
 
     df_labels = pd.DataFrame({
         "long_entry": long_entry_labels,
@@ -660,6 +681,8 @@ def create_labels(
         df_y = create_future_labels(df, **label_params)
     elif label_type == "smatrend":
         df_y = create_smatrend_labels(df, **label_params)
+    elif label_type == "gain":
+        df_y = create_gain_labels(df, **label_params)
     elif label_type == "dummy1":
         df_y = create_dummy1_labels(df.index, **label_params)
     elif label_type == "dummy2":
@@ -674,3 +697,7 @@ def create_labels(
 
 def calc_specificity(label: np.ndarray, pred: np.ndarray) -> float:
     return ((~label) & (~pred)).sum() / (~label).sum()
+
+
+def sigmoid(x: np.ndarray) -> np.ndarray:
+    return 1 / (1 + np.exp(-x))

@@ -584,6 +584,28 @@ def test_create_smatrend_labels():
     assert_bool_array(actual_labels["short_exit"].values,  [7, 8, 9, 10, 11, 12])
 
 
+def test_create_gain_labels():
+    values = np.array([0, 2, 5, 8, 10, 7, 2, 3])
+    future_sma = np.array([25/3, 19/3, 12/3, np.nan, np.nan, np.nan, np.nan, np.nan])
+    diff = future_sma - values
+    df = pd.DataFrame({"high": values + 1, "low": values - 1})
+
+    entry_bias = -1.
+    exit_bias = 1.
+    expected_labels = pd.DataFrame({
+        "long_entry": diff + entry_bias,
+        "short_entry": -diff + entry_bias,
+        "long_exit": diff + exit_bias,
+        "short_exit": -diff + exit_bias,
+    })
+    actual_labels = utils.create_gain_labels(
+        df,
+        future_step_min=3, future_step_max=5,
+        entry_bias=entry_bias, exit_bias=exit_bias,
+    )
+    pd.testing.assert_frame_equal(expected_labels, actual_labels)
+
+
 def test_create_dummy1_labels():
     index = pd.date_range("2022-01-01 00:00:00", "2022-01-02 23:59:59", freq="4h")
     actual_labels = utils.create_dummy1_labels(index)
