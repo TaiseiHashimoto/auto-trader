@@ -149,14 +149,24 @@ def create_time_features(index: pd.DatetimeIndex):
     return pd.DataFrame(df_out, index=index)
 
 
-def compute_sma(s: pd.Series, sma_window_size: int) -> pd.Series:
+def compute_sma(s: pd.Series, window_size: int) -> pd.Series:
     sma = (
         s
-        .rolling(sma_window_size)
+        .rolling(window_size)
         .mean()
         .astype(np.float32)
     )
     return sma
+
+
+def compute_sigma(s: pd.Series, window_size: int) -> pd.Series:
+    sigma = (
+        s
+        .rolling(window_size)
+        .std(ddof=0)
+        .astype(np.float32)
+    )
+    return sigma
 
 
 def compute_fraction(s: pd.Series, base: float, ndigits: int):
@@ -182,6 +192,8 @@ def create_features(
     sma_window_sizes: List[int],
     sma_window_size_center: int,
     sma_frac_ndigits: int,
+    sigma_timing: str,
+    sigma_window_sizes: List[int],
     lag_max: int,
     start_hour: int,
     end_hour: int,
@@ -200,8 +212,14 @@ def create_features(
         df_seq_dict[freq] = pd.concat([df_dict[freq][timings], df_sma], axis=1)
 
         sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale, ndigits=sma_frac_ndigits)
-        # seq と形式を合わせるため、Series から DataFrame に変換
-        df_cont_dict[freq] = sma_frac.shift(1).to_frame().add_suffix("_frac_lag1")
+        df_sma_frac = sma_frac.shift(1).to_frame().add_suffix("_frac_lag1")
+
+        df_sigma = pd.DataFrame({
+            f"sigma{sigma_window_size}_lag1": compute_sigma(df_dict[freq][sigma_timing], sigma_window_size).shift(1)
+            for sigma_window_size in sigma_window_sizes
+        })
+
+        df_cont_dict[freq] = pd.concat([df_sma_frac, df_sigma], axis=1)
 
     df_time = create_time_features(df.index)
 

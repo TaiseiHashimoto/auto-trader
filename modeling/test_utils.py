@@ -182,7 +182,7 @@ def test_create_time_features():
 
 def test_compute_sma():
     s = pd.Series([0, 4, 2, 3, 6, 4, 6, 9])
-    actual_result = utils.compute_sma(s, sma_window_size=4)
+    actual_result = utils.compute_sma(s, window_size=4)
     expected_result = pd.Series([
         np.nan,
         np.nan,
@@ -192,6 +192,22 @@ def test_compute_sma():
         (2+3+6+4)/4,
         (3+6+4+6)/4,
         (6+4+6+9)/4,
+    ], dtype=np.float32)
+    pd.testing.assert_series_equal(expected_result, actual_result)
+
+
+def test_compute_sma():
+    s = pd.Series([0, 4, 2, 3, 6, 4, 6, 9])
+    actual_result = utils.compute_sigma(s, window_size=4)
+    expected_result = pd.Series([
+        np.nan,
+        np.nan,
+        np.nan,
+        ((0**2 + 4**2 + 2**2 + 3**2)/4 - ((0+4+2+3)/4) ** 2) ** 0.5,
+        ((4**2 + 2**2 + 3**2 + 6**2)/4 - ((4+2+3+6)/4) ** 2) ** 0.5,
+        ((2**2 + 3**2 + 6**2 + 4**2)/4 - ((2+3+6+4)/4) ** 2) ** 0.5,
+        ((3**2 + 6**2 + 4**2 + 6**2)/4 - ((3+6+4+6)/4) ** 2) ** 0.5,
+        ((6**2 + 4**2 + 6**2 + 9**2)/4 - ((6+4+6+9)/4) ** 2) ** 0.5,
     ], dtype=np.float32)
     pd.testing.assert_series_equal(expected_result, actual_result)
 
@@ -254,6 +270,8 @@ def test_create_features():
         sma_window_sizes = [2, 4],
         sma_window_size_center = 2,
         sma_frac_ndigits = 2,
+        sigma_timing = "close",
+        sigma_window_sizes = [1, 3],
         lag_max = 2,
         start_hour = 0,
         end_hour = 1,
@@ -277,6 +295,8 @@ def test_create_features():
         "continuous": {
             "1min": pd.DataFrame({
                 "sma2_frac_lag1": [np.nan, np.nan, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50],
+                "sigma1_lag1": [np.nan, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                "sigma3_lag1": [np.nan, np.nan, np.nan, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5],
                 "hour": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
                 "day_of_week": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
                 "month": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
@@ -290,6 +310,8 @@ def test_create_features():
             }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
             "2min": pd.DataFrame({
                 "sma2_frac_lag1": [np.nan, np.nan, 0, 0, 0, 0],
+                "sigma1_lag1": [np.nan, 0, 0, 0, 0, 0],
+                "sigma3_lag1": [np.nan, np.nan, np.nan, (8/3)**0.5, (8/3)**0.5, (8/3)**0.5],
             }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="2min")),
         }
     }
@@ -320,6 +342,8 @@ def test_create_features():
         sma_window_sizes = [2, 4],
         sma_window_size_center = 2,
         sma_frac_ndigits = 2,
+        sigma_timing = "close",
+        sigma_window_sizes = [1, 3],
         lag_max = 2,
         start_hour = 2,
         end_hour = 22,

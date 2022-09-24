@@ -34,6 +34,8 @@ class FeatureConfig:
     sma_window_sizes: List[int] = field(default_factory=lambda: [5, 10, 20])
     sma_window_size_center: int = 5
     sma_frac_ndigits: int = 2
+    sigma_timing: str = "close"
+    sigma_window_sizes: List[int] = field(default_factory=lambda: [5, 10, 20])
     lag_max: int = 5
     start_hour: int = 2
     end_hour: int = 22
