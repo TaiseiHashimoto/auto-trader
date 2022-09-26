@@ -554,18 +554,19 @@ def create_smadiff_labels(
 
 def create_future_labels(
     df: pd.DataFrame,
-    future_step: int,
+    future_step_min: int,
+    future_step_max: int,
     thresh_entry: float,
     thresh_hold: float,
 ) -> pd.DataFrame:
     values = pd.Series((df["high"].values + df["low"].values) / 2, index=df.index)
-    values_future = values.shift(-future_step)
-    values_diff = values_future.values - values.values
+    future_sma = compute_sma(values, future_step_max - future_step_min + 1).shift(-future_step_max)
+    diff = future_sma - values
 
-    long_entry_labels  = values_diff > thresh_entry
-    short_entry_labels = values_diff < -thresh_entry
-    long_exit_labels   = values_diff < -thresh_hold
-    short_exit_labels  = values_diff > thresh_hold
+    long_entry_labels  = diff >= thresh_entry
+    short_entry_labels = diff <= -thresh_entry
+    long_exit_labels   = diff < -thresh_hold
+    short_exit_labels  = diff > thresh_hold
 
     return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
 

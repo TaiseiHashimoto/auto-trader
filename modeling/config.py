@@ -68,7 +68,8 @@ class SMADiffLabelConfig:
 @dataclass
 class FutureLabelConfig:
     label_type: str = "future"
-    future_step: int = 10
+    future_step_min: int = 8
+    future_step_max: int = 12
     thresh_entry: float = 0.05
     thresh_hold: float = 0.0
 

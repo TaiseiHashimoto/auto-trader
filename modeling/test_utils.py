@@ -617,20 +617,21 @@ def test_create_smadiff_labels():
 def test_create_future_labels():
     values = np.array([1., 2., 3., 0., 2., 1., -1, 0., 1.])
     df = pd.DataFrame({"high": values + 1, "low": values - 1})
-    actual_labels = utils.create_future_labels(df, future_step=3, thresh_entry=1.5, thresh_hold=0.)
-    # values_diff: [-1, 0, -2, -1, -2, 0, np.nan, np.nan, np.nan]
+    actual_labels = utils.create_future_labels(df, future_step_min=3, future_step_max=5, thresh_entry=1.5, thresh_hold=0.)
+    # future_sma: [1, 2/3,  0,  0, np.nan, np.nan, np.nan, np.nan, np.nan]
+    # diff:       [0, -4/3, -3, 0. np.nan, np.nan, np.nan, np.nan, np.nan]
     assert_bool_array(actual_labels["long_entry"].values,  [])
-    assert_bool_array(actual_labels["short_entry"].values, [2, 4])
-    assert_bool_array(actual_labels["long_exit"].values,   [0, 2, 3, 4])
+    assert_bool_array(actual_labels["short_entry"].values, [2])
+    assert_bool_array(actual_labels["long_exit"].values,   [1, 2])
     assert_bool_array(actual_labels["short_exit"].values,  [])
 
     values = -np.array([1., 2., 3., 0., 2., 1., -1, 0., 1.])
     df = pd.DataFrame({"high": values + 1, "low": values - 1})
-    actual_labels = utils.create_future_labels(df, future_step=3, thresh_entry=1.5, thresh_hold=0.)
-    assert_bool_array(actual_labels["long_entry"].values,  [2, 4])
+    actual_labels = utils.create_future_labels(df, future_step_min=3, future_step_max=5, thresh_entry=1.5, thresh_hold=0.)
+    assert_bool_array(actual_labels["long_entry"].values,  [2])
     assert_bool_array(actual_labels["short_entry"].values, [])
     assert_bool_array(actual_labels["long_exit"].values,   [])
-    assert_bool_array(actual_labels["short_exit"].values,  [0, 2, 3, 4])
+    assert_bool_array(actual_labels["short_exit"].values,  [1, 2])
 
 
 def test_create_smatrend_labels():
