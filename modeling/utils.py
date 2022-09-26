@@ -150,27 +150,41 @@ def create_time_features(index: pd.DatetimeIndex):
 
 
 def compute_sma(s: pd.Series, window_size: int) -> pd.Series:
-    sma = (
-        s
-        .rolling(window_size)
-        .mean()
-        .astype(np.float32)
-    )
-    return sma
+    return s.rolling(window_size).mean().astype(np.float32)
+
+
+def compute_ema(s: pd.Series, window_size: int) -> pd.Series:
+    return s.ewm(span=window_size, adjust=False).mean().astype(np.float32)
 
 
 def compute_sigma(s: pd.Series, window_size: int) -> pd.Series:
-    sigma = (
-        s
-        .rolling(window_size)
-        .std(ddof=0)
-        .astype(np.float32)
-    )
-    return sigma
+    return s.rolling(window_size).std(ddof=0).astype(np.float32)
 
 
 def compute_fraction(s: pd.Series, base: float, ndigits: int):
     return (s / base) % int(10 ** ndigits)
+
+
+def compute_macd(
+    s: pd.Series,
+    ema_window_size_short: int,
+    ema_window_size_long: int,
+    sma_window_size: int,
+) -> Tuple[pd.Series, pd.Series]:
+    ema_short = compute_ema(s, ema_window_size_short)
+    ema_long = compute_ema(s, ema_window_size_long)
+    macd = ema_short - ema_long
+    macd_signal = compute_sma(macd, sma_window_size)
+    return macd, macd_signal
+
+
+def compute_rsi(s: pd.Series, window_size: int) -> pd.Series:
+    diff = s.diff()
+    up_diff = diff.clip(lower=0)
+    down_diff = (-diff).clip(lower=0)
+    up_diff_ma = compute_sma(up_diff, window_size)
+    down_diff_ma = compute_sma(down_diff, window_size)
+    return up_diff_ma / (up_diff_ma + down_diff_ma)
 
 
 def create_lagged_features(df: pd.DataFrame, lag_max: int) -> pd.DataFrame:

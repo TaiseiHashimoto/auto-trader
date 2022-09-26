@@ -6,7 +6,7 @@ import utils
 
 
 def test_download_preprocessed_data_range(mocker):
-    download_preprocessed_data = mocker.patch('utils.download_preprocessed_data', return_value=None)
+    download_preprocessed_data = mocker.patch("utils.download_preprocessed_data", return_value=None)
 
     gcs = "GCS"
     symbol = "symbol"
@@ -25,7 +25,7 @@ def test_download_preprocessed_data_range(mocker):
 
 
 def test_read_preprocessed_data_range(mocker):
-    read_preprocessed_data = mocker.patch('utils.read_preprocessed_data', return_value=pd.DataFrame())
+    read_preprocessed_data = mocker.patch("utils.read_preprocessed_data", return_value=pd.DataFrame())
 
     symbol = "symbol"
     data_directory = "./dir"
@@ -196,7 +196,7 @@ def test_compute_sma():
     pd.testing.assert_series_equal(expected_result, actual_result)
 
 
-def test_compute_sma():
+def test_compute_sigma():
     s = pd.Series([0, 4, 2, 3, 6, 4, 6, 9])
     actual_result = utils.compute_sigma(s, window_size=4)
     expected_result = pd.Series([
@@ -208,6 +208,50 @@ def test_compute_sma():
         ((2**2 + 3**2 + 6**2 + 4**2)/4 - ((2+3+6+4)/4) ** 2) ** 0.5,
         ((3**2 + 6**2 + 4**2 + 6**2)/4 - ((3+6+4+6)/4) ** 2) ** 0.5,
         ((6**2 + 4**2 + 6**2 + 9**2)/4 - ((6+4+6+9)/4) ** 2) ** 0.5,
+    ], dtype=np.float32)
+    pd.testing.assert_series_equal(expected_result, actual_result)
+
+
+def test_compute_ema():
+    s = pd.Series([0, 4, 2, 3, 6, 4, 6, 9])
+    actual_result = utils.compute_ema(s, window_size=4)
+    alpha = 2 / (4 + 1)
+    ema = 0
+    expected_result = []
+    for i in range(len(s)):
+        ema = s[i] * alpha + ema * (1 - alpha)
+        expected_result.append(ema)
+    expected_result = pd.Series(expected_result, dtype=np.float32)
+    pd.testing.assert_series_equal(expected_result, actual_result)
+
+
+def test_compute_macd(mocker):
+    compute_ema = mocker.spy(utils, "compute_ema")
+    compute_sma = mocker.spy(utils, "compute_sma")
+
+    s = pd.Series([0, 4, 2, 3, 6, 4, 6, 9])
+    ema_window_size_short = 10
+    ema_window_size_long = 20
+    sma_window_size = 5
+    utils.compute_macd(s, ema_window_size_short, ema_window_size_long, sma_window_size)
+
+    assert compute_ema.call_args_list == [mocker.call(s, ema_window_size_short), mocker.call(s, ema_window_size_long)]
+    assert compute_sma.call_count == 1 and compute_sma.call_args_list[0][0][1] == sma_window_size
+
+
+def test_compute_rsi():
+    s = pd.Series([0,      4, 2,  3, 6, 4,  6, 9])
+    # diff        [np.nan, 4, -2, 1, 3, -2, 2, 3]
+    actual_result = utils.compute_rsi(s, window_size=3)
+    expected_result = pd.Series([
+        np.nan,
+        np.nan,
+        np.nan,
+        (4+1)/(4+2+1),
+        (1+3)/(2+1+3),
+        (1+3)/(1+3+2),
+        (3+2)/(3+2+2),
+        (2+3)/(2+2+3),
     ], dtype=np.float32)
     pd.testing.assert_series_equal(expected_result, actual_result)
 
