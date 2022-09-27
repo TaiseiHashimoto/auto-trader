@@ -187,6 +187,19 @@ def compute_rsi(s: pd.Series, window_size: int) -> pd.Series:
     return up_diff_ma / (up_diff_ma + down_diff_ma)
 
 
+def compute_stochastics(s: pd.Series,
+    k_window_size: int,
+    d_window_size: int,
+    sd_window_size: int,
+) -> Tuple[pd.Series, pd.Series, pd.Series]:
+    k_max = s.rolling(k_window_size).max()
+    k_min = s.rolling(k_window_size).min()
+    k = ((s - k_min) / (k_max - k_min)).astype(np.float32)
+    d = compute_sma(k, d_window_size)
+    sd = compute_sma(d, sd_window_size)
+    return k, d, sd
+
+
 def create_lagged_features(df: pd.DataFrame, lag_max: int) -> pd.DataFrame:
     df_out = {}
     for column in df.columns:

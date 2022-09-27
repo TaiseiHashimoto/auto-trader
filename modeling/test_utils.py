@@ -256,6 +256,22 @@ def test_compute_rsi():
     pd.testing.assert_series_equal(expected_result, actual_result)
 
 
+def test_compute_stochastics():
+    s = pd.Series([0, 4, 2, 3, 6, 4, 6, 9, 8, 3])
+    actual_k, actual_d, actual_sd = utils.compute_stochastics(
+        s,
+        k_window_size=3,
+        d_window_size=4,
+        sd_window_size=5,
+    )
+    expected_k = pd.Series([np.nan, np.nan, 2/4, 1/2, 4/4, 1/3, 2/2, 5/5, 2/3, 0/6], dtype=np.float32)
+    expected_d = utils.compute_sma(expected_k, 4)
+    expected_sd = utils.compute_sma(expected_d, 5)
+    pd.testing.assert_series_equal(expected_k, actual_k)
+    pd.testing.assert_series_equal(expected_d, actual_d)
+    pd.testing.assert_series_equal(expected_sd, actual_sd)
+
+
 def test_compute_fraction():
     s = pd.Series([100.1234, 104.4567, 90.7890])
 
