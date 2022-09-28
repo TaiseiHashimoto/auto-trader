@@ -29,7 +29,7 @@ class CriticalConfig:
 @dataclass
 class FeatureConfig:
     timings: List[str] = field(default_factory=lambda: ["open", "high", "low", "close"])
-    freqs: List[str] = field(default_factory=lambda: ["1min", "15min", "1h", "1day"])
+    freqs: List[str] = field(default_factory=lambda: ["1min", "15min", "1h", "1d"])
     main_timing: str = "close"
     sma_window_sizes: List[int] = field(default_factory=lambda: [5, 8, 13])
     sma_window_size_center: int = 5
