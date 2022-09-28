@@ -244,7 +244,13 @@ def create_features(
             f"sma{sma_window_size}": compute_sma(df_dict[freq][main_timing], sma_window_size)
             for sma_window_size in sma_window_sizes
         })
-        df_seq_center_dict[freq] = pd.concat([df_dict[freq][timings], df_sma], axis=1)
+        df_seq_center_dict[freq] = pd.concat([df_dict[freq][[main_timing]], df_sma], axis=1)
+
+        df_candle = pd.DataFrame({
+            "body": df_dict[freq]["close"] - df_dict[freq]["open"],
+            "upper_shadow": df_dict[freq]["high"] - df_dict[freq][["open", "close"]].max(axis=1),
+            "lower_shadow": df_dict[freq][["open", "close"]].min(axis=1) - df_dict[freq]["low"],
+        })
 
         df_sigma = pd.DataFrame({
             "sigma": compute_sigma(df_dict[freq][main_timing], sigma_window_size)
@@ -273,7 +279,13 @@ def create_features(
             "stochastics_sd": stochastics_sd
         })
 
-        df_seq_nocenter_dict[freq] = pd.concat([df_sigma, df_macd, df_rsi, df_stochastics], axis=1)
+        df_seq_nocenter_dict[freq] = pd.concat([
+            df_candle,
+            df_sigma,
+            df_macd,
+            df_rsi,
+            df_stochastics,
+        ], axis=1)
 
         sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale, ndigits=sma_frac_ndigits)
         df_sma_frac = pd.DataFrame({

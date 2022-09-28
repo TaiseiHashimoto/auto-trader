@@ -367,11 +367,13 @@ def test_create_features():
         assert (actual_data["sequential"]["center"][freq].index == index).all()
         assert (actual_data["sequential"]["center"][freq].columns == [
             "open",
-            "low",
             "sma2",
             "sma4",
         ]).all()
         assert (actual_data["sequential"]["nocenter"][freq].columns == [
+            "body",
+            "upper_shadow",
+            "lower_shadow",
             "sigma",
             "macd",
             "macd_signal",
