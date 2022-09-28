@@ -9,18 +9,30 @@ class TestLGBMDataset:
         base_index = pd.date_range("2022-01-01 00:10:00", "2022-01-01 00:11:00", freq="1min")
         x = {
             "sequential": {
-                "1min": pd.DataFrame({
-                    "open": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-                    "low": [0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100, -110],
-                    "sma2": [np.nan, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5],
-                    "sma4": [np.nan, np.nan, np.nan, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5],
-                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
-                "2min": pd.DataFrame({
-                    "open": [0, 2, 4, 6, 8, 10],
-                    "low": [-10, -30, -50, -70, -90, -110],
-                    "sma2": [np.nan, 1, 3, 5, 7, 9],
-                    "sma4": [np.nan, np.nan, np.nan, 3, 5, 7],
-                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="2min")),
+                "center": {
+                    "1min": pd.DataFrame({
+                        "open": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
+                        "low": [0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100, -110],
+                        "sma2": [np.nan, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5],
+                        "sma4": [np.nan, np.nan, np.nan, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5],
+                    }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
+                    "2min": pd.DataFrame({
+                        "open": [0, 2, 4, 6, 8, 10],
+                        "low": [-10, -30, -50, -70, -90, -110],
+                        "sma2": [np.nan, 1, 3, 5, 7, 9],
+                        "sma4": [np.nan, np.nan, np.nan, 3, 5, 7],
+                    }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="2min")),
+                },
+                "nocenter": {
+                    "1min": pd.DataFrame({
+                        "macd": [0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1],
+                        "macd_signal": [-0., -0.1, -0.2, -0.3, -0.4, -0.5, -0.6, -0.7, -0.8, -0.9, -1.0, -1.1],
+                    }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
+                    "2min": pd.DataFrame({
+                        "macd": [0., 0.2, 0.4, 0.6, 0.8, 1.0],
+                        "macd_signal": [-0., -0.2, -0.4, -0.6, -0.8, -1.0],
+                    }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="2min")),
+                }
             },
             "continuous": {
                 "1min": pd.DataFrame({
@@ -55,6 +67,10 @@ class TestLGBMDataset:
             "sma2_lag2_1min": [-1, -1],
             "sma4_lag1_1min": [-1, -1],
             "sma4_lag2_1min": [-2, -2],
+            "macd_lag1_1min": [0.9, 1.0],
+            "macd_lag2_1min": [0.8, 0.9],
+            "macd_signal_lag1_1min": [-0.9, -1.0],
+            "macd_signal_lag2_1min": [-0.8, -0.9],
             "open_lag1_2min": [1, 1],
             "open_lag2_2min": [-1, -1],
             "low_lag1_2min": [-97, -97],
@@ -63,6 +79,10 @@ class TestLGBMDataset:
             "sma2_lag2_2min": [-2, -2],
             "sma4_lag1_2min": [-2, -2],
             "sma4_lag2_2min": [-4, -4],
+            "macd_lag1_2min": [0.8, 0.8],
+            "macd_lag2_2min": [0.6, 0.6],
+            "macd_signal_lag1_2min": [-0.8, -0.8],
+            "macd_signal_lag2_2min": [-0.6, -0.6],
             "sma2_frac_lag1_1min": [50, 50],
             "hour_1min": [0, 0],
             "day_of_week_1min": [5, 5],

@@ -30,12 +30,18 @@ class CriticalConfig:
 class FeatureConfig:
     timings: List[str] = field(default_factory=lambda: ["high", "low", "close"])
     freqs: List[str] = field(default_factory=lambda: ["1min", "5min", "15min", "1h", "4h"])
-    sma_timing: str = "close"
+    main_timing: str = "close"
     sma_window_sizes: List[int] = field(default_factory=lambda: [5, 10, 20])
     sma_window_size_center: int = 5
+    sigma_window_size: int = 20
+    macd_ema_window_size_short: int = 9
+    macd_ema_window_size_long: int = 26
+    macd_sma_window_size: int = 9
+    stochastics_k_window_size: int = 9
+    stochastics_d_window_size: int = 3
+    stochastics_sd_window_size: int = 3
+    rsi_window_size: int = 14
     sma_frac_ndigits: int = 2
-    sigma_timing: str = "close"
-    sigma_window_sizes: List[int] = field(default_factory=lambda: [5, 10, 20])
     lag_max: int = 5
     start_hour: int = 2
     end_hour: int = 22

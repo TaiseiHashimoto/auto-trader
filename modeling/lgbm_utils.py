@@ -28,7 +28,7 @@ class LGBMDataset:
         return list(self.y.columns)
 
     def get_freqs(self) -> List[str]:
-        return list(self.x["sequential"].keys())
+        return list(self.x["continuous"].keys())
 
     def get_base_index(self) -> pd.DatetimeIndex:
         return self.base_index
@@ -36,12 +36,19 @@ class LGBMDataset:
     def bundle_features(self) -> pd.DataFrame:
         df_seq_dict = {}
         for freq in self.get_freqs():
-            df_lagged = utils.create_lagged_features(self.x["sequential"][freq], self.lag_max)
+            df_center_lagged = utils.create_lagged_features(self.x["sequential"]["center"][freq], self.lag_max)
+            df_nocenter_lagged = utils.create_lagged_features(self.x["sequential"]["nocenter"][freq], self.lag_max)
+
+            # 中心化
             sma_colname = f"sma{self.sma_window_size_center}_lag1"
-            sma = df_lagged[sma_colname]
-            df_lagged_centered = df_lagged - sma.values[:, np.newaxis]
-            # 基準となる sma のカラムは常に 0 なので削除する
-            df_seq_dict[freq] = df_lagged_centered.drop(sma_colname, axis=1)
+            sma = df_center_lagged[sma_colname]
+            df_center_lagged = df_center_lagged - sma.values[:, np.newaxis]
+
+            df_seq_dict[freq] = pd.concat([
+                # 基準となる sma のカラムは常に 0 なので削除する
+                df_center_lagged.drop(sma_colname, axis=1),
+                df_nocenter_lagged,
+            ], axis=1)
 
         df_seq = utils.align_frequency(self.base_index, df_seq_dict)
         df_cont = utils.align_frequency(self.base_index, self.x["continuous"])

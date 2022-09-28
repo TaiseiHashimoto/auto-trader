@@ -32,7 +32,7 @@ class CNNDataset:
         return list(self.y.columns)
 
     def get_freqs(self) -> List[str]:
-        return list(self.x["sequential"].keys())
+        return list(self.x["continuous"].keys())
 
     def get_lag_max(self) -> int:
         return self.lag_max
@@ -41,7 +41,10 @@ class CNNDataset:
         return sum([v.shape[1] for v in self.x["continuous"].values()])
 
     def get_sequential_channels(self) -> int:
-        return self.x["sequential"]["1min"].shape[1]
+        return (
+            self.x["sequential"]["center"]["1min"].shape[1] +
+            self.x["sequential"]["nocenter"]["1min"].shape[1]
+        )
 
     def get_base_index(self) -> pd.DatetimeIndex:
         return self.base_index
@@ -63,7 +66,8 @@ class CNNDataset:
         return int(np.ceil(len(self.base_index) / batch_size))
 
     def create_loader(self, batch_size: int, randomize: bool = True) -> Generator[Tuple, None, None]:
-        x_seq = self.x["sequential"]
+        x_seq_center = self.x["sequential"]["center"]
+        x_seq_nocenter = self.x["sequential"]["nocenter"]
         x_cont = self.x["continuous"]
 
         index = self.base_index
@@ -72,9 +76,9 @@ class CNNDataset:
 
         # それぞれの freq に対応する idx を予め計算しておく
         idx_dict = {}
-        for freq in x_seq:
+        for freq in self.get_freqs():
             index_freq = index.floor(pd.Timedelta(freq))
-            idx_dict[freq] = x_seq[freq].index.get_indexer(index_freq)
+            idx_dict[freq] = x_seq_center[freq].index.get_indexer(index_freq)
 
         done_count = 0
         while done_count < len(index):
@@ -85,15 +89,19 @@ class CNNDataset:
 
             values_x_seq = {}
             values_x_cont = {}
-            for freq in x_seq:
+            for freq in self.get_freqs():
                 idx_batch_freq = idx_batch_dict[freq]
                 assert (idx_batch_freq >= self.lag_max).all()
 
                 idx_expanded = np.stack([idx_batch_freq - lag_i for lag_i in range(1, self.lag_max + 1)], axis=1)
-                v = x_seq[freq].values[idx_expanded.flatten()].reshape((len(idx_batch_freq), self.lag_max, -1))
-                sma = x_seq[freq][f"sma{self.sma_window_size_center}"].values[idx_batch_freq-1]
+                v_center = x_seq_center[freq].values[idx_expanded.flatten()].reshape((len(idx_batch_freq), self.lag_max, -1))
+                v_notcenter = x_seq_nocenter[freq].values[idx_expanded.flatten()].reshape((len(idx_batch_freq), self.lag_max, -1))
+                sma = x_seq_center[freq][f"sma{self.sma_window_size_center}"].values[idx_batch_freq-1]
                 # shape: (batch_size, lag_max, feature_dim)
-                values_x_seq[freq] = v - sma[:, np.newaxis, np.newaxis]
+                values_x_seq[freq] = np.concatenate([
+                    v_center - sma[:, np.newaxis, np.newaxis],
+                    v_notcenter,
+                ], axis=2)
 
                 values_x_cont[freq] = x_cont[freq].values[idx_batch_freq]
 

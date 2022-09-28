@@ -326,57 +326,67 @@ def test_create_features():
         symbol = "usdjpy",
         timings = ["open", "low"],
         freqs = ["1min", "2min"],
-        sma_timing = "open",
+        main_timing = "open",
         sma_window_sizes = [2, 4],
         sma_window_size_center = 2,
+        sigma_window_size = 3,
+        macd_ema_window_size_short = 1,
+        macd_ema_window_size_long = 2,
+        macd_sma_window_size = 1,
+        rsi_window_size = 2,
+        stochastics_k_window_size = 2,
+        stochastics_d_window_size = 1,
+        stochastics_sd_window_size = 1,
         sma_frac_ndigits = 2,
-        sigma_timing = "close",
-        sigma_window_sizes = [1, 3],
         lag_max = 2,
         start_hour = 0,
         end_hour = 1,
     )
+
     expected_base_index = pd.date_range("2022-01-01 00:10:00", "2022-01-01 00:11:00", freq="1min")
-    expected_data = {
-        "sequential": {
-            "1min": pd.DataFrame({
-                "open": [0,      1,      2,      3,   4,   5,   6,   7,   8,   9,   10,   11],
-                "low":  [0,      -10,    -20,    -30, -40, -50, -60, -70, -80, -90, -100, -110],
-                "sma2": [np.nan, 0.5,    1.5,    2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5,  9.5, 10.5],
-                "sma4": [np.nan, np.nan, np.nan, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5,  8.5, 9.5],
-            }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
-            "2min": pd.DataFrame({
-                "open": [0,      2,      4,      6,   8,   10],
-                "low":  [-10,    -30,    -50,    -70, -90, -110],
-                "sma2": [np.nan, 1,      3,      5,   7,   9],
-                "sma4": [np.nan, np.nan, np.nan, 3,   5,   7],
-            }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="2min")),
-        },
-        "continuous": {
-            "1min": pd.DataFrame({
-                "sma2_frac_lag1": [np.nan, np.nan, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50],
-                "sigma1_lag1": [np.nan, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                "sigma3_lag1": [np.nan, np.nan, np.nan, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5, (2/3)**0.5],
-                "hour": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                "day_of_week": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
-                "month": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                "prev1_pre_critical_values_lag1": [np.nan, np.nan, 0 - 0.5, 0 - 1.5, 0 - 2.5, 1 - 3.5, 1 - 4.5, 5 - 5.5, 5 - 6.5, 5 - 7.5, 5 - 8.5, 8 - 9.5],
-                "prev2_pre_critical_values_lag1": [np.nan, np.nan, np.nan, np.nan, np.nan, 0 - 3.5, 0 - 4.5, 1 - 5.5, 1 - 6.5, 1 - 7.5, 1 - 8.5, 5 - 9.5],
-                "prev3_pre_critical_values_lag1": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, 0 - 5.5, 0 - 6.5, 0 - 7.5, 0 - 8.5, 1 - 9.5],
-                "prev1_pre_critical_idxs_lag1": [np.nan, np.nan, -1, -2, -3, -3, -4, -1, -2, -3, -4, -2],
-                "prev2_pre_critical_idxs_lag1": [np.nan, np.nan, np.nan, np.nan, np.nan, -4, -5, -5, -6, -7, -8, -5],
-                "prev3_pre_critical_idxs_lag1": [np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, np.nan, -6, -7, -8, -9, -9],
-                # "pre_uptrends_lag1": [np.nan, 1, 1, 0, 0, 1, 1, 1, 1, 0, 0, 0],
-            }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="1min")),
-            "2min": pd.DataFrame({
-                "sma2_frac_lag1": [np.nan, np.nan, 0, 0, 0, 0],
-                "sigma1_lag1": [np.nan, 0, 0, 0, 0, 0],
-                "sigma3_lag1": [np.nan, np.nan, np.nan, (8/3)**0.5, (8/3)**0.5, (8/3)**0.5],
-            }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="2min")),
-        }
-    }
     assert (actual_base_index == expected_base_index).all()
-    assert_df_dict_equal(actual_data, expected_data, check_dtype=False)
+
+    assert list(actual_data.keys()) == ["sequential", "continuous"]
+    assert list(actual_data["sequential"].keys()) == ["center", "nocenter"]
+    assert list(actual_data["sequential"]["center"].keys()) == ["1min", "2min"]
+    assert list(actual_data["sequential"]["nocenter"].keys()) == ["1min", "2min"]
+    assert list(actual_data["continuous"].keys()) == ["1min", "2min"]
+    for freq in ["1min", "2min"]:
+        index = pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq=freq)
+        assert (actual_data["sequential"]["center"][freq].index == index).all()
+        assert (actual_data["sequential"]["center"][freq].columns == [
+            "open",
+            "low",
+            "sma2",
+            "sma4",
+        ]).all()
+        assert (actual_data["sequential"]["nocenter"][freq].columns == [
+            "sigma",
+            "macd",
+            "macd_signal",
+            "rsi",
+            "stochastics_k",
+            "stochastics_d",
+            "stochastics_sd",
+        ]).all()
+        if freq == "1min":
+            assert (actual_data["continuous"][freq].columns == [
+                "sma2_frac_lag1",
+                "hour",
+                "day_of_week",
+                "month",
+                "prev1_pre_critical_values_lag1",
+                "prev2_pre_critical_values_lag1",
+                "prev3_pre_critical_values_lag1",
+                "prev1_pre_critical_idxs_lag1",
+                "prev2_pre_critical_idxs_lag1",
+                "prev3_pre_critical_idxs_lag1",
+            ]).all()
+        else:
+            assert (actual_data["continuous"][freq].columns == [
+                "sma2_frac_lag1",
+            ]).all()
+
 
     size = 60 * 72
     actual_base_index, _ = utils.create_features(
@@ -398,12 +408,18 @@ def test_create_features():
         symbol = "usdjpy",
         timings = ["open", "low"],
         freqs = ["1min", "2min"],
-        sma_timing = "open",
+        main_timing = "open",
         sma_window_sizes = [2, 4],
         sma_window_size_center = 2,
+        sigma_window_size = 3,
+        macd_ema_window_size_short = 1,
+        macd_ema_window_size_long = 2,
+        macd_sma_window_size = 1,
+        rsi_window_size = 2,
+        stochastics_k_window_size = 2,
+        stochastics_d_window_size = 1,
+        stochastics_sd_window_size = 1,
         sma_frac_ndigits = 2,
-        sigma_timing = "close",
-        sigma_window_sizes = [1, 3],
         lag_max = 2,
         start_hour = 2,
         end_hour = 22,

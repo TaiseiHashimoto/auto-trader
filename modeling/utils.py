@@ -184,17 +184,18 @@ def compute_rsi(s: pd.Series, window_size: int) -> pd.Series:
     down_diff = (-diff).clip(lower=0)
     up_diff_ma = compute_sma(up_diff, window_size)
     down_diff_ma = compute_sma(down_diff, window_size)
-    return up_diff_ma / (up_diff_ma + down_diff_ma)
+    return up_diff_ma / (up_diff_ma + down_diff_ma + 1e-6)
 
 
-def compute_stochastics(s: pd.Series,
+def compute_stochastics(
+    s: pd.Series,
     k_window_size: int,
     d_window_size: int,
     sd_window_size: int,
 ) -> Tuple[pd.Series, pd.Series, pd.Series]:
     k_max = s.rolling(k_window_size).max()
     k_min = s.rolling(k_window_size).min()
-    k = ((s - k_min) / (k_max - k_min)).astype(np.float32)
+    k = ((s - k_min) / (k_max - k_min + 1e-6)).astype(np.float32)
     d = compute_sma(k, d_window_size)
     sd = compute_sma(d, sd_window_size)
     return k, d, sd
@@ -215,12 +216,18 @@ def create_features(
     symbol: str,
     timings: List[str],
     freqs: List[str],
-    sma_timing: str,
+    main_timing: str,
     sma_window_sizes: List[int],
     sma_window_size_center: int,
+    sigma_window_size: int,
+    macd_ema_window_size_short: int,
+    macd_ema_window_size_long: int,
+    macd_sma_window_size: int,
+    rsi_window_size: int,
+    stochastics_k_window_size: int,
+    stochastics_d_window_size: int,
+    stochastics_sd_window_size: int,
     sma_frac_ndigits: int,
-    sigma_timing: str,
-    sigma_window_sizes: List[int],
     lag_max: int,
     start_hour: int,
     end_hour: int,
@@ -229,31 +236,58 @@ def create_features(
 
     df_dict = resample(df, freqs)
 
-    df_seq_dict = {}
+    df_seq_center_dict = {}
+    df_seq_nocenter_dict = {}
     df_cont_dict = {}
     for freq in df_dict:
         df_sma = pd.DataFrame({
-            f"sma{sma_window_size}": compute_sma(df_dict[freq][sma_timing], sma_window_size)
+            f"sma{sma_window_size}": compute_sma(df_dict[freq][main_timing], sma_window_size)
             for sma_window_size in sma_window_sizes
         })
-        df_seq_dict[freq] = pd.concat([df_dict[freq][timings], df_sma], axis=1)
-
-        sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale, ndigits=sma_frac_ndigits)
-        df_sma_frac = sma_frac.shift(1).to_frame().add_suffix("_frac_lag1")
+        df_seq_center_dict[freq] = pd.concat([df_dict[freq][timings], df_sma], axis=1)
 
         df_sigma = pd.DataFrame({
-            f"sigma{sigma_window_size}_lag1": compute_sigma(df_dict[freq][sigma_timing], sigma_window_size).shift(1)
-            for sigma_window_size in sigma_window_sizes
+            "sigma": compute_sigma(df_dict[freq][main_timing], sigma_window_size)
         })
 
-        df_cont_dict[freq] = pd.concat([df_sma_frac, df_sigma], axis=1)
+        macd, macd_signal = compute_macd(
+            df_dict[freq][main_timing],
+            macd_ema_window_size_short,
+            macd_ema_window_size_long,
+            macd_sma_window_size
+        )
+        df_macd = pd.DataFrame({"macd": macd, "macd_signal": macd_signal})
+
+        rsi = compute_rsi(df_dict[freq][main_timing], rsi_window_size)
+        df_rsi = pd.DataFrame({"rsi": rsi})
+
+        stochastics_k, stochastics_d, stochastics_sd = compute_stochastics(
+            df_dict[freq][main_timing],
+            stochastics_k_window_size,
+            stochastics_d_window_size,
+            stochastics_sd_window_size,
+        )
+        df_stochastics = pd.DataFrame({
+            "stochastics_k": stochastics_k,
+            "stochastics_d": stochastics_d,
+            "stochastics_sd": stochastics_sd
+        })
+
+        df_seq_nocenter_dict[freq] = pd.concat([df_sigma, df_macd, df_rsi, df_stochastics], axis=1)
+
+        sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale, ndigits=sma_frac_ndigits)
+        df_sma_frac = pd.DataFrame({
+            f"sma{sma_window_size_center}_frac_lag1": sma_frac.shift(1)
+        })
+
+        df_cont_dict[freq] = pd.concat([df_sma_frac], axis=1)
 
     df_time = create_time_features(df.index)
 
     assert (df.index == df_critical.index).all()
     df_critical_values = df_critical[[c for c in df_critical.columns if re.match(r"prev[0-9]+_pre_critical_values", c)]]
     # 中心化
-    df_critical_values = df_critical_values - df_seq_dict["1min"][f"sma{sma_window_size_center}"].values[:, np.newaxis]
+    df_critical_values = df_critical_values - df_seq_center_dict["1min"][f"sma{sma_window_size_center}"].values[:, np.newaxis]
     df_critical_idxs = df_critical[[c for c in df_critical.columns if re.match(r"prev[0-9]+_pre_critical_idxs", c)]]
     # HACK: 該当なしの場合に -1 になることを使っている
     df_critical_idxs = (df_critical_idxs.replace(-1, np.nan) - np.arange(len(df))[:, np.newaxis])
@@ -270,12 +304,21 @@ def create_features(
     # データが足りている最初の時刻を求める
     first_index = pd.Timestamp("1900-1-1 00:00:00")
     for freq in df_dict:
-        assert (df_seq_dict[freq].index == df_cont_dict[freq].index).all()
+        assert (df_seq_center_dict[freq].index == df_seq_nocenter_dict[freq].index).all()
+        assert (df_seq_center_dict[freq].index == df_cont_dict[freq].index).all()
 
-        nan_mask = df_seq_dict[freq].isnull().any(axis=1)
-        notnan_idxs = (~nan_mask).values.nonzero()[0]
-        first_idx = notnan_idxs[0] + lag_max
-        first_index = max(first_index, df_seq_dict[freq].index[first_idx])
+        def get_first_index(df: pd.DataFrame, lag_max: int):
+            nan_mask = df.isnull().any(axis=1)
+            notnan_idxs = (~nan_mask).values.nonzero()[0]
+            first_idx = notnan_idxs[0] + lag_max
+            return df.index[first_idx]
+
+        first_index = max(
+            first_index,
+            get_first_index(df_seq_center_dict[freq], lag_max),
+            get_first_index(df_seq_nocenter_dict[freq], lag_max),
+            get_first_index(df_cont_dict[freq], lag_max=0),
+        )
 
     available_mask = (
         (df.index >= first_index)
@@ -285,7 +328,15 @@ def create_features(
     )
     base_index = df.index[available_mask]
 
-    return base_index, {"sequential": df_seq_dict, "continuous": df_cont_dict}
+    df_features = {
+        "sequential": {
+            "center": df_seq_center_dict,
+            "nocenter": df_seq_nocenter_dict,
+        },
+        "continuous": df_cont_dict,
+    }
+
+    return base_index, df_features
 
 
 def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> Tuple[np.ndarray, np.ndarray]:
