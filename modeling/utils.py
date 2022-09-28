@@ -212,7 +212,7 @@ def create_lagged_features(df: pd.DataFrame, lag_max: int) -> pd.DataFrame:
 
 def create_features(
     df: pd.DataFrame,
-    df_critical: pd.DataFrame,
+    df_dict_critical: Dict[str, pd.DataFrame],
     symbol: str,
     timings: List[str],
     freqs: List[str],
@@ -239,7 +239,7 @@ def create_features(
     df_seq_center_dict = {}
     df_seq_nocenter_dict = {}
     df_cont_dict = {}
-    for freq in df_dict:
+    for freq in freqs:
         df_sma = pd.DataFrame({
             f"sma{sma_window_size}": compute_sma(df_dict[freq][main_timing], sma_window_size)
             for sma_window_size in sma_window_sizes
@@ -280,25 +280,34 @@ def create_features(
             f"sma{sma_window_size_center}_frac_lag1": sma_frac.shift(1)
         })
 
-        df_cont_dict[freq] = pd.concat([df_sma_frac], axis=1)
+        assert (df_dict[freq].index == df_dict_critical[freq].index).all()
+        df_critical_values = df_dict_critical[freq][
+            [c for c in df_dict_critical[freq].columns if re.match(r"prev[0-9]+_pre_critical_values", c)]
+        ]
+        # 中心化
+        df_critical_values = df_critical_values - df_sma[f"sma{sma_window_size_center}"].values[:, np.newaxis]
+        df_critical_values = df_critical_values.shift(1).add_suffix("_lag1")
+
+        df_critical_idxs = df_dict_critical[freq][
+            [c for c in df_dict_critical[freq].columns if re.match(r"prev[0-9]+_pre_critical_idxs", c)]
+        ]
+        # HACK: 該当なしの場合に -1 になることを使っている
+        df_critical_idxs = (df_critical_idxs.replace(-1, np.nan) - np.arange(len(df_critical_idxs))[:, np.newaxis])
+        df_critical_idxs = df_critical_idxs.shift(1).add_suffix("_lag1")
+
+        # df_critical_uptrends = df_dict_critical[freq][["pre_uptrends"]].astype(np.int32)
+
+        df_cont_dict[freq] = pd.concat([
+            df_sma_frac,
+            df_critical_values,
+            df_critical_idxs,
+        ], axis=1)
 
     df_time = create_time_features(df.index)
-
-    assert (df.index == df_critical.index).all()
-    df_critical_values = df_critical[[c for c in df_critical.columns if re.match(r"prev[0-9]+_pre_critical_values", c)]]
-    # 中心化
-    df_critical_values = df_critical_values - df_seq_center_dict["1min"][f"sma{sma_window_size_center}"].values[:, np.newaxis]
-    df_critical_idxs = df_critical[[c for c in df_critical.columns if re.match(r"prev[0-9]+_pre_critical_idxs", c)]]
-    # HACK: 該当なしの場合に -1 になることを使っている
-    df_critical_idxs = (df_critical_idxs.replace(-1, np.nan) - np.arange(len(df))[:, np.newaxis])
-    # df_critical_uptrends = df_critical[["pre_uptrends"]].astype(np.int32)
 
     df_cont_dict["1min"] = pd.concat([
         df_cont_dict["1min"],
         df_time,
-        df_critical_values.shift(1).add_suffix("_lag1"),
-        df_critical_idxs.shift(1).add_suffix("_lag1"),
-        # df_critical_uptrends.shift(1).add_suffix("_lag1"),
     ], axis=1)
 
     # データが足りている最初の時刻を求める
@@ -477,52 +486,58 @@ def compute_trends(size: int, critical_idxs: np.ndarray) -> np.array:
 
 def compute_critical_info(
     df: pd.DataFrame,
+    freqs: List[str],
     thresh_hold: float,
     prev_max: int,
-) -> pd.DataFrame:
+) -> Dict[str, pd.DataFrame]:
     critical_info = {}
 
-    values = (df["high"].values + df["low"].values) / 2
-    critical_info["values"] = values
+    df_dict = resample(df, freqs)
+    for freq in freqs:
+        df_freq = df_dict[freq]
+        values = (df_freq["high"].values + df_freq["low"].values) / 2
+        critical_idxs, critical_switch_idxs = compute_critical_idxs(values, thresh_hold)
 
-    critical_idxs, critical_switch_idxs = compute_critical_idxs(values, thresh_hold)
+        def get_values_from_idxs(values: np.ndarray, idxs: np.ndarray):
+            v = values[idxs].copy().astype(np.float32)
+            missing = idxs == -1
+            v[missing] = np.nan
+            return v
 
-    def get_values_from_idxs(values: np.ndarray, idxs: np.ndarray):
-        v = values[idxs].copy()
-        missing = idxs == -1
-        v[missing] = np.nan
-        return v
+        critical_info[freq] = {}
 
-    for prev_i in range(1, prev_max + 1):
-        prev_critical_idxs = compute_neighbor_critical_idxs(
-            size=len(df),
+        for prev_i in range(1, prev_max + 1):
+            prev_critical_idxs = compute_neighbor_critical_idxs(
+                size=len(df_freq),
+                critical_idxs=critical_idxs,
+                offset=-prev_i,
+            )
+            critical_info[freq][f"prev{prev_i}_critical_idxs"] = prev_critical_idxs
+            critical_info[freq][f"prev{prev_i}_critical_values"] = get_values_from_idxs(values, prev_critical_idxs)
+
+            prev_pre_critical_idxs = compute_neighbor_pre_critical_idxs(
+                size=len(df_freq),
+                critical_idxs=critical_idxs,
+                critical_switch_idxs=critical_switch_idxs,
+                offset=-prev_i,
+            )
+            critical_info[freq][f"prev{prev_i}_pre_critical_idxs"] = prev_pre_critical_idxs
+            critical_info[freq][f"prev{prev_i}_pre_critical_values"] = get_values_from_idxs(values, prev_pre_critical_idxs)
+
+        next_critical_idxs = compute_neighbor_critical_idxs(
+            size=len(df_freq),
             critical_idxs=critical_idxs,
-            offset=-prev_i,
+            offset=0
         )
-        critical_info[f"prev{prev_i}_critical_idxs"] = prev_critical_idxs
-        critical_info[f"prev{prev_i}_critical_values"] = get_values_from_idxs(values, prev_critical_idxs)
+        critical_info[freq]["next_critical_idxs"] = next_critical_idxs
+        critical_info[freq]["next_critical_values"] = get_values_from_idxs(values, next_critical_idxs)
 
-        prev_pre_critical_idxs = compute_neighbor_pre_critical_idxs(
-            size=len(df),
-            critical_idxs=critical_idxs,
-            critical_switch_idxs=critical_switch_idxs,
-            offset=-prev_i,
-        )
-        critical_info[f"prev{prev_i}_pre_critical_idxs"] = prev_pre_critical_idxs
-        critical_info[f"prev{prev_i}_pre_critical_values"] = get_values_from_idxs(values, prev_pre_critical_idxs)
+        critical_info[freq]["uptrends"] = compute_trends(len(df_freq), critical_idxs)
+        critical_info[freq]["pre_uptrends"] = compute_trends(len(df_freq), critical_switch_idxs)
 
-    next_critical_idxs = compute_neighbor_critical_idxs(
-        size=len(df),
-        critical_idxs=critical_idxs,
-        offset=0
-    )
-    critical_info["next_critical_idxs"] = next_critical_idxs
-    critical_info["next_critical_values"] = get_values_from_idxs(values, next_critical_idxs)
+        critical_info[freq] = pd.DataFrame(critical_info[freq], index=df_freq.index)
 
-    critical_info["uptrends"] = compute_trends(len(df), critical_idxs)
-    critical_info["pre_uptrends"] = compute_trends(len(df), critical_switch_idxs)
-
-    return pd.DataFrame(critical_info, index=df.index)
+    return critical_info
 
 
 def create_critical_labels(

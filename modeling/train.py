@@ -57,14 +57,15 @@ def main(config):
 
     # 学習データを準備
     print("Create features")
-    df_critical = utils.compute_critical_info(df, config.critical.thresh_hold, config.critical.prev_max)
+    df_dict_critical = utils.compute_critical_info(df, config.feature.freqs, config.critical.thresh_hold, config.critical.prev_max)
     feature_params = common_utils.conf2dict(config.feature)
-    base_index, df_x_dict = utils.create_features(df, df_critical, config.data.symbol, **feature_params)
+    base_index, df_x_dict = utils.create_features(df, df_dict_critical, config.data.symbol, **feature_params)
     print(f"Train period: {base_index[0]} ~ {base_index[-1]}")
 
     print("Create labels")
     label_params = common_utils.conf2dict(config.label, exclude_keys=["label_type"])
-    df_y = utils.create_labels(config.label.label_type, df, df_x_dict, df_critical, label_params)
+    # TODO: df_dict_critical の引き回し方を改善する
+    df_y = utils.create_labels(config.label.label_type, df, df_x_dict, df_dict_critical["1min"], label_params)
 
     if config.model.model_type == "lgbm":
         ds = lgbm_utils.LGBMDataset(base_index, df_x_dict, df_y, config.feature.lag_max, config.feature.sma_window_size_center)

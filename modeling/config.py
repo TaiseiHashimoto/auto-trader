@@ -28,12 +28,12 @@ class CriticalConfig:
 
 @dataclass
 class FeatureConfig:
-    timings: List[str] = field(default_factory=lambda: ["high", "low", "close"])
-    freqs: List[str] = field(default_factory=lambda: ["1min", "5min", "15min", "1h", "4h"])
+    timings: List[str] = field(default_factory=lambda: ["open", "high", "low", "close"])
+    freqs: List[str] = field(default_factory=lambda: ["1min", "15min", "1h", "1day"])
     main_timing: str = "close"
-    sma_window_sizes: List[int] = field(default_factory=lambda: [5, 10, 20])
+    sma_window_sizes: List[int] = field(default_factory=lambda: [5, 8, 13])
     sma_window_size_center: int = 5
-    sigma_window_size: int = 20
+    sigma_window_size: int = 9
     macd_ema_window_size_short: int = 9
     macd_ema_window_size_long: int = 26
     macd_sma_window_size: int = 9
