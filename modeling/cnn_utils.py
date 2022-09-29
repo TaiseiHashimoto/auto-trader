@@ -5,6 +5,7 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 from tqdm import tqdm
 import neptune.new as neptune
 import warnings
+import functools
 
 import torch
 import torch.nn as nn
@@ -229,10 +230,16 @@ def binary_loss(pred: torch.Tensor, target: torch.Tensor, pos_weight: float):
     )
 
 
-def gain_loss(pred_raw: torch.Tensor, target: torch.Tensor, pos_weight: float):
+def gain_loss(pred_raw: torch.Tensor, target: torch.Tensor):
     pred = torch.sigmoid(pred_raw)
-    mask = ((pred > 0.01) | (target > 0)).float()
-    return -target * (mask * pred + (1 - mask) * pred.detach())
+    return -target * pred
+
+
+def focal_loss(pred_raw: torch.Tensor, target: torch.Tensor, gamma: float):
+    pred = torch.sigmoid(pred_raw)
+    pred_log = F.logsigmoid(pred_raw)
+    inv_pred_log = pred_log - pred_raw
+    return -target * (1 - pred) ** gamma * pred_log - (1 - target) * pred ** gamma * inv_pred_log
 
 
 class CNNModel:
@@ -253,6 +260,16 @@ class CNNModel:
 
         if self.model is not None:
             self.model.to(self.device)
+
+        self.log_auc = True
+        loss_type = self.model_params["loss"]["loss_type"]
+        if loss_type == "binary":
+            self.loss_func = functools.partial(binary_loss, pos_weight=self.model_params["loss"]["pos_weight"])
+        elif loss_type == "gain":
+            self.loss_func = gain_loss
+            self.log_auc = False
+        elif loss_type == "focal":
+            self.loss_func = functools.partial(focal_loss, gamma=self.model_params["loss"]["gamma"])
 
     @classmethod
     def from_scratch(cls, model_params: Dict, run: neptune.Run):
@@ -369,11 +386,6 @@ class CNNModel:
             "out_dim": len(ds_train.get_label_names()),
         })
 
-        if self.model_params["objective"] == "binary":
-            loss_func = binary_loss
-        elif self.model_params["objective"] == "gain":
-            loss_func = gain_loss
-
         self.model = CNNNet(**self.model_params).to(self.device)
         if self.model_params["weight_decay"] == 0:
             optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_params["learning_rate"])
@@ -392,7 +404,7 @@ class CNNModel:
 
                 pred = self.model(t_x)
                 # shape: (batch_size, label_num)
-                loss = loss_func(pred, t_y, self.model_params["pos_weight"])
+                loss = self.loss_func(pred, t_y)
 
                 optimizer.zero_grad()
                 loss.mean().backward()
@@ -422,7 +434,7 @@ class CNNModel:
 
                     with torch.no_grad():
                         pred = self.model(t_x)
-                        loss = loss_func(pred, t_y, self.model_params["pos_weight"])
+                        loss = self.loss_func(pred, t_y)
 
                     loss_valid.append(loss.cpu().numpy())
 
@@ -431,7 +443,7 @@ class CNNModel:
                 for i, label_name in enumerate(ds_valid.get_label_names()):
                     self.run[f"{log_prefix}/loss/valid/{label_name}"].log(loss_valid[:, i].mean(), epoch + 1)
 
-        if self.model_params["objective"] == "binary":
+        if self.log_auc:
             def log_auc(ds: CNNDataset, log_suffix: str):
                 pred_df = self.predict_score(ds, eval=self.model_params["eval_on_valid"])
                 for label_name in ds.get_label_names():

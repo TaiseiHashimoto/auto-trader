@@ -154,26 +154,27 @@ class LGBMModel:
         models: Dict[str, lgb.Booster],
         run: neptune.Run,
     ):
-        self.model_params = model_params
+        self.model_params = {k: v for k, v in model_params.items() if k != "loss"}
         self.models = models
         self.run = run
         self.additional_params = {}
         self.log_auc = True
         self.sigmoid_after_predict = False
 
-        # TODO: リファクタリング
-        if self.model_params is not None and self.model_params["objective"] == "gain":
-            self.model_params = {k: v for k, v in model_params.items() if k != "objective"}
+        loss_type = model_params["loss"]["loss_type"]
+        if loss_type == "binary":
+            self.model_params["objective"] = "binary"
+            self.model_params["scale_pos_weight"] = model_params["loss"]["pos_weight"]
+        elif loss_type == "gain":
             self.additional_params["fobj"] = gain_objective
             self.additional_params["feval"] = gain_metric
             self.log_auc = False
             self.sigmoid_after_predict = True
-        elif self.model_params is not None and self.model_params["objective"] == "focal":
-            self.model_params = {k: v for k, v in model_params.items() if k != "objective"}
-            self.additional_params["fobj"] = functools.partial(focal_objective, gamma=model_params["focal_gamma"])
-            self.additional_params["feval"] = functools.partial(focal_metric, gamma=model_params["focal_gamma"])
+        elif loss_type == "focal":
+            gamma = model_params["loss"]["gamma"]
+            self.additional_params["fobj"] = functools.partial(focal_objective, gamma=gamma)
+            self.additional_params["feval"] = functools.partial(focal_metric, gamma=gamma)
             self.sigmoid_after_predict = True
-
 
     @classmethod
     def from_scratch(cls, model_params: Dict, run: neptune.Run):
@@ -182,8 +183,11 @@ class LGBMModel:
     @classmethod
     def from_file(cls, model_path: str):
         with open(model_path, "rb") as f:
-            models = pickle.load(f)
-        return cls(model_params=None, models=models, run=None)
+            data = pickle.load(f)
+
+        model_params = data["params"]
+        models = data["models"]
+        return cls(model_params, models=models, run=None)
 
     def train(
         self,
@@ -262,4 +266,7 @@ class LGBMModel:
     def save(self, output_path: str):
         assert self.models is not None and len(self.models) > 0
         with open(output_path, "wb") as f:
-            pickle.dump(self.models, f)
+            pickle.dump({
+                "params": self.model_params,
+                "models": self.models,
+            }, f)

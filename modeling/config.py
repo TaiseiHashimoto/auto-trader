@@ -114,11 +114,31 @@ class Dummy3LabelConfig:
 
 
 @dataclass
+class BinaryLossConfig:
+    loss_type: str = "binary"
+    pos_weight: float = 1.0
+
+
+@dataclass
+class GainLossConfig:
+    loss_type: str = "gain"
+
+
+@dataclass
+class FocalLossConfig:
+    loss_type: str = "focal"
+    gamma: float = 1.0
+
+
+@dataclass
 class LGBMModelConfig:
+    defaults: List[Any] = field(default_factory=lambda: [
+        "_self_",
+        {"loss": "binary"},
+    ])
+
     model_type: str = "lgbm"
-    # TODO: Loss 設定は外に切り出す
-    objective: str = "binary"
-    focal_gamma: float = 1.0
+    loss: Any = MISSING
     num_iterations: int = 10
     num_leaves: int = 31
     learning_rate: float = 0.1
@@ -131,18 +151,21 @@ class LGBMModelConfig:
     neg_bagging_fraction: float = 1.0
     bagging_freq: int = 0
     is_unbalance: bool = False
-    scale_pos_weight: float = 1.0
     verbosity: int = 1
 
 
 @dataclass
 class CNNModelConfig:
-    objective: str = "binary"
+    defaults: List[Any] = field(default_factory=lambda: [
+        "_self_",
+        {"loss": "binary"},
+    ])
+
     model_type: str = "cnn"
+    loss: Any = MISSING
     num_epochs: int = 1
     learning_rate: float = 1.0e-3
     weight_decay: float = 0.
-    pos_weight: float = 1.0
     batch_size: int = 256
 
     out_channels_list: List[int] = field(default_factory=lambda: [20, 40, 20])
@@ -208,6 +231,9 @@ cs.store(group="label", name="dummy2", node=Dummy2LabelConfig)
 cs.store(group="label", name="dummy3", node=Dummy3LabelConfig)
 cs.store(group="model", name="lgbm", node=LGBMModelConfig)
 cs.store(group="model", name="cnn", node=CNNModelConfig)
+cs.store(group="model/loss", name="binary", node=BinaryLossConfig)
+cs.store(group="model/loss", name="gain", node=GainLossConfig)
+cs.store(group="model/loss", name="focal", node=FocalLossConfig)
 cs.store(name="train", node=TrainConfig)
 cs.store(name="eval", node=EvalConfig)
 
@@ -215,7 +241,7 @@ cs.store(name="eval", node=EvalConfig)
 def validate_train_config(config: OmegaConf):
     assert "1min" in config.feature.freqs
     assert config.feature.sma_window_size_center in config.feature.sma_window_sizes
-    assert bool(config.model.objective == "gain") == bool(config.label.label_type == "gain")
+    assert bool(config.model.loss.loss_type == "gain") == bool(config.label.label_type == "gain")
 
 
 def get_train_config(argv: List[str] = None):
