@@ -152,7 +152,6 @@ class LGBMModelConfig:
     bagging_freq: int = 0
     is_unbalance: bool = False
     verbosity: int = 1
-    force_col_wise: bool = True
 
 
 @dataclass
