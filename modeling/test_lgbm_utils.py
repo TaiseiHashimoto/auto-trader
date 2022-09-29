@@ -1,5 +1,7 @@
 import numpy as np
 import pandas as pd
+from scipy.misc import derivative
+import lightgbm as lgb
 
 import lgbm_utils
 
@@ -100,3 +102,29 @@ class TestLGBMDataset:
         assert id(ds_train.y) == id(ds.y)
         assert id(ds_test.x) == id(ds.x)
         assert id(ds_test.y) == id(ds.y)
+
+
+def test_focal_objective():
+    def focal_loss(y, l, gamma):
+        eps = 1e-6
+        ys = 1 / (1 + np.exp(-y))
+        return (
+            -l * (1 - ys) ** gamma * np.log(ys + eps)
+            -(1 - l) * ys ** gamma * np.log(1 - ys + eps)
+        )
+
+    N = 100
+    label = np.random.choice([0, 1], size=N, replace=True)
+    # HACK: sigmoid 後が 0,1 に近いと誤差が大きくなるため範囲を狭める
+    pred = np.random.uniform(-0.5, 0.5, N)
+    lds = lgb.Dataset(data=None, label=label)
+    gamma = 1.0
+
+    actual_grad, actual_hess = lgbm_utils.focal_objective(pred, lds, gamma)
+
+    func = lambda y: focal_loss(y, label, gamma)
+    expected_grad = derivative(func, pred, n=1, dx=1e-6)
+    expected_hess = derivative(func, pred, n=2, dx=1e-6)
+
+    np.testing.assert_allclose(actual_grad, expected_grad, rtol=1e-3, atol=1e-3)
+    np.testing.assert_allclose(actual_hess, expected_hess, rtol=1e-3, atol=1e-3)

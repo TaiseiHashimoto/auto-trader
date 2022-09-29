@@ -5,6 +5,7 @@ import lightgbm as lgb
 from sklearn.metrics import roc_auc_score, average_precision_score
 import pickle
 import neptune.new as neptune
+import functools
 
 import utils
 
@@ -93,6 +94,44 @@ def gain_objective(preds_raw: np.ndarray, lds: lgb.Dataset):
     return grad, hess
 
 
+def focal_metric(preds_raw: np.ndarray, lds: lgb.Dataset, gamma: float):
+    eps = 1e-6
+    preds = utils.sigmoid(preds_raw)
+    loss = (
+        -lds.label * (1 - preds) ** gamma * np.log(preds + eps)
+        -(1 - lds.label) * preds ** gamma * np.log(1 - preds + eps)
+    )
+    return "focal_loss", loss.mean(), False
+
+
+def focal_objective(preds_raw: np.ndarray, lds: lgb.Dataset, gamma: float):
+    eps = 1e-6
+    preds = utils.sigmoid(preds_raw)
+    preds_log = np.log(preds + eps)
+    preds_inv_log = np.log(1 - preds + eps)
+    grad = (
+        +lds.label * gamma * preds * (1 - preds) ** gamma * preds_log
+        -lds.label * (1 - preds) ** (gamma + 1)
+        -(1 - lds.label) * gamma * preds ** gamma * (1 - preds) * preds_inv_log
+        +(1 - lds.label) * preds ** (gamma + 1)
+    )
+    hess = preds * (1 - preds) * (
+        +lds.label * gamma * (
+            +(1 - preds) ** gamma * preds_log
+            -gamma * preds * (1 - preds) ** (gamma - 1) * preds_log
+            +(1 - preds) ** gamma
+        )
+        +lds.label * (gamma + 1) * (1 - preds) ** gamma
+        +(1 - lds.label) * gamma * (
+            +preds ** gamma * preds_inv_log
+            -gamma * preds ** (gamma - 1) * (1 - preds) * preds_inv_log
+            +preds ** gamma
+        )
+        +(1 - lds.label) * (gamma + 1) * preds ** gamma
+    )
+    return grad, hess
+
+
 def binary_metric(pred_raw, data):
     y_train = data.get_label()
     pred = utils.sigmoid(pred_raw)
@@ -124,16 +163,16 @@ class LGBMModel:
 
         # TODO: リファクタリング
         if self.model_params is not None and self.model_params["objective"] == "gain":
-            self.model_params = {k:v for k, v in model_params.items() if k != "objective"}
+            self.model_params = {k: v for k, v in model_params.items() if k != "objective"}
             self.additional_params["fobj"] = gain_objective
             self.additional_params["feval"] = gain_metric
             self.log_auc = False
             self.sigmoid_after_predict = True
-
-        # elif self.model_params is not None and self.model_params["objective"] == "binary":
-        #     self.model_params = {k:v for k, v in model_params.items() if k != "objective"}
-        #     self.additional_params["fobj"] = binary_objective
-        #     self.additional_params["feval"] = binary_metric
+        elif self.model_params is not None and self.model_params["objective"] == "focal":
+            self.model_params = {k: v for k, v in model_params.items() if k != "objective"}
+            self.additional_params["fobj"] = functools.partial(focal_objective, gamma=model_params["focal_gamma"])
+            self.additional_params["feval"] = functools.partial(focal_metric, gamma=model_params["focal_gamma"])
+            self.sigmoid_after_predict = True
 
 
     @classmethod

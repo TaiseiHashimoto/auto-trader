@@ -116,7 +116,9 @@ class Dummy3LabelConfig:
 @dataclass
 class LGBMModelConfig:
     model_type: str = "lgbm"
+    # TODO: Loss 設定は外に切り出す
     objective: str = "binary"
+    focal_gamma: float = 1.0
     num_iterations: int = 10
     num_leaves: int = 31
     learning_rate: float = 0.1
