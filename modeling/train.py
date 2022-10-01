@@ -63,7 +63,7 @@ def main(config):
     print(f"Train period: {base_index[0]} ~ {base_index[-1]}")
 
     print("Create labels")
-    label_params = common_utils.conf2dict(config.label, exclude_keys=["label_type"])
+    label_params = common_utils.drop_keys(common_utils.conf2dict(config.label), ["label_type"])
     # TODO: df_dict_critical の引き回し方を改善する
     df_y = utils.create_labels(config.label.label_type, df, df_x_dict, df_dict_critical["1min"], label_params)
 
@@ -73,7 +73,7 @@ def main(config):
         ds = cnn_utils.CNNDataset(base_index, df_x_dict, df_y, config.feature.lag_max, config.feature.sma_window_size_center)
 
     # 学習用パラメータを準備
-    model_params = common_utils.conf2dict(config.model, exclude_keys=["model_type"])
+    model_params = common_utils.conf2dict(config.model)
     if config.model.model_type == "lgbm":
         model = lgbm_utils.LGBMModel.from_scratch(model_params, run)
     elif config.model.model_type == "cnn":

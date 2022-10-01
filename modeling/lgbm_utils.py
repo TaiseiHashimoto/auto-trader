@@ -9,6 +9,11 @@ import functools
 
 import utils
 
+import sys
+import pathlib
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
+import common_utils
+
 
 class LGBMDataset:
     def __init__(
@@ -35,6 +40,7 @@ class LGBMDataset:
         return self.base_index
 
     def bundle_features(self) -> pd.DataFrame:
+        # TODO: メモリ使用量を抑える
         df_seq_dict = {}
         for freq in self.get_freqs():
             df_center_lagged = utils.create_lagged_features(self.x["sequential"]["center"][freq], self.lag_max)
@@ -148,13 +154,18 @@ def binary_objective(pred_raw, data):
 
 
 class LGBMModel:
+    MODEL_PARAMS_TO_DROP = [
+        "model_type",
+        "loss",
+    ]
+
     def __init__(
         self,
         model_params: Dict,
         models: Dict[str, lgb.Booster],
         run: neptune.Run,
     ):
-        self.model_params = {k: v for k, v in model_params.items() if k != "loss"}
+        self.model_params = model_params
         self.models = models
         self.run = run
         self.additional_params = {}
@@ -222,7 +233,7 @@ class LGBMModel:
 
             evals_results = {}
             model = lgb.train(
-                self.model_params,
+                common_utils.drop_keys(self.model_params, LGBMModel.MODEL_PARAMS_TO_DROP),
                 lds_train,
                 valid_sets=valid_sets,
                 valid_names=valid_names,

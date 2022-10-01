@@ -195,12 +195,12 @@ def calc_year_month_offset(year: int, month: int, month_offset: int):
     return year, month
 
 
-def conf2dict(config: OmegaConf, exclude_keys: List[str] = None) -> Dict:
-    if exclude_keys is None:
-        exclude_keys = []
+def conf2dict(config: OmegaConf) -> Dict:
+    return OmegaConf.to_container(config, resolve=True)
 
-    d = OmegaConf.to_container(config, resolve=True)
-    return {k: v for k, v in d.items() if k not in exclude_keys}
+
+def drop_keys(d: Dict, keys_to_drop: List[str]) -> Dict:
+    return {k: v for k, v in d.items() if k not in keys_to_drop}
 
 
 def get_pip_scale(symbol: str) -> float:

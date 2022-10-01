@@ -13,6 +13,11 @@ import torch.nn.functional as F
 
 import utils
 
+import sys
+import pathlib
+sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
+import common_utils
+
 
 class CNNDataset:
     def __init__(
@@ -170,13 +175,7 @@ class CNNNet(nn.Module):
         fc_batch_norm: bool,
         cnn_dropout: float,
         fc_dropout: float,
-        **kwargs
     ):
-        # TODO: 可能であれば、使用しないパラメータは渡さないようにする
-        unused_keys = kwargs.keys()
-        if len(unused_keys) > 0:
-            warnings.warn(f"[CNNNet] unused keywords: " + ", ".join(unused_keys), stacklevel=2)
-
         super().__init__()
 
         self.convs = nn.ModuleDict({
@@ -243,6 +242,16 @@ def focal_loss(pred_raw: torch.Tensor, target: torch.Tensor, gamma: float):
 
 
 class CNNModel:
+    MODEL_PARAMS_TO_DROP = [
+        "model_type",
+        "loss",
+        "learning_rate",
+        "num_epochs",
+        "batch_size",
+        "weight_decay",
+        "eval_on_valid",
+    ]
+
     def __init__(
         self,
         model_params: Dict,
@@ -284,16 +293,16 @@ class CNNModel:
     @classmethod
     def from_file(cls, model_path: str):
         with open(model_path, "rb") as f:
-            model_data = torch.load(f, map_location=torch.device("cpu"))
+            data = torch.load(f, map_location=torch.device("cpu"))
 
-        model = CNNNet(**model_data["model_params"])
-        model.load_state_dict(model_data["state_dict"])
+        model = CNNNet(**common_utils.drop_keys(data["model_params"], cls.MODEL_PARAMS_TO_DROP))
+        model.load_state_dict(data["state_dict"])
 
         return cls(
-            model_params=model_data["model_params"],
+            model_params=data["model_params"],
             model=model,
-            stats_mean=model_data["stats_mean"],
-            stats_var=model_data["stats_var"],
+            stats_mean=data["stats_mean"],
+            stats_var=data["stats_var"],
             run=None
         )
 
@@ -386,7 +395,9 @@ class CNNModel:
             "out_dim": len(ds_train.get_label_names()),
         })
 
-        self.model = CNNNet(**self.model_params).to(self.device)
+        self.model = CNNNet(
+            **common_utils.drop_keys(self.model_params, CNNModel.MODEL_PARAMS_TO_DROP)
+        ).to(self.device)
         if self.model_params["weight_decay"] == 0:
             optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_params["learning_rate"])
         else:
