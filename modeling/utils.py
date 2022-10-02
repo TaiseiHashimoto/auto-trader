@@ -144,7 +144,7 @@ def create_time_features(index: pd.DatetimeIndex):
     df_out = {
         "hour": index.hour,
         "day_of_week": index.day_of_week,
-        "month": index.month,
+        # "month": index.month,
     }
     return pd.DataFrame(df_out, index=index, dtype=np.float32)
 
@@ -216,17 +216,28 @@ def create_features(
     symbol: str,
     freqs: List[str],
     main_timing: str,
+    candle_usage: str,
+    sma_usage: str,
     sma_window_sizes: List[int],
     sma_window_size_center: int,
+    sigma_usage: str,
     sigma_window_size: int,
+    macd_usage: str,
     macd_ema_window_size_short: int,
     macd_ema_window_size_long: int,
     macd_sma_window_size: int,
+    rsi_usage: str,
     rsi_window_size: int,
+    stochastics_usage: str,
     stochastics_k_window_size: int,
     stochastics_d_window_size: int,
     stochastics_sd_window_size: int,
+    sma_frac_usage: str,
     sma_frac_ndigits: int,
+    critical_values_usage: str,
+    critical_idxs_usage: str,
+    critical_trends_usage: str,
+    time_usage: str,
     lag_max: int,
     start_hour: int,
     end_hour: int,
@@ -239,21 +250,38 @@ def create_features(
     df_seq_nocenter_dict = {}
     df_cont_dict = {}
     for freq in freqs:
+        df_seq_center = []
+        df_seq_nocenter = []
+        df_cont = []
+
+        df_seq_center.append(df_dict[freq][main_timing])
+
         df_sma = pd.DataFrame({
             f"sma{sma_window_size}": compute_sma(df_dict[freq][main_timing], sma_window_size)
             for sma_window_size in sma_window_sizes
         }, dtype=np.float32)
-        df_seq_center_dict[freq] = pd.concat([df_dict[freq][[main_timing]], df_sma], axis=1)
+        if sma_usage == "sequential":
+            df_seq_center.append(df_sma)
+        elif sma_usage == "continuous":
+            df_cont.append(df_sma)
 
         df_candle = pd.DataFrame({
             "body": df_dict[freq]["close"] - df_dict[freq]["open"],
             "upper_shadow": df_dict[freq]["high"] - df_dict[freq][["open", "close"]].max(axis=1),
             "lower_shadow": df_dict[freq][["open", "close"]].min(axis=1) - df_dict[freq]["low"],
         }, dtype=np.float32)
+        if candle_usage == "sequential":
+            df_seq_nocenter.append(df_candle)
+        elif candle_usage == "continuous":
+            df_cont.append(df_candle)
 
         df_sigma = pd.DataFrame({
             "sigma": compute_sigma(df_dict[freq][main_timing], sigma_window_size)
         }, dtype=np.float32)
+        if sigma_usage == "sequential":
+            df_seq_nocenter.append(df_sigma)
+        elif sigma_usage == "continuous":
+            df_cont.append(df_sigma)
 
         macd, macd_signal = compute_macd(
             df_dict[freq][main_timing],
@@ -265,11 +293,19 @@ def create_features(
             "macd": macd,
             "macd_signal": macd_signal
         }, dtype=np.float32)
+        if macd_usage == "sequential":
+            df_seq_nocenter.append(df_macd)
+        elif macd_usage == "continuous":
+            df_cont.append(df_macd)
 
         rsi = compute_rsi(df_dict[freq][main_timing], rsi_window_size)
         df_rsi = pd.DataFrame({
             "rsi": rsi,
         }, dtype=np.float32)
+        if rsi_usage == "sequential":
+            df_seq_nocenter.append(df_rsi)
+        elif rsi_usage == "continuous":
+            df_cont.append(df_rsi)
 
         stochastics_k, stochastics_d, stochastics_sd = compute_stochastics(
             df_dict[freq][main_timing],
@@ -282,19 +318,19 @@ def create_features(
             "stochastics_d": stochastics_d,
             "stochastics_sd": stochastics_sd
         }, dtype=np.float32)
-
-        df_seq_nocenter_dict[freq] = pd.concat([
-            df_candle,
-            df_sigma,
-            df_macd,
-            df_rsi,
-            df_stochastics,
-        ], axis=1)
+        if stochastics_usage == "sequential":
+            df_seq_nocenter.append(df_stochastics)
+        elif stochastics_usage == "continuous":
+            df_cont.append(df_stochastics)
 
         sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale, ndigits=sma_frac_ndigits)
         df_sma_frac = pd.DataFrame({
             f"sma{sma_window_size_center}_frac_lag1": sma_frac.shift(1)
         }, dtype=np.float32)
+        if sma_frac_usage == "sequential":
+            df_seq_nocenter.append(df_sma_frac)
+        elif sma_frac_usage == "continuous":
+            df_cont.append(df_sma_frac)
 
         assert (df_dict[freq].index == df_dict_critical[freq].index).all()
         df_critical_values = df_dict_critical[freq][
@@ -303,6 +339,8 @@ def create_features(
         # 中心化
         df_critical_values = df_critical_values - df_sma[f"sma{sma_window_size_center}"].values[:, np.newaxis]
         df_critical_values = df_critical_values.shift(1).add_suffix("_lag1").astype(np.float32)
+        if critical_values_usage == "continuous":
+            df_cont.append(df_critical_values)
 
         df_critical_idxs = df_dict_critical[freq][
             [c for c in df_dict_critical[freq].columns if re.match(r"prev[0-9]+_pre_critical_idxs", c)]
@@ -310,21 +348,24 @@ def create_features(
         # HACK: 該当なしの場合に -1 になることを使っている
         df_critical_idxs = (df_critical_idxs.replace(-1, np.nan) - np.arange(len(df_critical_idxs))[:, np.newaxis])
         df_critical_idxs = df_critical_idxs.shift(1).add_suffix("_lag1").astype(np.float32)
+        if critical_idxs_usage == "continuous":
+            df_cont.append(df_critical_idxs)
 
-        # df_critical_uptrends = df_dict_critical[freq][["pre_uptrends"]].astype(np.int32)
+        df_critical_uptrends = df_dict_critical[freq][["pre_uptrends"]].astype(np.float32)
+        if critical_trends_usage == "continuous":
+            df_cont.append(df_critical_uptrends)
 
-        df_cont_dict[freq] = pd.concat([
-            df_sma_frac,
-            df_critical_values,
-            df_critical_idxs,
-        ], axis=1)
+        df_seq_center_dict[freq] = pd.concat(df_seq_center, axis=1)
+        df_seq_nocenter_dict[freq] = pd.concat(df_seq_nocenter, axis=1)
+        df_cont_dict[freq] = pd.concat(df_cont, axis=1)
 
     df_time = create_time_features(df.index)
 
-    df_cont_dict["1min"] = pd.concat([
-        df_cont_dict["1min"],
-        df_time,
-    ], axis=1)
+    if time_usage == "continuous":
+        df_cont_dict["1min"] = pd.concat([
+            df_cont_dict["1min"],
+            df_time,
+        ], axis=1)
 
     # データが足りている最初の時刻を求める
     first_index = pd.Timestamp("1900-1-1 00:00:00")

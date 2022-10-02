@@ -30,17 +30,28 @@ class CriticalConfig:
 class FeatureConfig:
     freqs: List[str] = field(default_factory=lambda: ["1min", "15min", "1h", "1d"])
     main_timing: str = "close"
+    candle_usage: str = "sequential"
+    sma_usage: str = "sequential"
     sma_window_sizes: List[int] = field(default_factory=lambda: [5, 8, 13])
     sma_window_size_center: int = 5
+    sigma_usage: str = "sequential"
     sigma_window_size: int = 9
+    macd_usage: str = "sequential"
     macd_ema_window_size_short: int = 9
     macd_ema_window_size_long: int = 26
     macd_sma_window_size: int = 9
+    stochastics_usage: str = "sequential"
     stochastics_k_window_size: int = 9
     stochastics_d_window_size: int = 3
     stochastics_sd_window_size: int = 3
+    rsi_usage: str = "sequential"
     rsi_window_size: int = 14
+    sma_frac_usage: str = "continuous"
     sma_frac_ndigits: int = 2
+    critical_values_usage: str = "continuous"
+    critical_idxs_usage: str = "continuous"
+    critical_trends_usage: str = ""
+    time_usage: str = "continuous"
     lag_max: int = 5
     start_hour: int = 2
     end_hour: int = 22
