@@ -201,6 +201,10 @@ class TestCNNModel:
         return cnn_utils.CNNModel(
             model_params={
                 "batch_size": 2,
+                "loss": {
+                    "loss_type": "binary",
+                    "pos_weight": 1.0,
+                }
             },
             model=None,
             stats_mean=None,

@@ -55,7 +55,7 @@ def read_preprocessed_data(
     前処理したデータを読み込む
     """
     df = pd.read_pickle(f"{data_directory}/{symbol}-{year}-{month:02d}.pkl")
-    return df
+    return df.astype(np.float32)
 
 
 def read_preprocessed_data_range(
@@ -92,7 +92,7 @@ def aggregate_time(s: pd.Series, freq: str, how: str) -> pd.DataFrame:
     else:
         raise ValueError(f"how must be \"first\", \"last\", \"max\", or \"min\"")
 
-    return s_agg.dropna()
+    return s_agg.dropna().astype(np.float32)
 
 
 def merge_bid_ask(df):
@@ -102,7 +102,7 @@ def merge_bid_ask(df):
         "high":  (df["bid_high"]  + df["ask_high"] ) / 2,
         "low":   (df["bid_low"]   + df["ask_low"]  ) / 2,
         "close": (df["bid_close"] + df["ask_close"]) / 2,
-    }, index=df.index)
+    }, index=df.index, dtype=np.float32)
 
 
 def resample(
@@ -115,7 +115,7 @@ def resample(
     df_dict = {}
     for freq in freqs:
         if freq == "1min":
-            df_dict[freq] = df_1min.copy()
+            df_dict[freq] = df_1min.astype(np.float32)
         else:
             df_dict[freq] = pd.concat({
                 timing: aggregate_time(df_1min[timing], freq, how=TIMING2OP[timing])
@@ -142,11 +142,11 @@ def align_frequency(base_index: pd.DatetimeIndex, df_dict: Dict[str, pd.DataFram
 def create_time_features(index: pd.DatetimeIndex):
     # TODO: config で使用する特徴量を変えられるように (month は不要？)
     df_out = {
-        "hour": index.hour.astype(np.int32),
-        "day_of_week": index.day_of_week.astype(np.int32),
-        "month": index.month.astype(np.int32),
+        "hour": index.hour,
+        "day_of_week": index.day_of_week,
+        "month": index.month,
     }
-    return pd.DataFrame(df_out, index=index)
+    return pd.DataFrame(df_out, index=index, dtype=np.float32)
 
 
 def compute_sma(s: pd.Series, window_size: int) -> pd.Series:
@@ -162,7 +162,7 @@ def compute_sigma(s: pd.Series, window_size: int) -> pd.Series:
 
 
 def compute_fraction(s: pd.Series, base: float, ndigits: int):
-    return (s / base) % int(10 ** ndigits)
+    return ((s / base) % int(10 ** ndigits)).astype(np.float32)
 
 
 def compute_macd(
@@ -184,7 +184,7 @@ def compute_rsi(s: pd.Series, window_size: int) -> pd.Series:
     down_diff = (-diff).clip(lower=0)
     up_diff_ma = compute_sma(up_diff, window_size)
     down_diff_ma = compute_sma(down_diff, window_size)
-    return up_diff_ma / (up_diff_ma + down_diff_ma + 1e-6)
+    return (up_diff_ma / (up_diff_ma + down_diff_ma + 1e-6)).astype(np.float32)
 
 
 def compute_stochastics(
@@ -214,7 +214,6 @@ def create_features(
     df: pd.DataFrame,
     df_dict_critical: Dict[str, pd.DataFrame],
     symbol: str,
-    timings: List[str],
     freqs: List[str],
     main_timing: str,
     sma_window_sizes: List[int],
@@ -243,18 +242,18 @@ def create_features(
         df_sma = pd.DataFrame({
             f"sma{sma_window_size}": compute_sma(df_dict[freq][main_timing], sma_window_size)
             for sma_window_size in sma_window_sizes
-        })
+        }, dtype=np.float32)
         df_seq_center_dict[freq] = pd.concat([df_dict[freq][[main_timing]], df_sma], axis=1)
 
         df_candle = pd.DataFrame({
             "body": df_dict[freq]["close"] - df_dict[freq]["open"],
             "upper_shadow": df_dict[freq]["high"] - df_dict[freq][["open", "close"]].max(axis=1),
             "lower_shadow": df_dict[freq][["open", "close"]].min(axis=1) - df_dict[freq]["low"],
-        })
+        }, dtype=np.float32)
 
         df_sigma = pd.DataFrame({
             "sigma": compute_sigma(df_dict[freq][main_timing], sigma_window_size)
-        })
+        }, dtype=np.float32)
 
         macd, macd_signal = compute_macd(
             df_dict[freq][main_timing],
@@ -262,10 +261,15 @@ def create_features(
             macd_ema_window_size_long,
             macd_sma_window_size
         )
-        df_macd = pd.DataFrame({"macd": macd, "macd_signal": macd_signal})
+        df_macd = pd.DataFrame({
+            "macd": macd,
+            "macd_signal": macd_signal
+        }, dtype=np.float32)
 
         rsi = compute_rsi(df_dict[freq][main_timing], rsi_window_size)
-        df_rsi = pd.DataFrame({"rsi": rsi})
+        df_rsi = pd.DataFrame({
+            "rsi": rsi,
+        }, dtype=np.float32)
 
         stochastics_k, stochastics_d, stochastics_sd = compute_stochastics(
             df_dict[freq][main_timing],
@@ -277,7 +281,7 @@ def create_features(
             "stochastics_k": stochastics_k,
             "stochastics_d": stochastics_d,
             "stochastics_sd": stochastics_sd
-        })
+        }, dtype=np.float32)
 
         df_seq_nocenter_dict[freq] = pd.concat([
             df_candle,
@@ -290,7 +294,7 @@ def create_features(
         sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale, ndigits=sma_frac_ndigits)
         df_sma_frac = pd.DataFrame({
             f"sma{sma_window_size_center}_frac_lag1": sma_frac.shift(1)
-        })
+        }, dtype=np.float32)
 
         assert (df_dict[freq].index == df_dict_critical[freq].index).all()
         df_critical_values = df_dict_critical[freq][
@@ -298,14 +302,14 @@ def create_features(
         ]
         # 中心化
         df_critical_values = df_critical_values - df_sma[f"sma{sma_window_size_center}"].values[:, np.newaxis]
-        df_critical_values = df_critical_values.shift(1).add_suffix("_lag1")
+        df_critical_values = df_critical_values.shift(1).add_suffix("_lag1").astype(np.float32)
 
         df_critical_idxs = df_dict_critical[freq][
             [c for c in df_dict_critical[freq].columns if re.match(r"prev[0-9]+_pre_critical_idxs", c)]
         ]
         # HACK: 該当なしの場合に -1 になることを使っている
         df_critical_idxs = (df_critical_idxs.replace(-1, np.nan) - np.arange(len(df_critical_idxs))[:, np.newaxis])
-        df_critical_idxs = df_critical_idxs.shift(1).add_suffix("_lag1")
+        df_critical_idxs = df_critical_idxs.shift(1).add_suffix("_lag1").astype(np.float32)
 
         # df_critical_uptrends = df_dict_critical[freq][["pre_uptrends"]].astype(np.int32)
 
@@ -426,7 +430,7 @@ def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> Tuple[np.nd
 
     assert len(critical_idxs) == len(critical_switch_idxs)
 
-    return np.array(critical_idxs), np.array(critical_switch_idxs)
+    return np.array(critical_idxs, dtype=np.int32), np.array(critical_switch_idxs, dtype=np.int32)
 
 
 def compute_neighbor_critical_idxs(
@@ -717,10 +721,10 @@ def create_gain_labels(
     future_sma = compute_sma(values, future_step_max - future_step_min + 1).shift(-future_step_max)
     diff = future_sma - values
 
-    long_entry_labels  = diff + entry_bias
-    short_entry_labels = -diff + entry_bias
-    long_exit_labels   = diff + exit_bias
-    short_exit_labels  = -diff + exit_bias
+    long_entry_labels  = (diff  + entry_bias).astype(np.float32)
+    short_entry_labels = (-diff + entry_bias).astype(np.float32)
+    long_exit_labels   = (diff  + exit_bias).astype(np.float32)
+    short_exit_labels  = (-diff + exit_bias).astype(np.float32)
 
     return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels, validate=False)
 

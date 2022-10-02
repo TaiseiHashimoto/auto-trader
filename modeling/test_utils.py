@@ -51,7 +51,7 @@ def test_aggregate_time():
     )
     actual_result = utils.aggregate_time(s, "5min", "min")
     expected_result = pd.Series(
-        data=np.array([0, 5, 10]),
+        data=np.array([0, 5, 10], dtype=np.float32),
         index=pd.DatetimeIndex([
             "2022-01-01 00:00:00",
             "2022-01-01 00:05:00",
@@ -66,7 +66,7 @@ def test_aggregate_time():
     )
     actual_result = utils.aggregate_time(s, "5min", "max")
     expected_result = pd.Series(
-        data=np.array([4, 9, 14]),
+        data=np.array([4, 9, 14], dtype=np.float32),
         index=pd.DatetimeIndex([
             "2022-01-01 00:00:00",
             "2022-01-01 00:05:00",
@@ -112,19 +112,19 @@ def test_resample():
             "high": [0, 10, 20, 30, 40, 50, 60, 70],
             "low": [0, -10, -20, -30, -40, -50, -60, -70],
             "close": [0, -1, -2, -3, -4, -5, -6, -7],
-        }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="1min")),
+        }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="1min"), dtype=np.float32),
         "2min": pd.DataFrame({
             "open": [0, 2, 4, 6],
             "high": [10, 30, 50, 70],
             "low": [-10, -30, -50, -70],
             "close": [-1, -3, -5, -7],
-        }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="2min")),
+        }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="2min"), dtype=np.float32),
         "4min": pd.DataFrame({
             "open": [0, 4],
             "high": [30, 70],
             "low": [-30, -70],
             "close": [-3, -7],
-        }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="4min")),
+        }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="4min"), dtype=np.float32),
     }
     assert_df_dict_equal(actual_result, expected_result)
 
@@ -176,7 +176,7 @@ def test_create_time_features():
         "hour": [0, 12, 0, 12, 0, 12, 0, 12],
         "day_of_week": [5, 5, 6, 6, 0, 0, 1, 1],
         "month": [1, 1, 1, 1, 1, 1, 1, 1],
-    }, index=index)
+    }, index=index, dtype=np.float32)
     pd.testing.assert_frame_equal(expected_result, actual_result)
 
 
@@ -276,11 +276,11 @@ def test_compute_fraction():
     s = pd.Series([100.1234, 104.4567, 90.7890])
 
     actual_result = utils.compute_fraction(s, base=0.01, ndigits=2)
-    expected_result = pd.Series([12.34, 45.67, 78.90])
+    expected_result = pd.Series([12.34, 45.67, 78.90], dtype=np.float32)
     pd.testing.assert_series_equal(expected_result, actual_result)
 
     actual_result = utils.compute_fraction(s, base=0.001, ndigits=1)
-    expected_result = pd.Series([3.4, 6.7, 9.0])
+    expected_result = pd.Series([3.4, 6.7, 9.0], dtype=np.float32)
     pd.testing.assert_series_equal(expected_result, actual_result)
 
 
@@ -335,7 +335,6 @@ def test_create_features():
             }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:11:00", freq="2min"))
         },
         symbol = "usdjpy",
-        timings = ["open", "low"],
         freqs = ["1min", "2min"],
         main_timing = "open",
         sma_window_sizes = [2, 4],
@@ -370,6 +369,11 @@ def test_create_features():
             "sma2",
             "sma4",
         ]).all()
+        assert (actual_data["sequential"]["center"][freq].dtypes == [
+            np.float32,
+            np.float32,
+            np.float32,
+        ]).all()
         assert (actual_data["sequential"]["nocenter"][freq].columns == [
             "body",
             "upper_shadow",
@@ -381,6 +385,18 @@ def test_create_features():
             "stochastics_k",
             "stochastics_d",
             "stochastics_sd",
+        ]).all()
+        assert (actual_data["sequential"]["nocenter"][freq].dtypes == [
+            np.float32,
+            np.float32,
+            np.float32,
+            np.float32,
+            np.float32,
+            np.float32,
+            np.float32,
+            np.float32,
+            np.float32,
+            np.float32,
         ]).all()
         if freq == "1min":
             assert (actual_data["continuous"][freq].columns == [
@@ -395,6 +411,18 @@ def test_create_features():
                 "day_of_week",
                 "month",
             ]).all()
+            assert (actual_data["continuous"][freq].dtypes == [
+                np.float32,
+                np.float32,
+                np.float32,
+                np.float32,
+                np.float32,
+                np.float32,
+                np.float32,
+                np.float32,
+                np.float32,
+                np.float32,
+            ]).all()
         else:
             assert (actual_data["continuous"][freq].columns == [
                 "sma2_frac_lag1",
@@ -405,7 +433,15 @@ def test_create_features():
                 "prev2_pre_critical_idxs_lag1",
                 "prev3_pre_critical_idxs_lag1",
             ]).all()
-
+            assert (actual_data["continuous"][freq].dtypes == [
+                np.float32,
+                np.float32,
+                np.float32,
+                np.float32,
+                np.float32,
+                np.float32,
+                np.float32,
+            ]).all()
 
     size = 60 * 72
     actual_base_index, _ = utils.create_features(
@@ -436,7 +472,6 @@ def test_create_features():
             }, index=pd.date_range("2022-12-24 00:00:00", "2022-12-26 23:59:59", freq="2min")),
         },
         symbol = "usdjpy",
-        timings = ["open", "low"],
         freqs = ["1min", "2min"],
         main_timing = "open",
         sma_window_sizes = [2, 4],
@@ -618,7 +653,7 @@ def test_compute_critical_info():
 
 
 def test_create_critical_labels():
-    values = np.array([1., 2., 3., 0., 2., 1., 5., 3., 1.])
+    values = np.array([1., 2., 3., 0., 2., 1., 5., 3., 1.], dtype=np.float32)
     df = pd.DataFrame({"high": values + 1, "low": values - 1})
     actual_labels = utils.create_critical_labels(df, thresh_entry=2.5, thresh_hold=1.5)
     assert_bool_array(actual_labels["long_entry"].values,  [3, 5])
@@ -626,7 +661,7 @@ def test_create_critical_labels():
     assert_bool_array(actual_labels["long_exit"].values,   [2, 6, 7])
     assert_bool_array(actual_labels["short_exit"].values,  [0, 3, 4, 5])
 
-    values = np.array([3., 2., 1., 0., 1., 2., 1., 0.9, 0.8])
+    values = np.array([3., 2., 1., 0., 1., 2., 1., 0.9, 0.8], dtype=np.float32)
     df = pd.DataFrame({"high": values + 2, "low": values - 2})
     actual_labels = utils.create_critical_labels(df, thresh_entry=2.5, thresh_hold=1.5)
     assert_bool_array(actual_labels["long_entry"].values,  [])
@@ -734,7 +769,7 @@ def test_create_gain_labels():
         "short_entry": -diff + entry_bias,
         "long_exit": diff + exit_bias,
         "short_exit": -diff + exit_bias,
-    })
+    }, dtype=np.float32)
     actual_labels = utils.create_gain_labels(
         df,
         future_step_min=3, future_step_max=5,

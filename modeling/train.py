@@ -67,6 +67,9 @@ def main(config):
     # TODO: df_dict_critical の引き回し方を改善する
     df_y = utils.create_labels(config.label.label_type, df, df_x_dict, df_dict_critical["1min"], label_params)
 
+    del df
+    del df_dict_critical
+
     if config.model.model_type == "lgbm":
         ds = lgbm_utils.LGBMDataset(base_index, df_x_dict, df_y, config.feature.lag_max, config.feature.sma_window_size_center)
     elif config.model.model_type == "cnn":

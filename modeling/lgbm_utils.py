@@ -6,6 +6,7 @@ from sklearn.metrics import roc_auc_score, average_precision_score
 import pickle
 import neptune.new as neptune
 import functools
+import gc
 
 import utils
 
@@ -50,10 +51,11 @@ class LGBMDataset:
             sma_colname = f"sma{self.sma_window_size_center}_lag1"
             sma = df_center_lagged[sma_colname]
             df_center_lagged = df_center_lagged - sma.values[:, np.newaxis]
+            # 基準となる sma のカラムは常に 0 なので削除する
+            df_center_lagged.drop(sma_colname, axis=1, inplace=True),
 
             df_seq_dict[freq] = pd.concat([
-                # 基準となる sma のカラムは常に 0 なので削除する
-                df_center_lagged.drop(sma_colname, axis=1),
+                df_center_lagged,
                 df_nocenter_lagged,
             ], axis=1)
 
@@ -230,6 +232,9 @@ class LGBMModel:
                 lds_valid = lgb.Dataset(df_x_valid, df_y_valid)
                 valid_sets.append(lds_valid)
                 valid_names.append("valid")
+
+            # TODO: 必要なければ削除
+            gc.collect()
 
             evals_results = {}
             model = lgb.train(
