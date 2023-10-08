@@ -1,8 +1,9 @@
-import lgbm_utils
 import lightgbm as lgb
 import numpy as np
 import pandas as pd
 from scipy.misc import derivative
+
+from auto_trader.modeling import lgbm_utils
 
 
 class TestLGBMDataset:

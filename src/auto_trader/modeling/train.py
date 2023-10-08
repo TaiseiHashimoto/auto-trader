@@ -10,8 +10,7 @@ import utils
 from config import get_train_config
 from omegaconf import OmegaConf
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
-import common_utils
+from auto_trader.common import common_utils
 
 
 def index2mask(index: np.ndarray, size: int) -> np.ndarray:

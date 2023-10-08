@@ -10,12 +10,10 @@ import pandas as pd
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import utils
 from sklearn.metrics import average_precision_score, roc_auc_score
 from tqdm import tqdm
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
-import common_utils
+from auto_trader.common import common_utils
 
 
 class CNNDataset:

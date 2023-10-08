@@ -1,4 +1,3 @@
-import pathlib
 import sys
 from dataclasses import dataclass, field
 from typing import Any, List
@@ -7,8 +6,7 @@ from hydra import compose, initialize
 from hydra.core.config_store import ConfigStore
 from omegaconf import MISSING, OmegaConf
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
-from common_config import GCPConfig, NeptuneConfig
+from auto_trader.common.common_config import GCPConfig, NeptuneConfig
 
 
 @dataclass

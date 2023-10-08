@@ -14,8 +14,7 @@ from sklearn.metrics import (average_precision_score, precision_score,
                              recall_score, roc_auc_score)
 from tqdm import tqdm
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
-import common_utils
+from auto_trader.common import common_utils
 
 
 def get_latest_model_version_id(model_id: str):

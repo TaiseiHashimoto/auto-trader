@@ -1,5 +1,6 @@
 import pandas as pd
-import utils
+
+from auto_trader.data import utils
 
 
 def test_remove_flat_data():

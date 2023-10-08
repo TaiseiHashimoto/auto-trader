@@ -1,11 +1,8 @@
 import datetime
-import pathlib
-import sys
 from dataclasses import dataclass, field
 from typing import List
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
-from common_config import GCPConfig
+from auto_trader.common.common_config import GCPConfig
 
 
 @dataclass

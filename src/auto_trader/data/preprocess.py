@@ -2,7 +2,6 @@ import datetime
 import glob
 import os
 import pathlib
-import sys
 
 import numpy as np
 import pandas as pd
@@ -10,8 +9,7 @@ import utils
 from config import PreprocessConfig
 from omegaconf import OmegaConf
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
-import common_utils
+from auto_trader.common import common_utils
 
 
 def validate_data(df, symbol):

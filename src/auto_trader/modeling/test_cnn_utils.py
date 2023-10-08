@@ -1,8 +1,8 @@
-import cnn_utils
 import numpy as np
 import pandas as pd
-import torch
 import torch.nn as nn
+
+from auto_trader.modeling import cnn_utils
 
 
 class TestCNNDataset:

@@ -1,7 +1,8 @@
-import common_utils
 import numpy as np
 import pandas as pd
 from pytest import approx
+
+from auto_trader.common import common_utils
 
 
 class TestOrder:

@@ -1,12 +1,13 @@
 import numpy as np
 import pandas as pd
-import utils
 from pytest import approx
+
+from auto_trader.modeling import utils
 
 
 def test_download_preprocessed_data_range(mocker):
     download_preprocessed_data = mocker.patch(
-        "utils.download_preprocessed_data", return_value=None
+        "auto_trader.modeling.utils.download_preprocessed_data", return_value=None
     )
 
     gcs = "GCS"
@@ -27,7 +28,7 @@ def test_download_preprocessed_data_range(mocker):
 
 def test_read_preprocessed_data_range(mocker):
     read_preprocessed_data = mocker.patch(
-        "utils.read_preprocessed_data", return_value=pd.DataFrame()
+        "auto_trader.modeling.utils.read_preprocessed_data", return_value=pd.DataFrame()
     )
 
     symbol = "symbol"

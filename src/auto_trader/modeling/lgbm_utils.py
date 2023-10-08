@@ -9,11 +9,10 @@ import lightgbm as lgb
 import neptune.new as neptune
 import numpy as np
 import pandas as pd
-import utils
 from sklearn.metrics import average_precision_score, roc_auc_score
 
-sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
-import common_utils
+from auto_trader.common import common_utils
+from auto_trader.modeling import utils
 
 
 class LGBMDataset:
