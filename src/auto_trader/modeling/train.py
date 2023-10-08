@@ -1,16 +1,13 @@
 import os
 import pathlib
-import sys
 
-import cnn_utils
-import lgbm_utils
 import neptune.new as neptune
 import numpy as np
-import utils
-from config import get_train_config
 from omegaconf import OmegaConf
 
 from auto_trader.common import common_utils
+from auto_trader.modeling import cnn_utils, lgbm_utils, utils
+from auto_trader.modeling.config import get_train_config
 
 
 def index2mask(index: np.ndarray, size: int) -> np.ndarray:

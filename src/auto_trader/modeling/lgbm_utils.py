@@ -1,8 +1,6 @@
 import functools
 import gc
-import pathlib
 import pickle
-import sys
 from typing import Dict, List, Optional, Tuple, Union
 
 import lightgbm as lgb

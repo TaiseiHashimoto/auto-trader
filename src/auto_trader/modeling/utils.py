@@ -1,6 +1,5 @@
 import pathlib
 import re
-import sys
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -89,7 +88,7 @@ def aggregate_time(s: pd.Series, freq: str, how: str) -> pd.DataFrame:
     elif how == "min":
         s_agg = s_agg.min()
     else:
-        raise ValueError(f'how must be "first", "last", "max", or "min"')
+        raise ValueError('how must be "first", "last", "max", or "min"')
 
     return s_agg.dropna().astype(np.float32)
 

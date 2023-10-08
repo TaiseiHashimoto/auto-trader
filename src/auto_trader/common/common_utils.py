@@ -48,7 +48,10 @@ class Order:
         gain = None
         if self.exit_rate is not None:
             gain = self.gain
-        return f"{self.position_type} ({self.entry_timestamp} ~ {self.exit_timestamp}) {self.entry_rate} -> {self.exit_rate} ({gain})"
+        return (
+            f"{self.position_type} ({self.entry_timestamp} ~ {self.exit_timestamp}) "
+            f"{self.entry_rate} -> {self.exit_rate} ({gain})"
+        )
 
 
 class OrderSimulator:

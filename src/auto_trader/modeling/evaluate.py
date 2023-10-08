@@ -1,20 +1,22 @@
 import itertools
 import os
 import pathlib
-import sys
 
-import cnn_utils
-import lgbm_utils
 import neptune.new as neptune
 import numpy as np
 import utils
 from config import get_eval_config
 from omegaconf import OmegaConf
-from sklearn.metrics import (average_precision_score, precision_score,
-                             recall_score, roc_auc_score)
+from sklearn.metrics import (
+    average_precision_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
+)
 from tqdm import tqdm
 
 from auto_trader.common import common_utils
+from auto_trader.modeling import cnn_utils, lgbm_utils
 
 
 def get_latest_model_version_id(model_id: str):

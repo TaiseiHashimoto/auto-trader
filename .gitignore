@@ -6,3 +6,4 @@ auto-trader-sa.json
 .pytest_cache
 lprof/
 *.ipynb
+*.egg-info

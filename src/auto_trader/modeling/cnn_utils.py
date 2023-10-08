@@ -1,7 +1,4 @@
 import functools
-import pathlib
-import sys
-import warnings
 from typing import Dict, Generator, List, Optional, Tuple, Union
 
 import neptune.new as neptune
