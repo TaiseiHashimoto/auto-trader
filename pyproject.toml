@@ -16,7 +16,15 @@ dev = [
     "black",
     "isort",
     "flake8",
+    "pyproject-flake8",
     "mypy",
     "pytest",
     "pytest-mock",
 ]
+
+[tool.isort]
+profile = "black"
+
+[tool.flake8]
+max-line-length = 88
+extend-ignore = ["E203"]
