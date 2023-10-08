@@ -9,6 +9,8 @@ dependencies = [
     "numpy",
     "hydra-core",
     "pandas >= 1.3.5",
+    "torch",
+    "scikit-learn",
 ]
 
 [project.optional-dependencies]
