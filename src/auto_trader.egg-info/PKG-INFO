@@ -1,0 +1,15 @@
+Metadata-Version: 2.1
+Name: auto-trader
+Version: 0.1.0
+Requires-Dist: google-cloud-secret-manager
+Requires-Dist: google-cloud-storage
+Requires-Dist: lightgbm>=3.3.2
+Requires-Dist: neptune-client
+Requires-Dist: numpy
+Requires-Dist: hydra-core
+Requires-Dist: pandas>=1.3.5
+Provides-Extra: dev
+Requires-Dist: black; extra == "dev"
+Requires-Dist: isort; extra == "dev"
+Requires-Dist: flake8; extra == "dev"
+Requires-Dist: mypy; extra == "dev"
