@@ -1,0 +1,184 @@
+import argparse
+import glob
+import os
+
+import numpy as np
+import pandas as pd
+
+from auto_trader.common import common_utils
+
+
+def read_raw_data(
+    symbol: str,
+    raw_data_dir: str,
+    yyyymm: int,
+    convert_timezone: bool = True,
+):
+    """
+    Dukascopy から取得した生データを読み込む
+    """
+
+    bid_paths = glob.glob(os.path.join(raw_data_dir, f"{symbol}-bid-{yyyymm}*.csv"))
+    ask_paths = glob.glob(os.path.join(raw_data_dir, f"{symbol}-ask-{yyyymm}*.csv"))
+    if len(bid_paths) != 1 or len(ask_paths) != 1:
+        raise RuntimeError(f"Raw data for {symbol} {yyyymm} is not properly prepared.")
+
+    df_bid = pd.read_csv(bid_paths[0]).astype(np.float32)
+    df_ask = pd.read_csv(ask_paths[0]).astype(np.float32)
+    assert (df_bid["timestamp"] == df_ask["timestamp"]).all()
+
+    datetime = pd.DatetimeIndex(pd.to_datetime(df_bid["timestamp"], unit="ms"))
+    if convert_timezone:
+        # UTC -> 東部時間 -> Eastern European Time
+        datetime = (
+            datetime.tz_localize("UTC").tz_convert("US/Eastern")
+            + pd.Timedelta("7 hours")
+        ).tz_localize(None)
+
+    df = pd.DataFrame(
+        {
+            "bid_open": df_bid["open"].values,
+            "bid_high": df_bid["high"].values,
+            "bid_low": df_bid["low"].values,
+            "bid_close": df_bid["close"].values,
+            "ask_open": df_ask["open"].values,
+            "ask_high": df_ask["high"].values,
+            "ask_low": df_ask["low"].values,
+            "ask_close": df_ask["close"].values,
+        },
+        index=datetime,
+    )
+
+    return df
+
+
+def remove_flat_data(df: pd.DataFrame):
+    """
+    フラット期間を除去する
+    フラット期間: 土日全日・1/1 全日・12/25 10:00~
+    """
+    mask = (
+        (df.index.dayofweek < 5)
+        & ~((df.index.month == 1) & (df.index.day == 1))
+        & ~((df.index.month == 12) & (df.index.day == 25) & (df.index.hour >= 10))
+    )
+    return df.loc[mask]
+
+
+def validate_data(df: pd.DataFrame, symbol: str) -> None:
+    """
+    データの妥当性を検証する
+    """
+
+    FLAT_RATIO_TOLERANCE = 0.1
+    NO_MOVE_RATIO_TOLERANCE = 0.1
+    BID_HIGHER_RATIO_TOLERANCE = 0.0
+
+    # フラット期間が一定割合以下
+    flat_idxs = np.nonzero(np.all(df.iloc[1:].values == df.iloc[:-1].values, axis=1))[0]
+    flat_ratio = len(flat_idxs) / len(df)
+    assert (
+        flat_ratio <= FLAT_RATIO_TOLERANCE
+    ), f"flat_ratio = {flat_ratio} > {FLAT_RATIO_TOLERANCE}"
+
+    # 4値同一が一定割合以下
+    no_move_mask = (df["bid_high"] == df["bid_low"]) | (df["ask_high"] == df["ask_low"])
+    no_move_ratio = no_move_mask.mean()
+    assert (
+        no_move_ratio <= NO_MOVE_RATIO_TOLERANCE
+    ), f"no_move_ratio = {no_move_ratio} > {NO_MOVE_RATIO_TOLERANCE}"
+
+    # bid > ask が一定割合以下
+    bid_higher_mask = (
+        (df["bid_open"] > df["ask_open"])
+        | (df["bid_high"] > df["ask_high"])
+        | (df["bid_low"] > df["ask_low"])
+        | (df["bid_close"] > df["ask_close"])
+    )
+    bid_higher_ratio = bid_higher_mask.mean()
+    assert (
+        bid_higher_ratio <= BID_HIGHER_RATIO_TOLERANCE
+    ), f"bid_higer_ratio = {bid_higher_ratio} > {BID_HIGHER_RATIO_TOLERANCE}"
+
+    # low < open, close < high の順になっている
+    invalid_order_mask = (
+        (df["bid_open"] < df["bid_low"])
+        | (df["bid_close"] < df["bid_low"])
+        | (df["bid_open"] > df["bid_high"])
+        | (df["bid_close"] > df["bid_high"])
+        | (df["ask_open"] < df["ask_low"])
+        | (df["ask_close"] < df["ask_low"])
+        | (df["ask_open"] > df["ask_high"])
+        | (df["ask_close"] > df["ask_high"])
+    )
+    assert invalid_order_mask.sum() == 0
+
+    if symbol == "usdjpy":
+        extreme_value_mask = (df < 5000) | (df > 20000)
+    elif symbol == "eurusd":
+        extreme_value_mask = (df < 8000) | (df > 16000)
+
+    assert (extreme_value_mask.sum() == 0).all()
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "--symbol", type=str, choices=["usdjpy", "eurusd"], required=True
+    )
+    parser.add_argument("--yyyymm-begin", type=int, required=True)
+    parser.add_argument("--yyyymm-end", type=int, required=True)
+    parser.add_argument("--raw-data-dir", type=str, default="./raw")
+    parser.add_argument("--cleansed-data-dir", type=str, default="./cleansed")
+    parser.add_argument("--recreate-latest", action="store_true")
+    args = parser.parse_args()
+
+    os.makedirs(args.cleansed_data_dir, exist_ok=True)
+
+    if args.recreate_latest:
+        # 最新ファイルを削除して作り直す
+        cleansed_data_files = sorted(
+            glob.glob(f"{args.cleansed_data_dir}/{args.symbol}-*.parquet")
+        )
+        if len(cleansed_data_files) > 0:
+            latest_file_path = cleansed_data_files[-1]
+            print(f"Delete {latest_file_path}")
+            os.remove(latest_file_path)
+
+    # データを整形して保存
+    yyyymm = args.yyyymm_begin
+    raw_data_buffer = {}
+    while yyyymm <= args.yyyymm_end:
+        print(yyyymm)
+
+        cleansed_data_file = f"{args.cleansed_data_dir}/{args.symbol}-{yyyymm}.parquet"
+        if os.path.exists(cleansed_data_file):
+            print("Skip")
+        else:
+            raw_data_buffer[yyyymm] = read_raw_data(
+                args.symbol, args.raw_data_dir, yyyymm, convert_timezone=True
+            )
+            # 元データファイルは UTC+0 基準で保存されているので, UTC+2/+3 に合わせるために前月のデータが2/3時間分だけ必要
+            yyyymm_prev = common_utils.calc_yyyymm(yyyymm, month_delta=-1)
+            if yyyymm_prev not in raw_data_buffer:
+                raw_data_buffer[yyyymm_prev] = read_raw_data(
+                    args.symbol, args.raw_data_dir, yyyymm_prev, convert_timezone=True
+                )
+
+            df_source = pd.concat(
+                [raw_data_buffer[yyyymm_prev], raw_data_buffer[yyyymm]]
+            ) / common_utils.get_pip_scale(args.symbol)
+
+            # 当月データを抽出
+            df = df_source.loc[common_utils.parse_yyyymm(yyyymm).strftime("%Y-%m")]
+            df = remove_flat_data(df)
+
+            validate_data(df, args.symbol)
+
+            df.to_parquet(cleansed_data_file)
+
+        yyyymm = common_utils.calc_yyyymm(yyyymm, month_delta=1)
+
+
+if __name__ == "__main__":
+    main()

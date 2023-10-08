@@ -18,7 +18,8 @@ def index2mask(index: np.ndarray, size: int) -> np.ndarray:
 
 def main(config):
     run = neptune.init_run(
-        tags=["train", config.model.model_type, config.label.label_type]
+        project=config.neptune.project,
+        tags=["train", config.model.model_type, config.label.label_type],
     )
     run["config"] = OmegaConf.to_yaml(config)
 
@@ -149,6 +150,9 @@ def main(config):
 
 
 if __name__ == "__main__":
+    if "NEPTUNE_API_TOKEN" not in os.environ:
+        raise RuntimeError("NEPTUNE_API_TOKEN has to be set.")
+
     config = get_train_config()
     print(OmegaConf.to_yaml(config))
 
@@ -162,10 +166,5 @@ if __name__ == "__main__":
             pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
         )
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
-
-    # neptune 設定
-    common_utils.setup_neptune(
-        config.neptune.project, config.gcp.project_id, config.gcp.secret_id
-    )
 
     main(config)

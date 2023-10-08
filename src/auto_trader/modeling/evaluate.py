@@ -28,7 +28,9 @@ def get_latest_model_version_id(model_id: str):
 
 
 def main(config):
-    run = neptune.init_run(tags=["eval", config.model_type])
+    run = neptune.init_run(
+        project=config.neptune.project, tags=["eval", config.model_type]
+    )
     run["config"] = OmegaConf.to_yaml(config)
 
     OUTPUT_DIRECTORY = str(pathlib.Path(__file__).resolve().parent / "output_eval")
@@ -253,6 +255,9 @@ def main(config):
 
 
 if __name__ == "__main__":
+    if "NEPTUNE_API_TOKEN" not in os.environ:
+        raise RuntimeError("NEPTUNE_API_TOKEN has to be set.")
+
     config = get_eval_config()
     print(OmegaConf.to_yaml(config))
 
@@ -264,10 +269,5 @@ if __name__ == "__main__":
             pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
         )
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
-
-    # neptune 設定
-    common_utils.setup_neptune(
-        config.neptune.project, config.gcp.project_id, config.gcp.secret_id
-    )
 
     main(config)

@@ -1,13 +1,11 @@
-import os
 import random
+from datetime import date
 from enum import Enum
 from typing import Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 import torch
-from google.cloud import secretmanager, storage
-from omegaconf import OmegaConf
 
 
 class PositionType(Enum):
@@ -136,81 +134,21 @@ class OrderSimulator:
         return pd.DataFrame(results)
 
 
-class GCSWrapper:
-    def __init__(self, project_id: str, bucket_id: str):
-        """GCS のラッパークラス
-        Arguments:
-            project_id -- GoogleCloudPlatform Project ID
-            bucket_id -- GoogleCloudStorage Bucket ID
-        """
-        self._project_id = project_id
-        self._bucket_id = bucket_id
-        self._client = storage.Client(project_id)
-        self._bucket = self._client.get_bucket(self._bucket_id)
-
-    def list_bucket_names(self):
-        """バケット名の一覧を表示"""
-        return [bucket.name for bucket in self._client.list_buckets()]
-
-    def list_file_names(self):
-        """バケット内のファイル一覧を表示"""
-        return [file.name for file in self._client.list_blobs(self._bucket)]
-
-    def upload_file(self, local_path: str, gcs_path: str):
-        """GCSにローカルファイルをアップロード
-
-        Arguments:
-            local_path -- local file path
-            gcs_path -- gcs file path
-        """
-        blob = self._bucket.blob(gcs_path)
-        blob.upload_from_filename(local_path)
-
-    def download_file(self, local_path: str, gcs_path: str):
-        """GCSのファイルをファイルとしてダウンロード
-
-        Arguments:
-            local_path -- local file path
-            gcs_path -- gcs file path
-        """
-        blob = self._bucket.blob(gcs_path)
-        blob.download_to_filename(local_path)
+def parse_yyyymm(yyyymm: int) -> date:
+    """
+    yyyymm 形式をパース
+    """
+    return date(yyyymm // 100, yyyymm % 100, 1)
 
 
-class SecretManagerWrapper:
-    def __init__(self, project_id: str):
-        """Secret Manager のラッパークラス
-        Arguments:
-            project_id -- GoogleCloudPlatform Project ID
-        """
-        self._project_id = project_id
-        self._client = secretmanager.SecretManagerServiceClient()
-
-    def fetch_secret(self, secret_id: str, secret_version: Optional[str] = "latest"):
-        """Secret 取得
-        Arguments:
-            secret_id -- GoogleSecretManager Secret ID
-            secret_version -- GoogleSecretManager Secret Version
-        """
-        name = self._client.secret_version_path(
-            self._project_id, secret_id, secret_version
-        )
-        response = self._client.access_secret_version(request={"name": name})
-        return response.payload.data.decode("UTF8")
-
-
-def calc_year_month_offset(year: int, month: int, month_offset: int):
+def calc_yyyymm(yyyymm_base: int, month_delta: int) -> int:
     """
     ある年月からnヶ月後/前の年月を求める
     """
-    month = month + month_offset
-    year = year + (month - 1) // 12
-    month = (month - 1) % 12 + 1
-    return year, month
-
-
-def conf2dict(config: OmegaConf) -> Dict:
-    return OmegaConf.to_container(config, resolve=True)
+    parsed = parse_yyyymm(yyyymm_base)
+    year = parsed.year + (parsed.month + month_delta - 1) // 12
+    month = (parsed.month + month_delta - 1) % 12 + 1
+    return year * 100 + month
 
 
 def drop_keys(d: Dict, keys_to_drop: List[str]) -> Dict:
@@ -229,10 +167,3 @@ def set_random_seed(seed: int):
 
 def get_neptune_model_id(project_key: str, model_type: str) -> str:
     return f"{project_key}-{model_type.upper()}"
-
-
-def setup_neptune(neptune_project: str, gcp_project_id: str, gcp_secret_id: str):
-    os.environ["NEPTUNE_PROJECT"] = neptune_project
-    secretmanager = SecretManagerWrapper(gcp_project_id)
-    neptune_api_token = secretmanager.fetch_secret(gcp_secret_id)
-    os.environ["NEPTUNE_API_TOKEN"] = neptune_api_token

@@ -41,7 +41,7 @@ def download_preprocessed_data_range(
     month = month_from
     while (year, month) <= (year_to, month_to):
         download_preprocessed_data(gcs, symbol, year, month, data_directory)
-        year, month = common_utils.calc_year_month_offset(year, month, month_offset=1)
+        year, month = common_utils.calc_yyyymm(year, month, month_delta=1)
 
 
 def read_preprocessed_data(
@@ -72,7 +72,7 @@ def read_preprocessed_data_range(
         df = pd.concat(
             [df, read_preprocessed_data(symbol, year, month, data_directory)]
         )
-        year, month = common_utils.calc_year_month_offset(year, month, month_offset=1)
+        year, month = common_utils.calc_yyyymm(year, month, month_delta=1)
 
     return df
 

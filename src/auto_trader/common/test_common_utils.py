@@ -135,10 +135,10 @@ class TestOrderSimulator:
         pd.testing.assert_frame_equal(expected, actual)
 
 
-def test_calc_year_month_offset():
-    assert common_utils.calc_year_month_offset(2020, 1, month_offset=2) == (2020, 3)
-    assert common_utils.calc_year_month_offset(2020, 1, month_offset=11) == (2020, 12)
-    assert common_utils.calc_year_month_offset(2020, 1, month_offset=12) == (2021, 1)
-    assert common_utils.calc_year_month_offset(2020, 1, month_offset=-1) == (2019, 12)
-    assert common_utils.calc_year_month_offset(2020, 2, month_offset=-1) == (2020, 1)
-    assert common_utils.calc_year_month_offset(2020, 2, month_offset=0) == (2020, 2)
+def test_calc_yyyymm():
+    assert common_utils.calc_yyyymm(202001, month_delta=2) == 202003
+    assert common_utils.calc_yyyymm(202001, month_delta=11) == 202012
+    assert common_utils.calc_yyyymm(202001, month_delta=12) == 202101
+    assert common_utils.calc_yyyymm(202001, month_delta=-1) == 201912
+    assert common_utils.calc_yyyymm(202002, month_delta=-1) == 202001
+    assert common_utils.calc_yyyymm(202002, month_delta=0) == 202002
