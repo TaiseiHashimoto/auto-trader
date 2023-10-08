@@ -1,9 +1,9 @@
-from typing import List
-from dataclasses import (dataclass, field)
 import datetime
-
-import sys
 import pathlib
+import sys
+from dataclasses import dataclass, field
+from typing import List
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
 from common_config import GCPConfig
 

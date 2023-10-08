@@ -1,8 +1,9 @@
-import numpy as np
-import pandas as pd
 import datetime
 import glob
 from typing import Optional
+
+import numpy as np
+import pandas as pd
 
 
 def read_raw_data(
@@ -10,7 +11,7 @@ def read_raw_data(
     year: int,
     month: int,
     convert_timezone: Optional[bool] = True,
-    data_directory: Optional[str] = './raw'
+    data_directory: Optional[str] = "./raw",
 ):
     """
     Dukascopy から取得した生データを読み込む
@@ -24,21 +25,27 @@ def read_raw_data(
     df_ask = pd.read_csv(ask_paths[0])
     assert (df_bid["timestamp"] == df_ask["timestamp"]).all()
 
-    datetime = pd.DatetimeIndex(pd.to_datetime(df_bid["timestamp"], unit='ms'))
+    datetime = pd.DatetimeIndex(pd.to_datetime(df_bid["timestamp"], unit="ms"))
     if convert_timezone:
         # UTC -> 東部時間 -> Eastern Europe Time
-        datetime = (datetime.tz_localize('UTC').tz_convert('US/Eastern') + pd.Timedelta('7 hours')).tz_localize(None)
+        datetime = (
+            datetime.tz_localize("UTC").tz_convert("US/Eastern")
+            + pd.Timedelta("7 hours")
+        ).tz_localize(None)
 
-    df = pd.DataFrame({
-        "bid_open": df_bid["open"].values,
-        "bid_high": df_bid["high"].values,
-        "bid_low": df_bid["low"].values,
-        "bid_close": df_bid["close"].values,
-        "ask_open": df_ask["open"].values,
-        "ask_high": df_ask["high"].values,
-        "ask_low": df_ask["low"].values,
-        "ask_close": df_ask["close"].values,
-    }, index=datetime)
+    df = pd.DataFrame(
+        {
+            "bid_open": df_bid["open"].values,
+            "bid_high": df_bid["high"].values,
+            "bid_low": df_bid["low"].values,
+            "bid_close": df_bid["close"].values,
+            "ask_open": df_ask["open"].values,
+            "ask_high": df_ask["high"].values,
+            "ask_low": df_ask["low"].values,
+            "ask_close": df_ask["close"].values,
+        },
+        index=datetime,
+    )
 
     return df
 
@@ -49,9 +56,9 @@ def remove_flat_data(df: pd.DataFrame):
     フラット期間: 土日全日・1/1 全日・12/25 10:00~
     """
     mask = (
-        (df.index.dayofweek < 5) &
-        ~((df.index.month == 1) & (df.index.day == 1)) &
-        ~((df.index.month == 12) & (df.index.day == 25) & (df.index.hour >= 10))
+        (df.index.dayofweek < 5)
+        & ~((df.index.month == 1) & (df.index.day == 1))
+        & ~((df.index.month == 12) & (df.index.day == 25) & (df.index.hour >= 10))
     )
     return df.loc[mask]
 

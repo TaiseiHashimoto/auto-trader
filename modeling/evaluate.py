@@ -1,19 +1,19 @@
-import numpy as np
-import os
-import sys
-from tqdm import tqdm
-from sklearn.metrics import roc_auc_score, average_precision_score, recall_score, precision_score
-from omegaconf import OmegaConf
 import itertools
-import neptune.new as neptune
-
-import utils
-import lgbm_utils
-import cnn_utils
-from config import get_eval_config
-
-import sys
+import os
 import pathlib
+import sys
+
+import cnn_utils
+import lgbm_utils
+import neptune.new as neptune
+import numpy as np
+import utils
+from config import get_eval_config
+from omegaconf import OmegaConf
+from sklearn.metrics import (average_precision_score, precision_score,
+                             recall_score, roc_auc_score)
+from tqdm import tqdm
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
 import common_utils
 
@@ -43,18 +43,24 @@ def main(config):
         utils.download_preprocessed_data_range(
             gcs,
             config.data.symbol,
-            config.data.first_year, config.data.first_month,
-            config.data.last_year, config.data.last_month,
-            DATA_DIRECTORY
+            config.data.first_year,
+            config.data.first_month,
+            config.data.last_year,
+            config.data.last_month,
+            DATA_DIRECTORY,
         )
     else:
-        DATA_DIRECTORY = str(pathlib.Path(__file__).resolve().parents[1] / "data" / "preprocessed")
+        DATA_DIRECTORY = str(
+            pathlib.Path(__file__).resolve().parents[1] / "data" / "preprocessed"
+        )
 
     # モデル取得
     print("Fetch model")
     model_version_id = config.neptune.model_version_id
     if model_version_id == "":
-        model_id = common_utils.get_neptune_model_id(config.neptune.project_key, config.model_type)
+        model_id = common_utils.get_neptune_model_id(
+            config.neptune.project_key, config.model_type
+        )
         model_version_id = get_latest_model_version_id(model_id)
 
     run["model_version_id"] = model_version_id
@@ -79,42 +85,71 @@ def main(config):
     print("Load data")
     df = utils.read_preprocessed_data_range(
         config.data.symbol,
-        config.data.first_year, config.data.first_month,
-        config.data.last_year, config.data.last_month,
-        DATA_DIRECTORY
+        config.data.first_year,
+        config.data.first_month,
+        config.data.last_year,
+        config.data.last_month,
+        DATA_DIRECTORY,
     )
     df = utils.merge_bid_ask(df)
 
     # 評価データを準備
     print("Create features")
-    df_dict_critical = utils.compute_critical_info(df, train_config.feature.freqs, train_config.critical.thresh_hold, train_config.critical.prev_max)
+    df_dict_critical = utils.compute_critical_info(
+        df,
+        train_config.feature.freqs,
+        train_config.critical.thresh_hold,
+        train_config.critical.prev_max,
+    )
     feature_params = common_utils.conf2dict(train_config.feature)
-    base_index, df_x_dict = utils.create_features(df, df_dict_critical, train_config.data.symbol, **feature_params)
+    base_index, df_x_dict = utils.create_features(
+        df, df_dict_critical, train_config.data.symbol, **feature_params
+    )
 
     print("Create labels")
-    label_params = common_utils.drop_keys(common_utils.conf2dict(train_config.label), ["label_type"])
-    df_y = utils.create_labels(train_config.label.label_type, df, df_x_dict, df_dict_critical["1min"], label_params)
+    label_params = common_utils.drop_keys(
+        common_utils.conf2dict(train_config.label), ["label_type"]
+    )
+    df_y = utils.create_labels(
+        train_config.label.label_type,
+        df,
+        df_x_dict,
+        df_dict_critical["1min"],
+        label_params,
+    )
 
     # 学習に使われた行を削除
     train_last_timestamp = model_version["train/last_timestamp"].fetch()
     base_index = base_index[base_index > train_last_timestamp]
 
     if config.model_type == "lgbm":
-        ds = lgbm_utils.LGBMDataset(base_index, df_x_dict, df_y, train_config.feature.lag_max, train_config.feature.sma_window_size_center)
+        ds = lgbm_utils.LGBMDataset(
+            base_index,
+            df_x_dict,
+            df_y,
+            train_config.feature.lag_max,
+            train_config.feature.sma_window_size_center,
+        )
     elif config.model_type == "cnn":
-        ds = cnn_utils.CNNDataset(base_index, df_x_dict, df_y, train_config.feature.lag_max, train_config.feature.sma_window_size_center)
+        ds = cnn_utils.CNNDataset(
+            base_index,
+            df_x_dict,
+            df_y,
+            train_config.feature.lag_max,
+            train_config.feature.sma_window_size_center,
+        )
 
     eval_first_timestamp = base_index[0]
     eval_last_timestamp = base_index[-1]
     print(f"Evaluation period: {eval_first_timestamp} ~ {eval_last_timestamp}")
     run["data/first_timestamp"] = str(eval_first_timestamp)
     run["data/last_timestamp"] = str(eval_last_timestamp)
-    days = (eval_last_timestamp - eval_first_timestamp).days * (5/7)
+    days = (eval_last_timestamp - eval_first_timestamp).days * (5 / 7)
     months = (eval_last_timestamp - eval_first_timestamp).days / 30
 
     # 予測
     preds = model.predict_score(ds)
-    preds = preds.reindex(df.index, fill_value=0.)
+    preds = preds.reindex(df.index, fill_value=0.0)
 
     # 予測スコアの AUC とパーセンタイルを計算
     PERCENTILES = [0, 5, 10, 25, 50, 75, 90, 95, 100]
@@ -147,15 +182,21 @@ def main(config):
 
         preds_binary[label_name] = {}
         for percentile in percentile_list:
-            p = np.percentile(preds.loc[base_index, label_name].values,  percentile)
+            p = np.percentile(preds.loc[base_index, label_name].values, percentile)
             pred_binary = preds[label_name] >= p
             preds_binary[label_name][percentile] = pred_binary.values
 
             y_label = df_y.loc[base_index, label_name].values
             y_pred = pred_binary.loc[base_index].values
-            run[f"stats/precision/{label_name}/{percentile}"] = precision_score(y_label, y_pred)
-            run[f"stats/recall/{label_name}/{percentile}"] = recall_score(y_label, y_pred)
-            run[f"stats/specificity/{label_name}/{percentile}"] = utils.calc_specificity(y_label, y_pred)
+            run[f"stats/precision/{label_name}/{percentile}"] = precision_score(
+                y_label, y_pred
+            )
+            run[f"stats/recall/{label_name}/{percentile}"] = recall_score(
+                y_label, y_pred
+            )
+            run[
+                f"stats/specificity/{label_name}/{percentile}"
+            ] = utils.calc_specificity(y_label, y_pred)
 
             for fs in FUTURE_STEPS:
                 rates_diff = rates.shift(-fs) - rates
@@ -164,14 +205,14 @@ def main(config):
 
     # シミュレーション
     rates = df[config.simulate_timing].values
-    params_list = list(itertools.product(config.percentile_entry_list, config.percentile_exit_list))
+    params_list = list(
+        itertools.product(config.percentile_entry_list, config.percentile_exit_list)
+    )
     for percentile_entry, percentile_exit in tqdm(params_list):
         param_str = f"{percentile_entry},{percentile_exit}"
 
         simulator = common_utils.OrderSimulator(
-            config.start_hour,
-            config.end_hour,
-            config.thresh_loss_cut
+            config.start_hour, config.end_hour, config.thresh_loss_cut
         )
 
         for i, timestamp in enumerate(df.index):
@@ -184,11 +225,15 @@ def main(config):
                 preds_binary["short_exit"][percentile_exit][i],
             )
 
-        profits = np.array([order.gain for order in simulator.order_history]) - config.spread
-        timedeltas = np.array([
-            (order.exit_timestamp - order.entry_timestamp).total_seconds() / 60
-            for order in simulator.order_history
-        ])
+        profits = (
+            np.array([order.gain for order in simulator.order_history]) - config.spread
+        )
+        timedeltas = np.array(
+            [
+                (order.exit_timestamp - order.entry_timestamp).total_seconds() / 60
+                for order in simulator.order_history
+            ]
+        )
 
         run[f"simulation/num_order/{param_str}"] = len(profits)
         if len(profits) > 0:
@@ -214,10 +259,14 @@ if __name__ == "__main__":
     if not ON_COLAB:
         # GCP サービスアカウントキーの設定
         # colab ではユーザ認証するため不要
-        credential_path = pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
+        credential_path = (
+            pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
+        )
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
 
     # neptune 設定
-    common_utils.setup_neptune(config.neptune.project, config.gcp.project_id, config.gcp.secret_id)
+    common_utils.setup_neptune(
+        config.neptune.project, config.gcp.project_id, config.gcp.secret_id
+    )
 
     main(config)

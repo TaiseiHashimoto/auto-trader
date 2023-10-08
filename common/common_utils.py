@@ -1,12 +1,13 @@
+import os
+import random
+from enum import Enum
+from typing import Dict, List, Optional
+
 import numpy as np
 import pandas as pd
 import torch
-import random
-import os
-from typing import Optional, Dict, List
-from enum import Enum
+from google.cloud import secretmanager, storage
 from omegaconf import OmegaConf
-from google.cloud import (storage, secretmanager)
 
 
 class PositionType(Enum):
@@ -14,7 +15,7 @@ class PositionType(Enum):
     SHORT = "short"
 
 
-class Order():
+class Order:
     def __init__(
         self,
         position_type: PositionType,
@@ -70,18 +71,28 @@ class OrderSimulator:
         long_entry: bool,
         short_entry: bool,
         long_exit: bool,
-        short_exit: bool
+        short_exit: bool,
     ):
-        is_open = (
-            self.start_hour <= timestamp.hour < self.end_hour and
-            (timestamp.month, timestamp.day) != (12, 25)
-        )
+        is_open = self.start_hour <= timestamp.hour < self.end_hour and (
+            timestamp.month,
+            timestamp.day,
+        ) != (12, 25)
 
         # 決済する条件: ポジションをもっている and (取引時間外 or モデルが決済を選択 or 損切り)
-        if ((self._has_position(PositionType.LONG) and
-            (not is_open or long_exit  or self.open_position.entry_rate - rate >= self.thresh_loss_cut)) or
-            (self._has_position(PositionType.SHORT) and
-            (not is_open or short_exit or rate - self.open_position.entry_rate >= self.thresh_loss_cut))
+        if (
+            self._has_position(PositionType.LONG)
+            and (
+                not is_open
+                or long_exit
+                or self.open_position.entry_rate - rate >= self.thresh_loss_cut
+            )
+        ) or (
+            self._has_position(PositionType.SHORT)
+            and (
+                not is_open
+                or short_exit
+                or rate - self.open_position.entry_rate >= self.thresh_loss_cut
+            )
         ):
             self.open_position.exit(timestamp, rate)
             self.order_history.append(self.open_position)
@@ -98,8 +109,8 @@ class OrderSimulator:
             return self.open_position is not None
         else:
             return (
-                self.open_position is not None and
-                self.open_position.position_type == position_type
+                self.open_position is not None
+                and self.open_position.position_type == position_type
             )
 
     def export_results(self) -> pd.DataFrame:
@@ -135,13 +146,11 @@ class GCSWrapper:
         self._bucket = self._client.get_bucket(self._bucket_id)
 
     def list_bucket_names(self):
-        """バケット名の一覧を表示
-        """
+        """バケット名の一覧を表示"""
         return [bucket.name for bucket in self._client.list_buckets()]
 
     def list_file_names(self):
-        """バケット内のファイル一覧を表示
-        """
+        """バケット内のファイル一覧を表示"""
         return [file.name for file in self._client.list_blobs(self._bucket)]
 
     def upload_file(self, local_path: str, gcs_path: str):
@@ -180,7 +189,9 @@ class SecretManagerWrapper:
             secret_id -- GoogleSecretManager Secret ID
             secret_version -- GoogleSecretManager Secret Version
         """
-        name = self._client.secret_version_path(self._project_id, secret_id, secret_version)
+        name = self._client.secret_version_path(
+            self._project_id, secret_id, secret_version
+        )
         response = self._client.access_secret_version(request={"name": name})
         return response.payload.data.decode("UTF8")
 
@@ -222,4 +233,3 @@ def setup_neptune(neptune_project: str, gcp_project_id: str, gcp_secret_id: str)
     secretmanager = SecretManagerWrapper(gcp_project_id)
     neptune_api_token = secretmanager.fetch_secret(gcp_secret_id)
     os.environ["NEPTUNE_API_TOKEN"] = neptune_api_token
-

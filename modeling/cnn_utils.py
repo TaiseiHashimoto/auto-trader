@@ -1,20 +1,19 @@
+import functools
+import pathlib
+import sys
+import warnings
+from typing import Dict, Generator, List, Optional, Tuple, Union
+
+import neptune.new as neptune
 import numpy as np
 import pandas as pd
-from typing import Optional, List, Dict, Tuple, Union, Generator
-from sklearn.metrics import roc_auc_score, average_precision_score
-from tqdm import tqdm
-import neptune.new as neptune
-import warnings
-import functools
-
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
 import utils
+from sklearn.metrics import average_precision_score, roc_auc_score
+from tqdm import tqdm
 
-import sys
-import pathlib
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
 import common_utils
 
@@ -48,8 +47,8 @@ class CNNDataset:
 
     def get_sequential_channels(self) -> int:
         return (
-            self.x["sequential"]["center"]["1min"].shape[1] +
-            self.x["sequential"]["nocenter"]["1min"].shape[1]
+            self.x["sequential"]["center"]["1min"].shape[1]
+            + self.x["sequential"]["nocenter"]["1min"].shape[1]
         )
 
     def get_base_index(self) -> pd.DatetimeIndex:
@@ -61,17 +60,33 @@ class CNNDataset:
         else:
             return self.y.loc[self.base_index, label_name]
 
-    def train_test_split(self, test_proportion: float) -> Tuple["CNNDataset", "CNNDataset"]:
+    def train_test_split(
+        self, test_proportion: float
+    ) -> Tuple["CNNDataset", "CNNDataset"]:
         assert self.y is not None
         train_size = int(len(self.base_index) * (1 - test_proportion))
-        ds_train = CNNDataset(self.base_index[:train_size], self.x, self.y, self.lag_max, self.sma_window_size_center)
-        ds_test = CNNDataset(self.base_index[train_size:], self.x, self.y, self.lag_max, self.sma_window_size_center)
+        ds_train = CNNDataset(
+            self.base_index[:train_size],
+            self.x,
+            self.y,
+            self.lag_max,
+            self.sma_window_size_center,
+        )
+        ds_test = CNNDataset(
+            self.base_index[train_size:],
+            self.x,
+            self.y,
+            self.lag_max,
+            self.sma_window_size_center,
+        )
         return ds_train, ds_test
 
     def calc_batch_num(self, batch_size: int) -> int:
         return int(np.ceil(len(self.base_index) / batch_size))
 
-    def create_loader(self, batch_size: int, randomize: bool = True) -> Generator[Tuple, None, None]:
+    def create_loader(
+        self, batch_size: int, randomize: bool = True
+    ) -> Generator[Tuple, None, None]:
         x_seq_center = self.x["sequential"]["center"]
         x_seq_nocenter = self.x["sequential"]["nocenter"]
         x_cont = self.x["continuous"]
@@ -89,7 +104,7 @@ class CNNDataset:
         done_count = 0
         while done_count < len(index):
             idx_batch_dict = {
-                freq: idx_dict[freq][done_count:done_count+batch_size]
+                freq: idx_dict[freq][done_count : done_count + batch_size]
                 for freq in idx_dict
             }
 
@@ -99,19 +114,37 @@ class CNNDataset:
                 idx_batch_freq = idx_batch_dict[freq]
                 assert (idx_batch_freq >= self.lag_max).all()
 
-                idx_expanded = np.stack([idx_batch_freq - lag_i for lag_i in range(1, self.lag_max + 1)], axis=1)
-                v_center = x_seq_center[freq].values[idx_expanded.flatten()].reshape((len(idx_batch_freq), self.lag_max, -1))
-                v_notcenter = x_seq_nocenter[freq].values[idx_expanded.flatten()].reshape((len(idx_batch_freq), self.lag_max, -1))
-                sma = x_seq_center[freq][f"sma{self.sma_window_size_center}"].values[idx_batch_freq-1]
+                idx_expanded = np.stack(
+                    [idx_batch_freq - lag_i for lag_i in range(1, self.lag_max + 1)],
+                    axis=1,
+                )
+                v_center = (
+                    x_seq_center[freq]
+                    .values[idx_expanded.flatten()]
+                    .reshape((len(idx_batch_freq), self.lag_max, -1))
+                )
+                v_notcenter = (
+                    x_seq_nocenter[freq]
+                    .values[idx_expanded.flatten()]
+                    .reshape((len(idx_batch_freq), self.lag_max, -1))
+                )
+                sma = x_seq_center[freq][f"sma{self.sma_window_size_center}"].values[
+                    idx_batch_freq - 1
+                ]
                 # shape: (batch_size, lag_max, feature_dim)
-                values_x_seq[freq] = np.concatenate([
-                    v_center - sma[:, np.newaxis, np.newaxis],
-                    v_notcenter,
-                ], axis=2)
+                values_x_seq[freq] = np.concatenate(
+                    [
+                        v_center - sma[:, np.newaxis, np.newaxis],
+                        v_notcenter,
+                    ],
+                    axis=2,
+                )
 
                 values_x_cont[freq] = x_cont[freq].values[idx_batch_freq]
 
-            values_y = self.y.values[idx_batch_dict["1min"]] if self.y is not None else None
+            values_y = (
+                self.y.values[idx_batch_dict["1min"]] if self.y is not None else None
+            )
 
             yield {"sequential": values_x_seq, "continuous": values_x_cont}, values_y
 
@@ -136,8 +169,12 @@ class CNNBase(nn.Module):
 
         convs = []
         size = window_size
-        for out_channels, kernel_size, max_pool in zip(out_channels_list, kernel_size_list, max_pool_list):
-            convs.append(nn.Conv1d(in_channels, out_channels, kernel_size, padding="same"))
+        for out_channels, kernel_size, max_pool in zip(
+            out_channels_list, kernel_size_list, max_pool_list
+        ):
+            convs.append(
+                nn.Conv1d(in_channels, out_channels, kernel_size, padding="same")
+            )
             if batch_norm:
                 convs.append(nn.BatchNorm1d(out_channels))
             convs.append(nn.ReLU())
@@ -178,19 +215,21 @@ class CNNNet(nn.Module):
     ):
         super().__init__()
 
-        self.convs = nn.ModuleDict({
-            freq: CNNBase(
-                sequential_channels,
-                window_size,
-                out_channels_list,
-                kernel_size_list,
-                max_pool_list,
-                base_out_dim,
-                cnn_batch_norm,
-                cnn_dropout,
-            )
-            for freq in freqs
-        })
+        self.convs = nn.ModuleDict(
+            {
+                freq: CNNBase(
+                    sequential_channels,
+                    window_size,
+                    out_channels_list,
+                    kernel_size_list,
+                    max_pool_list,
+                    base_out_dim,
+                    cnn_batch_norm,
+                    cnn_dropout,
+                )
+                for freq in freqs
+            }
+        )
 
         fc_out = []
         in_dim = base_out_dim * len(freqs) + continuous_dim
@@ -238,7 +277,10 @@ def focal_loss(pred_raw: torch.Tensor, target: torch.Tensor, gamma: float):
     pred = torch.sigmoid(pred_raw)
     pred_log = F.logsigmoid(pred_raw)
     inv_pred_log = pred_log - pred_raw
-    return -target * (1 - pred) ** gamma * pred_log - (1 - target) * pred ** gamma * inv_pred_log
+    return (
+        -target * (1 - pred) ** gamma * pred_log
+        - (1 - target) * pred**gamma * inv_pred_log
+    )
 
 
 class CNNModel:
@@ -265,7 +307,9 @@ class CNNModel:
         self.stats_mean = stats_mean
         self.stats_var = stats_var
         self.run = run
-        self.device = torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+        self.device = (
+            torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+        )
 
         if self.model is not None:
             self.model.to(self.device)
@@ -273,12 +317,16 @@ class CNNModel:
         self.log_auc = True
         loss_type = self.model_params["loss"]["loss_type"]
         if loss_type == "binary":
-            self.loss_func = functools.partial(binary_loss, pos_weight=self.model_params["loss"]["pos_weight"])
+            self.loss_func = functools.partial(
+                binary_loss, pos_weight=self.model_params["loss"]["pos_weight"]
+            )
         elif loss_type == "gain":
             self.loss_func = gain_loss
             self.log_auc = False
         elif loss_type == "focal":
-            self.loss_func = functools.partial(focal_loss, gamma=self.model_params["loss"]["gamma"])
+            self.loss_func = functools.partial(
+                focal_loss, gamma=self.model_params["loss"]["gamma"]
+            )
 
     @classmethod
     def from_scratch(cls, model_params: Dict, run: neptune.Run):
@@ -287,7 +335,7 @@ class CNNModel:
             model=None,
             stats_mean=None,
             stats_var=None,
-            run=run
+            run=run,
         )
 
     @classmethod
@@ -295,7 +343,9 @@ class CNNModel:
         with open(model_path, "rb") as f:
             data = torch.load(f, map_location=torch.device("cpu"))
 
-        model = CNNNet(**common_utils.drop_keys(data["model_params"], cls.MODEL_PARAMS_TO_DROP))
+        model = CNNNet(
+            **common_utils.drop_keys(data["model_params"], cls.MODEL_PARAMS_TO_DROP)
+        )
         model.load_state_dict(data["state_dict"])
 
         return cls(
@@ -303,16 +353,22 @@ class CNNModel:
             model=model,
             stats_mean=data["stats_mean"],
             stats_var=data["stats_var"],
-            run=None
+            run=None,
         )
 
     def _calc_stats(self, ds: CNNDataset, batch_size: int = 2048):
         data_types = ["sequential", "continuous"]
         freqs = ds.get_freqs()
 
-        stats_count = {data_type: {freq: 0 for freq in freqs} for data_type in data_types}
-        self.stats_mean = {data_type: {freq: None for freq in freqs} for data_type in data_types}
-        self.stats_var = {data_type: {freq: None for freq in freqs} for data_type in data_types}
+        stats_count = {
+            data_type: {freq: 0 for freq in freqs} for data_type in data_types
+        }
+        self.stats_mean = {
+            data_type: {freq: None for freq in freqs} for data_type in data_types
+        }
+        self.stats_var = {
+            data_type: {freq: None for freq in freqs} for data_type in data_types
+        }
 
         loader = ds.create_loader(batch_size, randomize=False)
         batch_num = ds.calc_batch_num(batch_size)
@@ -338,10 +394,13 @@ class CNNModel:
                         var_new = var_add
                     else:
                         count_new = count_old + count_add
-                        mean_new = (mean_old * count_old + mean_add * count_add) / (count_old + count_add)
-                        var_new = (
-                            (var_old * count_old + var_add * count_add) / (count_old + count_add)
-                            + ((mean_old - mean_add) ** 2) * count_old * count_add / ((count_old + count_add) ** 2)
+                        mean_new = (mean_old * count_old + mean_add * count_add) / (
+                            count_old + count_add
+                        )
+                        var_new = (var_old * count_old + var_add * count_add) / (
+                            count_old + count_add
+                        ) + ((mean_old - mean_add) ** 2) * count_old * count_add / (
+                            (count_old + count_add) ** 2
                         )
 
                     stats_count[data_type][freq] = count_new
@@ -362,11 +421,16 @@ class CNNModel:
 
         return d_x_norm
 
-    def _to_torch_x(self, d_x: Dict[str, Dict[str, pd.DataFrame]]) -> Dict[str, torch.Tensor]:
+    def _to_torch_x(
+        self, d_x: Dict[str, Dict[str, pd.DataFrame]]
+    ) -> Dict[str, torch.Tensor]:
         d_x_norm = self._normalize(d_x)
         t_x_seq = {
             # (batch_size, channel, length) の順に並び替える
-            freq: torch.from_numpy(d_x_norm["sequential"][freq]).float().to(self.device).permute(0, 2, 1)
+            freq: torch.from_numpy(d_x_norm["sequential"][freq])
+            .float()
+            .to(self.device)
+            .permute(0, 2, 1)
             for freq in d_x["sequential"]
         }
         t_x_cont = {
@@ -387,21 +451,29 @@ class CNNModel:
     ):
         self._calc_stats(ds_train)
 
-        self.model_params.update({
-            "window_size": ds_train.get_lag_max(),
-            "continuous_dim": ds_train.get_continuous_dim(),
-            "sequential_channels": ds_train.get_sequential_channels(),
-            "freqs": ds_train.get_freqs(),
-            "out_dim": len(ds_train.get_label_names()),
-        })
+        self.model_params.update(
+            {
+                "window_size": ds_train.get_lag_max(),
+                "continuous_dim": ds_train.get_continuous_dim(),
+                "sequential_channels": ds_train.get_sequential_channels(),
+                "freqs": ds_train.get_freqs(),
+                "out_dim": len(ds_train.get_label_names()),
+            }
+        )
 
         self.model = CNNNet(
             **common_utils.drop_keys(self.model_params, CNNModel.MODEL_PARAMS_TO_DROP)
         ).to(self.device)
         if self.model_params["weight_decay"] == 0:
-            optimizer = torch.optim.Adam(self.model.parameters(), lr=self.model_params["learning_rate"])
+            optimizer = torch.optim.Adam(
+                self.model.parameters(), lr=self.model_params["learning_rate"]
+            )
         else:
-            optimizer = torch.optim.AdamW(self.model.parameters(), lr=self.model_params["learning_rate"], weight_decay=self.model_params["weight_decay"])
+            optimizer = torch.optim.AdamW(
+                self.model.parameters(),
+                lr=self.model_params["learning_rate"],
+                weight_decay=self.model_params["weight_decay"],
+            )
 
         for epoch in range(self.model_params["num_epochs"]):
             self.model.train()
@@ -409,7 +481,9 @@ class CNNModel:
             loader_train = ds_train.create_loader(self.model_params["batch_size"])
             batch_num = ds_train.calc_batch_num(self.model_params["batch_size"])
             loss_train = []
-            for l_i, (d_x, v_y) in enumerate(tqdm(loader_train, desc=f"[train {epoch}]", total=batch_num)):
+            for l_i, (d_x, v_y) in enumerate(
+                tqdm(loader_train, desc=f"[train {epoch}]", total=batch_num)
+            ):
                 t_x = self._to_torch_x(d_x)
                 t_y = self._to_torch_y(v_y)
 
@@ -426,9 +500,13 @@ class CNNModel:
                 if (l_i + 1) % log_freq == 0:
                     loss_train_np = np.array(loss_train)
                     step = epoch + (l_i + 1) / batch_num
-                    self.run[f"{log_prefix}/loss/train/mean"].log(loss_train_np.mean(), step)
+                    self.run[f"{log_prefix}/loss/train/mean"].log(
+                        loss_train_np.mean(), step
+                    )
                     for i, label_name in enumerate(ds_train.get_label_names()):
-                        self.run[f"{log_prefix}/loss/train/{label_name}"].log(loss_train_np[:, i].mean(), step)
+                        self.run[f"{log_prefix}/loss/train/{label_name}"].log(
+                            loss_train_np[:, i].mean(), step
+                        )
 
                     loss_train = []
 
@@ -439,7 +517,9 @@ class CNNModel:
                 loader_valid = ds_valid.create_loader(self.model_params["batch_size"])
                 batch_num = ds_valid.calc_batch_num(self.model_params["batch_size"])
                 loss_valid = []
-                for d_x, v_y in tqdm(loader_valid, desc=f"[valid {epoch}]", total=batch_num):
+                for d_x, v_y in tqdm(
+                    loader_valid, desc=f"[valid {epoch}]", total=batch_num
+                ):
                     t_x = self._to_torch_x(d_x)
                     t_y = self._to_torch_y(v_y)
 
@@ -450,18 +530,29 @@ class CNNModel:
                     loss_valid.append(loss.cpu().numpy())
 
                 loss_valid = np.concatenate(loss_valid, axis=0)
-                self.run[f"{log_prefix}/loss/valid/mean"].log(loss_valid.mean(), epoch + 1)
+                self.run[f"{log_prefix}/loss/valid/mean"].log(
+                    loss_valid.mean(), epoch + 1
+                )
                 for i, label_name in enumerate(ds_valid.get_label_names()):
-                    self.run[f"{log_prefix}/loss/valid/{label_name}"].log(loss_valid[:, i].mean(), epoch + 1)
+                    self.run[f"{log_prefix}/loss/valid/{label_name}"].log(
+                        loss_valid[:, i].mean(), epoch + 1
+                    )
 
         if self.log_auc:
+
             def log_auc(ds: CNNDataset, log_suffix: str):
-                pred_df = self.predict_score(ds, eval=self.model_params["eval_on_valid"])
+                pred_df = self.predict_score(
+                    ds, eval=self.model_params["eval_on_valid"]
+                )
                 for label_name in ds.get_label_names():
                     label = ds.get_labels(label_name).values
                     pred = pred_df[label_name].values
-                    self.run[f"{log_prefix}/auc/roc/{log_suffix}/{label_name}"] = roc_auc_score(label, pred)
-                    self.run[f"{log_prefix}/auc/pr/{log_suffix}/{label_name}"] = average_precision_score(label, pred)
+                    self.run[
+                        f"{log_prefix}/auc/roc/{log_suffix}/{label_name}"
+                    ] = roc_auc_score(label, pred)
+                    self.run[
+                        f"{log_prefix}/auc/pr/{log_suffix}/{label_name}"
+                    ] = average_precision_score(label, pred)
 
             log_auc(ds_train, log_suffix="train")
             if ds_valid is not None:
@@ -478,7 +569,9 @@ class CNNModel:
             preds.append(self.model.predict_score(t_x).cpu().numpy())
 
         preds = np.concatenate(preds, axis=0)
-        return pd.DataFrame(preds, index=ds.get_base_index(), columns=ds.get_label_names())
+        return pd.DataFrame(
+            preds, index=ds.get_base_index(), columns=ds.get_label_names()
+        )
 
     def save(self, output_path: str):
         model_data = {

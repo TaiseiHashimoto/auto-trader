@@ -1,11 +1,12 @@
-from typing import List, Any
+import pathlib
+import sys
 from dataclasses import dataclass, field
-from omegaconf import OmegaConf, MISSING
+from typing import Any, List
+
 from hydra import compose, initialize
 from hydra.core.config_store import ConfigStore
+from omegaconf import MISSING, OmegaConf
 
-import sys
-import pathlib
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
 from common_config import GCPConfig, NeptuneConfig
 
@@ -142,10 +143,12 @@ class FocalLossConfig:
 
 @dataclass
 class LGBMModelConfig:
-    defaults: List[Any] = field(default_factory=lambda: [
-        "_self_",
-        {"loss": "binary"},
-    ])
+    defaults: List[Any] = field(
+        default_factory=lambda: [
+            "_self_",
+            {"loss": "binary"},
+        ]
+    )
 
     model_type: str = "lgbm"
     loss: Any = MISSING
@@ -167,16 +170,18 @@ class LGBMModelConfig:
 
 @dataclass
 class CNNModelConfig:
-    defaults: List[Any] = field(default_factory=lambda: [
-        "_self_",
-        {"loss": "binary"},
-    ])
+    defaults: List[Any] = field(
+        default_factory=lambda: [
+            "_self_",
+            {"loss": "binary"},
+        ]
+    )
 
     model_type: str = "cnn"
     loss: Any = MISSING
     num_epochs: int = 1
     learning_rate: float = 1.0e-3
-    weight_decay: float = 0.
+    weight_decay: float = 0.0
     batch_size: int = 256
 
     out_channels_list: List[int] = field(default_factory=lambda: [20, 40, 20])
@@ -186,18 +191,20 @@ class CNNModelConfig:
     hidden_dim_list: List[int] = field(default_factory=lambda: [256, 128])
     cnn_batch_norm: bool = True
     fc_batch_norm: bool = False
-    cnn_dropout: float = 0.
-    fc_dropout: float = 0.
+    cnn_dropout: float = 0.0
+    fc_dropout: float = 0.0
     eval_on_valid: bool = True
 
 
 @dataclass
 class TrainConfig:
-    defaults: List[Any] = field(default_factory=lambda: [
-        "_self_",
-        {"label": "critical"},
-        {"model": "lgbm"},
-    ])
+    defaults: List[Any] = field(
+        default_factory=lambda: [
+            "_self_",
+            {"label": "critical"},
+            {"model": "lgbm"},
+        ]
+    )
 
     random_seed: int = 123
     valid_ratio: float = 0.1
@@ -252,7 +259,9 @@ cs.store(name="eval", node=EvalConfig)
 def validate_train_config(config: OmegaConf):
     assert "1min" in config.feature.freqs
     assert config.feature.sma_window_size_center in config.feature.sma_window_sizes
-    assert bool(config.model.loss.loss_type == "gain") == bool(config.label.label_type == "gain")
+    assert bool(config.model.loss.loss_type == "gain") == bool(
+        config.label.label_type == "gain"
+    )
 
 
 def get_train_config(argv: List[str] = None):

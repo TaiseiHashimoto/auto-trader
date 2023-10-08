@@ -1,8 +1,7 @@
+import common_utils
 import numpy as np
 import pandas as pd
 from pytest import approx
-
-import common_utils
 
 
 class TestOrder:
@@ -39,17 +38,19 @@ class TestOrderSimulator:
         half_range = range(0, len(index) // 2)
         rate = [*reversed(half_range), *half_range]
 
-        order_df = pd.DataFrame({
-            "rate": rate,
-            "long_entry":  np.zeros(len(index), dtype=bool),
-            "short_entry": np.zeros(len(index), dtype=bool),
-            "long_exit":   np.zeros(len(index), dtype=bool),
-            "short_exit":  np.zeros(len(index), dtype=bool),
-        }, index=index)
+        order_df = pd.DataFrame(
+            {
+                "rate": rate,
+                "long_entry": np.zeros(len(index), dtype=bool),
+                "short_entry": np.zeros(len(index), dtype=bool),
+                "long_exit": np.zeros(len(index), dtype=bool),
+                "short_exit": np.zeros(len(index), dtype=bool),
+            },
+            index=index,
+        )
 
         simulator = common_utils.OrderSimulator(
-            start_hour=2, end_hour=22,
-            thresh_loss_cut=5.
+            start_hour=2, end_hour=22, thresh_loss_cut=5.0
         )
 
         expected = {
@@ -134,9 +135,9 @@ class TestOrderSimulator:
 
 
 def test_calc_year_month_offset():
-    assert common_utils.calc_year_month_offset(2020, 1, month_offset=2)  == (2020, 3)
+    assert common_utils.calc_year_month_offset(2020, 1, month_offset=2) == (2020, 3)
     assert common_utils.calc_year_month_offset(2020, 1, month_offset=11) == (2020, 12)
     assert common_utils.calc_year_month_offset(2020, 1, month_offset=12) == (2021, 1)
     assert common_utils.calc_year_month_offset(2020, 1, month_offset=-1) == (2019, 12)
     assert common_utils.calc_year_month_offset(2020, 2, month_offset=-1) == (2020, 1)
-    assert common_utils.calc_year_month_offset(2020, 2, month_offset=0)  == (2020, 2)
+    assert common_utils.calc_year_month_offset(2020, 2, month_offset=0) == (2020, 2)

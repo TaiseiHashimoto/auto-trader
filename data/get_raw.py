@@ -2,12 +2,12 @@
 # npm install  -g dukascopy-node
 
 import datetime
-import subprocess
-import os
 import glob
-from omegaconf import OmegaConf
+import os
+import subprocess
 
 from config import RawConfig
+from omegaconf import OmegaConf
 
 
 def execute_command(cmd):
@@ -30,7 +30,9 @@ def main(config):
     # 最新ファイルは不完全なデータで作成された可能性が高いため、削除して作り直す
     for symbol in config.symbols:
         for price_type in PRICE_TYPES:
-            data_file_paths = glob.glob(f"{DATA_DIRECTORY}/{symbol}-m1-{price_type}-*.csv")
+            data_file_paths = glob.glob(
+                f"{DATA_DIRECTORY}/{symbol}-m1-{price_type}-*.csv"
+            )
             if len(data_file_paths) > 0:
                 latest_file_path = max(data_file_paths)
                 print(f"Delete {latest_file_path}")
@@ -52,21 +54,34 @@ def main(config):
 
         # 新しいデータから1ヶ月ごとに取得していく
         while True:
-            month_start = datetime.datetime(end.year, end.month, day=1, hour=0, minute=0, second=0, tzinfo=datetime.timezone.utc)
+            month_start = datetime.datetime(
+                end.year,
+                end.month,
+                day=1,
+                hour=0,
+                minute=0,
+                second=0,
+                tzinfo=datetime.timezone.utc,
+            )
             start = max(month_start, data_collect_start)
 
-            start_date = start.strftime('%Y-%m-%d')
-            end_date = end.strftime('%Y-%m-%d')
+            start_date = start.strftime("%Y-%m-%d")
+            end_date = end.strftime("%Y-%m-%d")
             print(f"{symbol}: {start_date} to {end_date}")
 
             for price_type in PRICE_TYPES:
-                file_path = os.path.join(DATA_DIRECTORY, f"{symbol}-m1-{price_type}-{start_date}-{end_date}.csv")
+                file_path = os.path.join(
+                    DATA_DIRECTORY,
+                    f"{symbol}-m1-{price_type}-{start_date}-{end_date}.csv",
+                )
                 if not os.path.exists(file_path):
-                    execute_command((
-                        f"npx dukascopy-node -i {symbol} "
-                        f"-from {start.isoformat()} -to {end.isoformat()} "
-                        f"-t m1 -f csv -p {price_type} -dir {DATA_DIRECTORY}"
-                    ))
+                    execute_command(
+                        (
+                            f"npx dukascopy-node -i {symbol} "
+                            f"-from {start.isoformat()} -to {end.isoformat()} "
+                            f"-t m1 -f csv -p {price_type} -dir {DATA_DIRECTORY}"
+                        )
+                    )
 
             if start == data_collect_start:
                 break

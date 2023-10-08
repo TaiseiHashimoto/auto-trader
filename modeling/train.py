@@ -1,16 +1,15 @@
-import numpy as np
 import os
-import sys
-from omegaconf import OmegaConf
-import neptune.new as neptune
-
-import utils
-import lgbm_utils
-import cnn_utils
-from config import get_train_config
-
-import sys
 import pathlib
+import sys
+
+import cnn_utils
+import lgbm_utils
+import neptune.new as neptune
+import numpy as np
+import utils
+from config import get_train_config
+from omegaconf import OmegaConf
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
 import common_utils
 
@@ -22,7 +21,9 @@ def index2mask(index: np.ndarray, size: int) -> np.ndarray:
 
 
 def main(config):
-    run = neptune.init_run(tags=["train", config.model.model_type, config.label.label_type])
+    run = neptune.init_run(
+        tags=["train", config.model.model_type, config.label.label_type]
+    )
     run["config"] = OmegaConf.to_yaml(config)
 
     if ON_COLAB:
@@ -35,12 +36,16 @@ def main(config):
         utils.download_preprocessed_data_range(
             gcs,
             config.data.symbol,
-            config.data.first_year, config.data.first_month,
-            config.data.last_year, config.data.last_month,
-            DATA_DIRECTORY
+            config.data.first_year,
+            config.data.first_month,
+            config.data.last_year,
+            config.data.last_month,
+            DATA_DIRECTORY,
         )
     else:
-        DATA_DIRECTORY = str(pathlib.Path(__file__).resolve().parents[1] / "data" / "preprocessed")
+        DATA_DIRECTORY = str(
+            pathlib.Path(__file__).resolve().parents[1] / "data" / "preprocessed"
+        )
 
     OUTPUT_DIRECTORY = str(pathlib.Path(__file__).resolve().parent / "output")
     os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
@@ -49,31 +54,53 @@ def main(config):
     print("Load data")
     df = utils.read_preprocessed_data_range(
         config.data.symbol,
-        config.data.first_year, config.data.first_month,
-        config.data.last_year, config.data.last_month,
-        DATA_DIRECTORY
+        config.data.first_year,
+        config.data.first_month,
+        config.data.last_year,
+        config.data.last_month,
+        DATA_DIRECTORY,
     )
     df = utils.merge_bid_ask(df)
 
     # 学習データを準備
     print("Create features")
-    df_dict_critical = utils.compute_critical_info(df, config.feature.freqs, config.critical.thresh_hold, config.critical.prev_max)
+    df_dict_critical = utils.compute_critical_info(
+        df, config.feature.freqs, config.critical.thresh_hold, config.critical.prev_max
+    )
     feature_params = common_utils.conf2dict(config.feature)
-    base_index, df_x_dict = utils.create_features(df, df_dict_critical, config.data.symbol, **feature_params)
+    base_index, df_x_dict = utils.create_features(
+        df, df_dict_critical, config.data.symbol, **feature_params
+    )
     print(f"Train period: {base_index[0]} ~ {base_index[-1]}")
 
     print("Create labels")
-    label_params = common_utils.drop_keys(common_utils.conf2dict(config.label), ["label_type"])
+    label_params = common_utils.drop_keys(
+        common_utils.conf2dict(config.label), ["label_type"]
+    )
     # TODO: df_dict_critical の引き回し方を改善する
-    df_y = utils.create_labels(config.label.label_type, df, df_x_dict, df_dict_critical["1min"], label_params)
+    df_y = utils.create_labels(
+        config.label.label_type, df, df_x_dict, df_dict_critical["1min"], label_params
+    )
 
     del df
     del df_dict_critical
 
     if config.model.model_type == "lgbm":
-        ds = lgbm_utils.LGBMDataset(base_index, df_x_dict, df_y, config.feature.lag_max, config.feature.sma_window_size_center)
+        ds = lgbm_utils.LGBMDataset(
+            base_index,
+            df_x_dict,
+            df_y,
+            config.feature.lag_max,
+            config.feature.sma_window_size_center,
+        )
     elif config.model.model_type == "cnn":
-        ds = cnn_utils.CNNDataset(base_index, df_x_dict, df_y, config.feature.lag_max, config.feature.sma_window_size_center)
+        ds = cnn_utils.CNNDataset(
+            base_index,
+            df_x_dict,
+            df_y,
+            config.feature.lag_max,
+            config.feature.sma_window_size_center,
+        )
 
     # 学習用パラメータを準備
     model_params = common_utils.conf2dict(config.model)
@@ -107,7 +134,9 @@ def main(config):
     model_path = f"{OUTPUT_DIRECTORY}/model.bin"
     model.save(model_path)
 
-    model_id = common_utils.get_neptune_model_id(config.neptune.project_key, config.model.model_type)
+    model_id = common_utils.get_neptune_model_id(
+        config.neptune.project_key, config.model.model_type
+    )
     model_version = neptune.init_model_version(model=model_id)
     model_version["binary"].upload(model_path)
 
@@ -133,10 +162,14 @@ if __name__ == "__main__":
     if not ON_COLAB:
         # GCP サービスアカウントキーの設定
         # colab ではユーザ認証するため不要
-        credential_path = pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
+        credential_path = (
+            pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
+        )
         os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
 
     # neptune 設定
-    common_utils.setup_neptune(config.neptune.project, config.gcp.project_id, config.gcp.secret_id)
+    common_utils.setup_neptune(
+        config.neptune.project, config.gcp.project_id, config.gcp.secret_id
+    )
 
     main(config)

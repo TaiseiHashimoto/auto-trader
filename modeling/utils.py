@@ -1,10 +1,11 @@
+import pathlib
+import re
+import sys
+from typing import Any, Dict, List, Optional, Tuple
+
 import numpy as np
 import pandas as pd
-from typing import Optional, List, Dict, Tuple, Any
-import re
 
-import sys
-import pathlib
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
 import common_utils
 
@@ -15,7 +16,7 @@ def download_preprocessed_data(
     year: int,
     month: int,
     data_directory: str,
-    force: Optional[bool] = False
+    force: Optional[bool] = False,
 ):
     """
     前処理したデータを GCS からダウンロード
@@ -33,7 +34,7 @@ def download_preprocessed_data_range(
     month_from: int,
     year_to: int,
     month_to: int,
-    data_directory: str
+    data_directory: str,
 ):
     """
     前処理したデータを範囲指定して GCS からダウンロード
@@ -46,10 +47,7 @@ def download_preprocessed_data_range(
 
 
 def read_preprocessed_data(
-    symbol: str,
-    year: int,
-    month: int,
-    data_directory: str
+    symbol: str, year: int, month: int, data_directory: str
 ) -> pd.DataFrame:
     """
     前処理したデータを読み込む
@@ -64,7 +62,7 @@ def read_preprocessed_data_range(
     month_from: int,
     year_to: int,
     month_to: int,
-    data_directory: str
+    data_directory: str,
 ) -> pd.DataFrame:
     """
     前処理したデータを範囲指定して読み込む
@@ -73,7 +71,9 @@ def read_preprocessed_data_range(
     month = month_from
     df = pd.DataFrame()
     while (year, month) <= (year_to, month_to):
-        df = pd.concat([df, read_preprocessed_data(symbol, year, month, data_directory)])
+        df = pd.concat(
+            [df, read_preprocessed_data(symbol, year, month, data_directory)]
+        )
         year, month = common_utils.calc_year_month_offset(year, month, month_offset=1)
 
     return df
@@ -90,19 +90,23 @@ def aggregate_time(s: pd.Series, freq: str, how: str) -> pd.DataFrame:
     elif how == "min":
         s_agg = s_agg.min()
     else:
-        raise ValueError(f"how must be \"first\", \"last\", \"max\", or \"min\"")
+        raise ValueError(f'how must be "first", "last", "max", or "min"')
 
     return s_agg.dropna().astype(np.float32)
 
 
 def merge_bid_ask(df):
     # bid と ask の平均値を計算
-    return pd.DataFrame({
-        "open":  (df["bid_open"]  + df["ask_open"] ) / 2,
-        "high":  (df["bid_high"]  + df["ask_high"] ) / 2,
-        "low":   (df["bid_low"]   + df["ask_low"]  ) / 2,
-        "close": (df["bid_close"] + df["ask_close"]) / 2,
-    }, index=df.index, dtype=np.float32)
+    return pd.DataFrame(
+        {
+            "open": (df["bid_open"] + df["ask_open"]) / 2,
+            "high": (df["bid_high"] + df["ask_high"]) / 2,
+            "low": (df["bid_low"] + df["ask_low"]) / 2,
+            "close": (df["bid_close"] + df["ask_close"]) / 2,
+        },
+        index=df.index,
+        dtype=np.float32,
+    )
 
 
 def resample(
@@ -117,10 +121,13 @@ def resample(
         if freq == "1min":
             df_dict[freq] = df_1min.astype(np.float32)
         else:
-            df_dict[freq] = pd.concat({
-                timing: aggregate_time(df_1min[timing], freq, how=TIMING2OP[timing])
-                for timing in df_1min.columns
-            }, axis=1)
+            df_dict[freq] = pd.concat(
+                {
+                    timing: aggregate_time(df_1min[timing], freq, how=TIMING2OP[timing])
+                    for timing in df_1min.columns
+                },
+                axis=1,
+            )
 
     return df_dict
 
@@ -162,7 +169,7 @@ def compute_sigma(s: pd.Series, window_size: int) -> pd.Series:
 
 
 def compute_fraction(s: pd.Series, base: float, ndigits: int):
-    return ((s / base) % int(10 ** ndigits)).astype(np.float32)
+    return ((s / base) % int(10**ndigits)).astype(np.float32)
 
 
 def compute_macd(
@@ -256,28 +263,39 @@ def create_features(
 
         df_seq_center.append(df_dict[freq][main_timing])
 
-        df_sma = pd.DataFrame({
-            f"sma{sma_window_size}": compute_sma(df_dict[freq][main_timing], sma_window_size)
-            for sma_window_size in sma_window_sizes
-        }, dtype=np.float32)
+        df_sma = pd.DataFrame(
+            {
+                f"sma{sma_window_size}": compute_sma(
+                    df_dict[freq][main_timing], sma_window_size
+                )
+                for sma_window_size in sma_window_sizes
+            },
+            dtype=np.float32,
+        )
         if sma_usage == "sequential":
             df_seq_center.append(df_sma)
         elif sma_usage == "continuous":
             df_cont.append(df_sma)
 
-        df_candle = pd.DataFrame({
-            "body": df_dict[freq]["close"] - df_dict[freq]["open"],
-            "upper_shadow": df_dict[freq]["high"] - df_dict[freq][["open", "close"]].max(axis=1),
-            "lower_shadow": df_dict[freq][["open", "close"]].min(axis=1) - df_dict[freq]["low"],
-        }, dtype=np.float32)
+        df_candle = pd.DataFrame(
+            {
+                "body": df_dict[freq]["close"] - df_dict[freq]["open"],
+                "upper_shadow": df_dict[freq]["high"]
+                - df_dict[freq][["open", "close"]].max(axis=1),
+                "lower_shadow": df_dict[freq][["open", "close"]].min(axis=1)
+                - df_dict[freq]["low"],
+            },
+            dtype=np.float32,
+        )
         if candle_usage == "sequential":
             df_seq_nocenter.append(df_candle)
         elif candle_usage == "continuous":
             df_cont.append(df_candle)
 
-        df_sigma = pd.DataFrame({
-            "sigma": compute_sigma(df_dict[freq][main_timing], sigma_window_size)
-        }, dtype=np.float32)
+        df_sigma = pd.DataFrame(
+            {"sigma": compute_sigma(df_dict[freq][main_timing], sigma_window_size)},
+            dtype=np.float32,
+        )
         if sigma_usage == "sequential":
             df_seq_nocenter.append(df_sigma)
         elif sigma_usage == "continuous":
@@ -287,21 +305,23 @@ def create_features(
             df_dict[freq][main_timing],
             macd_ema_window_size_short,
             macd_ema_window_size_long,
-            macd_sma_window_size
+            macd_sma_window_size,
         )
-        df_macd = pd.DataFrame({
-            "macd": macd,
-            "macd_signal": macd_signal
-        }, dtype=np.float32)
+        df_macd = pd.DataFrame(
+            {"macd": macd, "macd_signal": macd_signal}, dtype=np.float32
+        )
         if macd_usage == "sequential":
             df_seq_nocenter.append(df_macd)
         elif macd_usage == "continuous":
             df_cont.append(df_macd)
 
         rsi = compute_rsi(df_dict[freq][main_timing], rsi_window_size)
-        df_rsi = pd.DataFrame({
-            "rsi": rsi,
-        }, dtype=np.float32)
+        df_rsi = pd.DataFrame(
+            {
+                "rsi": rsi,
+            },
+            dtype=np.float32,
+        )
         if rsi_usage == "sequential":
             df_seq_nocenter.append(df_rsi)
         elif rsi_usage == "continuous":
@@ -313,20 +333,28 @@ def create_features(
             stochastics_d_window_size,
             stochastics_sd_window_size,
         )
-        df_stochastics = pd.DataFrame({
-            "stochastics_k": stochastics_k,
-            "stochastics_d": stochastics_d,
-            "stochastics_sd": stochastics_sd
-        }, dtype=np.float32)
+        df_stochastics = pd.DataFrame(
+            {
+                "stochastics_k": stochastics_k,
+                "stochastics_d": stochastics_d,
+                "stochastics_sd": stochastics_sd,
+            },
+            dtype=np.float32,
+        )
         if stochastics_usage == "sequential":
             df_seq_nocenter.append(df_stochastics)
         elif stochastics_usage == "continuous":
             df_cont.append(df_stochastics)
 
-        sma_frac = compute_fraction(df_sma[f"sma{sma_window_size_center}"], base=pip_scale, ndigits=sma_frac_ndigits)
-        df_sma_frac = pd.DataFrame({
-            f"sma{sma_window_size_center}_frac_lag1": sma_frac.shift(1)
-        }, dtype=np.float32)
+        sma_frac = compute_fraction(
+            df_sma[f"sma{sma_window_size_center}"],
+            base=pip_scale,
+            ndigits=sma_frac_ndigits,
+        )
+        df_sma_frac = pd.DataFrame(
+            {f"sma{sma_window_size_center}_frac_lag1": sma_frac.shift(1)},
+            dtype=np.float32,
+        )
         if sma_frac_usage == "sequential":
             df_seq_nocenter.append(df_sma_frac)
         elif sma_frac_usage == "continuous":
@@ -334,24 +362,44 @@ def create_features(
 
         assert (df_dict[freq].index == df_dict_critical[freq].index).all()
         df_critical_values = df_dict_critical[freq][
-            [c for c in df_dict_critical[freq].columns if re.match(r"prev[0-9]+_pre_critical_values", c)]
+            [
+                c
+                for c in df_dict_critical[freq].columns
+                if re.match(r"prev[0-9]+_pre_critical_values", c)
+            ]
         ]
         # 中心化
-        df_critical_values = df_critical_values - df_sma[f"sma{sma_window_size_center}"].values[:, np.newaxis]
-        df_critical_values = df_critical_values.shift(1).add_suffix("_lag1").astype(np.float32)
+        df_critical_values = (
+            df_critical_values
+            - df_sma[f"sma{sma_window_size_center}"].values[:, np.newaxis]
+        )
+        df_critical_values = (
+            df_critical_values.shift(1).add_suffix("_lag1").astype(np.float32)
+        )
         if critical_values_usage == "continuous":
             df_cont.append(df_critical_values)
 
         df_critical_idxs = df_dict_critical[freq][
-            [c for c in df_dict_critical[freq].columns if re.match(r"prev[0-9]+_pre_critical_idxs", c)]
+            [
+                c
+                for c in df_dict_critical[freq].columns
+                if re.match(r"prev[0-9]+_pre_critical_idxs", c)
+            ]
         ]
         # HACK: 該当なしの場合に -1 になることを使っている
-        df_critical_idxs = (df_critical_idxs.replace(-1, np.nan) - np.arange(len(df_critical_idxs))[:, np.newaxis])
-        df_critical_idxs = df_critical_idxs.shift(1).add_suffix("_lag1").astype(np.float32)
+        df_critical_idxs = (
+            df_critical_idxs.replace(-1, np.nan)
+            - np.arange(len(df_critical_idxs))[:, np.newaxis]
+        )
+        df_critical_idxs = (
+            df_critical_idxs.shift(1).add_suffix("_lag1").astype(np.float32)
+        )
         if critical_idxs_usage == "continuous":
             df_cont.append(df_critical_idxs)
 
-        df_critical_uptrends = df_dict_critical[freq][["pre_uptrends"]].astype(np.float32)
+        df_critical_uptrends = df_dict_critical[freq][["pre_uptrends"]].astype(
+            np.float32
+        )
         if critical_trends_usage == "continuous":
             df_cont.append(df_critical_uptrends)
 
@@ -362,15 +410,20 @@ def create_features(
     df_time = create_time_features(df.index)
 
     if time_usage == "continuous":
-        df_cont_dict["1min"] = pd.concat([
-            df_cont_dict["1min"],
-            df_time,
-        ], axis=1)
+        df_cont_dict["1min"] = pd.concat(
+            [
+                df_cont_dict["1min"],
+                df_time,
+            ],
+            axis=1,
+        )
 
     # データが足りている最初の時刻を求める
     first_index = pd.Timestamp("1900-1-1 00:00:00")
     for freq in df_dict:
-        assert (df_seq_center_dict[freq].index == df_seq_nocenter_dict[freq].index).all()
+        assert (
+            df_seq_center_dict[freq].index == df_seq_nocenter_dict[freq].index
+        ).all()
         assert (df_seq_center_dict[freq].index == df_cont_dict[freq].index).all()
 
         def get_first_index(df: pd.DataFrame, lag_max: int):
@@ -389,7 +442,7 @@ def create_features(
     available_mask = (
         (df.index >= first_index)
         & (df.index.hour >= start_hour)
-        & (df.index.hour <  end_hour)
+        & (df.index.hour < end_hour)
         & ~((df.index.month == 12) & (df.index.day == 25))
     )
     base_index = df.index[available_mask]
@@ -405,7 +458,9 @@ def create_features(
     return base_index, df_features
 
 
-def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> Tuple[np.ndarray, np.ndarray]:
+def compute_critical_idxs(
+    values: np.ndarray, thresh_hold: float
+) -> Tuple[np.ndarray, np.ndarray]:
     """
     極大・極小をとるインデックスの配列を取得する。
     thresh_hold 以下の変動は無視する。
@@ -471,7 +526,9 @@ def compute_critical_idxs(values: np.ndarray, thresh_hold: float) -> Tuple[np.nd
 
     assert len(critical_idxs) == len(critical_switch_idxs)
 
-    return np.array(critical_idxs, dtype=np.int32), np.array(critical_switch_idxs, dtype=np.int32)
+    return np.array(critical_idxs, dtype=np.int32), np.array(
+        critical_switch_idxs, dtype=np.int32
+    )
 
 
 def compute_neighbor_critical_idxs(
@@ -536,7 +593,7 @@ def compute_trends(size: int, critical_idxs: np.ndarray) -> np.array:
         prev_cidx = cidx
 
     if critical_idxs[-1] < size:
-        uptrends[critical_idxs[-1]:size] = uptrend
+        uptrends[critical_idxs[-1] : size] = uptrend
 
     return uptrends
 
@@ -570,7 +627,9 @@ def compute_critical_info(
                 offset=-prev_i,
             )
             critical_info[freq][f"prev{prev_i}_critical_idxs"] = prev_critical_idxs
-            critical_info[freq][f"prev{prev_i}_critical_values"] = get_values_from_idxs(values, prev_critical_idxs)
+            critical_info[freq][f"prev{prev_i}_critical_values"] = get_values_from_idxs(
+                values, prev_critical_idxs
+            )
 
             prev_pre_critical_idxs = compute_neighbor_pre_critical_idxs(
                 size=len(df_freq),
@@ -578,19 +637,25 @@ def compute_critical_info(
                 critical_switch_idxs=critical_switch_idxs,
                 offset=-prev_i,
             )
-            critical_info[freq][f"prev{prev_i}_pre_critical_idxs"] = prev_pre_critical_idxs
-            critical_info[freq][f"prev{prev_i}_pre_critical_values"] = get_values_from_idxs(values, prev_pre_critical_idxs)
+            critical_info[freq][
+                f"prev{prev_i}_pre_critical_idxs"
+            ] = prev_pre_critical_idxs
+            critical_info[freq][
+                f"prev{prev_i}_pre_critical_values"
+            ] = get_values_from_idxs(values, prev_pre_critical_idxs)
 
         next_critical_idxs = compute_neighbor_critical_idxs(
-            size=len(df_freq),
-            critical_idxs=critical_idxs,
-            offset=0
+            size=len(df_freq), critical_idxs=critical_idxs, offset=0
         )
         critical_info[freq]["next_critical_idxs"] = next_critical_idxs
-        critical_info[freq]["next_critical_values"] = get_values_from_idxs(values, next_critical_idxs)
+        critical_info[freq]["next_critical_values"] = get_values_from_idxs(
+            values, next_critical_idxs
+        )
 
         critical_info[freq]["uptrends"] = compute_trends(len(df_freq), critical_idxs)
-        critical_info[freq]["pre_uptrends"] = compute_trends(len(df_freq), critical_switch_idxs)
+        critical_info[freq]["pre_uptrends"] = compute_trends(
+            len(df_freq), critical_switch_idxs
+        )
 
         critical_info[freq] = pd.DataFrame(critical_info[freq], index=df_freq.index)
 
@@ -643,7 +708,13 @@ def create_critical_labels(
         done_count = cidx
         is_uptrend = not is_uptrend
 
-    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+    return merge_labels(
+        df.index,
+        long_entry_labels,
+        short_entry_labels,
+        long_exit_labels,
+        short_exit_labels,
+    )
 
 
 def create_critical2_labels(
@@ -659,13 +730,21 @@ def create_critical2_labels(
 
     # entry: 利益が出る and 暫定トレンドが順方向
     # pre_uptrends_lag1 だけでは周回遅れになる可能性がため、pre_uptrends についてもチェックする
-    long_entry_labels  = (values_diff >= thresh_entry)  & pre_uptrends  & pre_uptrends_lag1
-    short_entry_labels = (values_diff <= -thresh_entry) & ~pre_uptrends & ~pre_uptrends_lag1
+    long_entry_labels = (values_diff >= thresh_entry) & pre_uptrends & pre_uptrends_lag1
+    short_entry_labels = (
+        (values_diff <= -thresh_entry) & ~pre_uptrends & ~pre_uptrends_lag1
+    )
     # exit: トレンドが逆方向
-    long_exit_labels  = ~uptrends
+    long_exit_labels = ~uptrends
     short_exit_labels = uptrends
 
-    return merge_labels(df_critical.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+    return merge_labels(
+        df_critical.index,
+        long_entry_labels,
+        short_entry_labels,
+        long_exit_labels,
+        short_exit_labels,
+    )
 
 
 def create_smadiff_labels(
@@ -680,12 +759,18 @@ def create_smadiff_labels(
     sma_after = compute_sma(values.shift(-window_size_after), window_size_after)
     sma_diff = sma_after.values - sma_before.values
 
-    long_entry_labels  = sma_diff > thresh_entry
+    long_entry_labels = sma_diff > thresh_entry
     short_entry_labels = sma_diff < -thresh_entry
-    long_exit_labels   = sma_diff < -thresh_hold
-    short_exit_labels  = sma_diff > thresh_hold
+    long_exit_labels = sma_diff < -thresh_hold
+    short_exit_labels = sma_diff > thresh_hold
 
-    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+    return merge_labels(
+        df.index,
+        long_entry_labels,
+        short_entry_labels,
+        long_exit_labels,
+        short_exit_labels,
+    )
 
 
 def create_future_labels(
@@ -696,15 +781,23 @@ def create_future_labels(
     thresh_hold: float,
 ) -> pd.DataFrame:
     values = pd.Series((df["high"].values + df["low"].values) / 2, index=df.index)
-    future_sma = compute_sma(values, future_step_max - future_step_min + 1).shift(-future_step_max)
+    future_sma = compute_sma(values, future_step_max - future_step_min + 1).shift(
+        -future_step_max
+    )
     diff = future_sma - values
 
-    long_entry_labels  = diff >= thresh_entry
+    long_entry_labels = diff >= thresh_entry
     short_entry_labels = diff <= -thresh_entry
-    long_exit_labels   = diff < -thresh_hold
-    short_exit_labels  = diff > thresh_hold
+    long_exit_labels = diff < -thresh_hold
+    short_exit_labels = diff > thresh_hold
 
-    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+    return merge_labels(
+        df.index,
+        long_entry_labels,
+        short_entry_labels,
+        long_exit_labels,
+        short_exit_labels,
+    )
 
 
 def create_smatrend_labels(
@@ -717,38 +810,48 @@ def create_smatrend_labels(
     assert window_size % 2 == 1
 
     values = pd.Series((df["high"].values + df["low"].values) / 2, index=df.index)
-    sma = compute_sma(values, window_size).shift(-(window_size//2))
+    sma = compute_sma(values, window_size).shift(-(window_size // 2))
 
-    ascending  = sma > sma.shift(1)
+    ascending = sma > sma.shift(1)
     descending = sma < sma.shift(1)
 
-    ascending_before  = np.ones(len(df), dtype=bool)
+    ascending_before = np.ones(len(df), dtype=bool)
     descending_before = np.ones(len(df), dtype=bool)
     for i in range(step_before):
-        ascending_before  &= ascending.shift(i).fillna(False).values
+        ascending_before &= ascending.shift(i).fillna(False).values
         descending_before &= descending.shift(i).fillna(False).values
 
-    ascending_after  = np.ones(len(df), dtype=bool)
+    ascending_after = np.ones(len(df), dtype=bool)
     descending_after = np.ones(len(df), dtype=bool)
     for i in range(step_after):
-        ascending_after  &= ascending.shift(-(i+1)).fillna(False).values
-        descending_after &= descending.shift(-(i+1)).fillna(False).values
+        ascending_after &= ascending.shift(-(i + 1)).fillna(False).values
+        descending_after &= descending.shift(-(i + 1)).fillna(False).values
 
     lift_before = sma - sma.shift(step_before)
-    lift_after  = sma.shift(-step_after) - sma
+    lift_after = sma.shift(-step_after) - sma
 
     long_entry_labels = (
-        ascending_before & ascending_after
-        & (lift_before >= thresh_entry) & (lift_after >= thresh_entry)
+        ascending_before
+        & ascending_after
+        & (lift_before >= thresh_entry)
+        & (lift_after >= thresh_entry)
     )
     short_entry_labels = (
-        descending_before & descending_after
-        & (lift_before <= -thresh_entry) & (lift_after <= -thresh_entry)
+        descending_before
+        & descending_after
+        & (lift_before <= -thresh_entry)
+        & (lift_after <= -thresh_entry)
     )
-    long_exit_labels  = (sma.shift(-1) <= sma).values
+    long_exit_labels = (sma.shift(-1) <= sma).values
     short_exit_labels = (sma.shift(-1) >= sma).values
 
-    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+    return merge_labels(
+        df.index,
+        long_entry_labels,
+        short_entry_labels,
+        long_exit_labels,
+        short_exit_labels,
+    )
 
 
 def create_gain_labels(
@@ -759,23 +862,38 @@ def create_gain_labels(
     exit_bias: float,
 ):
     values = pd.Series((df["high"].values + df["low"].values) / 2, index=df.index)
-    future_sma = compute_sma(values, future_step_max - future_step_min + 1).shift(-future_step_max)
+    future_sma = compute_sma(values, future_step_max - future_step_min + 1).shift(
+        -future_step_max
+    )
     diff = future_sma - values
 
-    long_entry_labels  = (diff  + entry_bias).astype(np.float32)
+    long_entry_labels = (diff + entry_bias).astype(np.float32)
     short_entry_labels = (-diff + entry_bias).astype(np.float32)
-    long_exit_labels   = (diff  + exit_bias).astype(np.float32)
-    short_exit_labels  = (-diff + exit_bias).astype(np.float32)
+    long_exit_labels = (diff + exit_bias).astype(np.float32)
+    short_exit_labels = (-diff + exit_bias).astype(np.float32)
 
-    return merge_labels(df.index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels, validate=False)
+    return merge_labels(
+        df.index,
+        long_entry_labels,
+        short_entry_labels,
+        long_exit_labels,
+        short_exit_labels,
+        validate=False,
+    )
 
 
 def create_dummy1_labels(index: pd.DatetimeIndex) -> pd.DataFrame:
-    long_entry_labels  = (index.hour >= 0)  & (index.hour < 6)
-    short_entry_labels = (index.hour >= 6)  & (index.hour < 12)
-    long_exit_labels   = (index.hour >= 12) & (index.hour < 18)
-    short_exit_labels  = (index.hour >= 18) & (index.hour < 24)
-    return merge_labels(index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+    long_entry_labels = (index.hour >= 0) & (index.hour < 6)
+    short_entry_labels = (index.hour >= 6) & (index.hour < 12)
+    long_exit_labels = (index.hour >= 12) & (index.hour < 18)
+    short_exit_labels = (index.hour >= 18) & (index.hour < 24)
+    return merge_labels(
+        index,
+        long_entry_labels,
+        short_entry_labels,
+        long_exit_labels,
+        short_exit_labels,
+    )
 
 
 def create_dummy2_labels(df_x_dict: Dict[str, Dict[str, pd.DataFrame]]) -> pd.DataFrame:
@@ -788,13 +906,19 @@ def create_dummy2_labels(df_x_dict: Dict[str, Dict[str, pd.DataFrame]]) -> pd.Da
     assert sma_colname is not None
     values = df_x_dict["continuous"]["1min"][sma_colname].values
 
-    long_entry_labels  = (values >=  0) & (values < 25)
+    long_entry_labels = (values >= 0) & (values < 25)
     short_entry_labels = (values >= 25) & (values < 50)
-    long_exit_labels   = (values >= 50) & (values < 75)
-    short_exit_labels  = (values >= 75) & (values < 100)
+    long_exit_labels = (values >= 50) & (values < 75)
+    short_exit_labels = (values >= 75) & (values < 100)
 
     index = df_x_dict["continuous"]["1min"].index
-    return merge_labels(index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+    return merge_labels(
+        index,
+        long_entry_labels,
+        short_entry_labels,
+        long_exit_labels,
+        short_exit_labels,
+    )
 
 
 def create_dummy3_labels(df_x_dict: Dict[str, Dict[str, pd.DataFrame]]) -> pd.DataFrame:
@@ -802,17 +926,23 @@ def create_dummy3_labels(df_x_dict: Dict[str, Dict[str, pd.DataFrame]]) -> pd.Da
     lag2 = df_x_dict["sequential"]["1min"]["close"].shift(2).values
     lag3 = df_x_dict["sequential"]["1min"]["close"].shift(3).values
 
-    long_entry_labels  = (lag1 >  lag2) & (lag2 >  lag3)
-    short_entry_labels = (lag1 >  lag2) & (lag2 <= lag3)
-    long_exit_labels   = (lag1 <= lag2) & (lag2 >  lag3)
-    short_exit_labels  = (lag1 <= lag2) & (lag2 <= lag3)
+    long_entry_labels = (lag1 > lag2) & (lag2 > lag3)
+    short_entry_labels = (lag1 > lag2) & (lag2 <= lag3)
+    long_exit_labels = (lag1 <= lag2) & (lag2 > lag3)
+    short_exit_labels = (lag1 <= lag2) & (lag2 <= lag3)
 
     index = df_x_dict["sequential"]["1min"].index
-    return merge_labels(index, long_entry_labels, short_entry_labels, long_exit_labels, short_exit_labels)
+    return merge_labels(
+        index,
+        long_entry_labels,
+        short_entry_labels,
+        long_exit_labels,
+        short_exit_labels,
+    )
 
 
 def merge_labels(
-    index:pd.DatetimeIndex,
+    index: pd.DatetimeIndex,
     long_entry_labels: np.ndarray,
     short_entry_labels: np.ndarray,
     long_exit_labels: np.ndarray,
@@ -824,12 +954,15 @@ def merge_labels(
         assert not (long_entry_labels & long_exit_labels).any()
         assert not (short_entry_labels & short_exit_labels).any()
 
-    df_labels = pd.DataFrame({
-        "long_entry": long_entry_labels,
-        "short_entry": short_entry_labels,
-        "long_exit": long_exit_labels,
-        "short_exit": short_exit_labels,
-    }, index=index)
+    df_labels = pd.DataFrame(
+        {
+            "long_entry": long_entry_labels,
+            "short_entry": short_entry_labels,
+            "long_exit": long_exit_labels,
+            "short_exit": short_exit_labels,
+        },
+        index=index,
+    )
     return df_labels
 
 

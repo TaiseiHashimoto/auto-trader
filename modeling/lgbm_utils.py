@@ -1,17 +1,17 @@
-import numpy as np
-import pandas as pd
-from typing import Optional, List, Dict, Tuple, Union
-import lightgbm as lgb
-from sklearn.metrics import roc_auc_score, average_precision_score
-import pickle
-import neptune.new as neptune
 import functools
 import gc
-
-import utils
-
-import sys
 import pathlib
+import pickle
+import sys
+from typing import Dict, List, Optional, Tuple, Union
+
+import lightgbm as lgb
+import neptune.new as neptune
+import numpy as np
+import pandas as pd
+import utils
+from sklearn.metrics import average_precision_score, roc_auc_score
+
 sys.path.append(str(pathlib.Path(__file__).resolve().parents[1] / "common"))
 import common_utils
 
@@ -44,8 +44,12 @@ class LGBMDataset:
         # TODO: メモリ使用量を抑える
         df_seq_dict = {}
         for freq in self.get_freqs():
-            df_center_lagged = utils.create_lagged_features(self.x["sequential"]["center"][freq], self.lag_max)
-            df_nocenter_lagged = utils.create_lagged_features(self.x["sequential"]["nocenter"][freq], self.lag_max)
+            df_center_lagged = utils.create_lagged_features(
+                self.x["sequential"]["center"][freq], self.lag_max
+            )
+            df_nocenter_lagged = utils.create_lagged_features(
+                self.x["sequential"]["nocenter"][freq], self.lag_max
+            )
 
             # 中心化
             sma_colname = f"sma{self.sma_window_size_center}_lag1"
@@ -54,10 +58,13 @@ class LGBMDataset:
             # 基準となる sma のカラムは常に 0 なので削除する
             df_center_lagged.drop(sma_colname, axis=1, inplace=True),
 
-            df_seq_dict[freq] = pd.concat([
-                df_center_lagged,
-                df_nocenter_lagged,
-            ], axis=1)
+            df_seq_dict[freq] = pd.concat(
+                [
+                    df_center_lagged,
+                    df_nocenter_lagged,
+                ],
+                axis=1,
+            )
 
         df_seq = utils.align_frequency(self.base_index, df_seq_dict)
         df_cont = utils.align_frequency(self.base_index, self.x["continuous"])
@@ -71,18 +78,33 @@ class LGBMDataset:
         else:
             return self.y.loc[self.base_index, label_name]
 
-    def train_test_split(self, test_proportion: float) -> Tuple["LGBMDataset", "LGBMDataset"]:
+    def train_test_split(
+        self, test_proportion: float
+    ) -> Tuple["LGBMDataset", "LGBMDataset"]:
         assert self.y is not None
         train_size = int(len(self.base_index) * (1 - test_proportion))
-        ds_train = LGBMDataset(self.base_index[:train_size], self.x, self.y, self.lag_max, self.sma_window_size_center)
-        ds_test = LGBMDataset(self.base_index[train_size:], self.x, self.y, self.lag_max, self.sma_window_size_center)
+        ds_train = LGBMDataset(
+            self.base_index[:train_size],
+            self.x,
+            self.y,
+            self.lag_max,
+            self.sma_window_size_center,
+        )
+        ds_test = LGBMDataset(
+            self.base_index[train_size:],
+            self.x,
+            self.y,
+            self.lag_max,
+            self.sma_window_size_center,
+        )
         return ds_train, ds_test
 
 
-
-def gain_loss(preds_raw: np.ndarray, lds: lgb.Dataset) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
+def gain_loss(
+    preds_raw: np.ndarray, lds: lgb.Dataset
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     # HACK: preds_raw = 0 で始まると hessian が 0 になり学習が進まないため、意図的にずらしている
-    preds_raw_adjusted = preds_raw - 1.
+    preds_raw_adjusted = preds_raw - 1.0
     preds = utils.sigmoid(preds_raw_adjusted)
     loss = -lds.label * preds
 
@@ -105,10 +127,9 @@ def gain_objective(preds_raw: np.ndarray, lds: lgb.Dataset):
 def focal_metric(preds_raw: np.ndarray, lds: lgb.Dataset, gamma: float):
     eps = 1e-6
     preds = utils.sigmoid(preds_raw)
-    loss = (
-        -lds.label * (1 - preds) ** gamma * np.log(preds + eps)
-        -(1 - lds.label) * preds ** gamma * np.log(1 - preds + eps)
-    )
+    loss = -lds.label * (1 - preds) ** gamma * np.log(preds + eps) - (
+        1 - lds.label
+    ) * preds**gamma * np.log(1 - preds + eps)
     return "focal_loss", loss.mean(), False
 
 
@@ -119,23 +140,31 @@ def focal_objective(preds_raw: np.ndarray, lds: lgb.Dataset, gamma: float):
     preds_inv_log = np.log(1 - preds + eps)
     grad = (
         +lds.label * gamma * preds * (1 - preds) ** gamma * preds_log
-        -lds.label * (1 - preds) ** (gamma + 1)
-        -(1 - lds.label) * gamma * preds ** gamma * (1 - preds) * preds_inv_log
-        +(1 - lds.label) * preds ** (gamma + 1)
+        - lds.label * (1 - preds) ** (gamma + 1)
+        - (1 - lds.label) * gamma * preds**gamma * (1 - preds) * preds_inv_log
+        + (1 - lds.label) * preds ** (gamma + 1)
     )
-    hess = preds * (1 - preds) * (
-        +lds.label * gamma * (
-            +(1 - preds) ** gamma * preds_log
-            -gamma * preds * (1 - preds) ** (gamma - 1) * preds_log
-            +(1 - preds) ** gamma
+    hess = (
+        preds
+        * (1 - preds)
+        * (
+            +lds.label
+            * gamma
+            * (
+                +((1 - preds) ** gamma) * preds_log
+                - gamma * preds * (1 - preds) ** (gamma - 1) * preds_log
+                + (1 - preds) ** gamma
+            )
+            + lds.label * (gamma + 1) * (1 - preds) ** gamma
+            + (1 - lds.label)
+            * gamma
+            * (
+                +(preds**gamma) * preds_inv_log
+                - gamma * preds ** (gamma - 1) * (1 - preds) * preds_inv_log
+                + preds**gamma
+            )
+            + (1 - lds.label) * (gamma + 1) * preds**gamma
         )
-        +lds.label * (gamma + 1) * (1 - preds) ** gamma
-        +(1 - lds.label) * gamma * (
-            +preds ** gamma * preds_inv_log
-            -gamma * preds ** (gamma - 1) * (1 - preds) * preds_inv_log
-            +preds ** gamma
-        )
-        +(1 - lds.label) * (gamma + 1) * preds ** gamma
     )
     return grad, hess
 
@@ -143,15 +172,15 @@ def focal_objective(preds_raw: np.ndarray, lds: lgb.Dataset, gamma: float):
 def binary_metric(pred_raw, data):
     y_train = data.get_label()
     pred = utils.sigmoid(pred_raw)
-    loss = -(y_train * np.log(pred) + (1-y_train)*np.log(1-pred))
-    return 'original_binary_logloss', np.mean(loss), False
+    loss = -(y_train * np.log(pred) + (1 - y_train) * np.log(1 - pred))
+    return "original_binary_logloss", np.mean(loss), False
 
 
 def binary_objective(pred_raw, data):
     y_true = data.get_label()
     pred = utils.sigmoid(pred_raw)
     grad = pred - y_true
-    hess = pred * (1-pred)
+    hess = pred * (1 - pred)
     return grad, hess
 
 
@@ -185,8 +214,12 @@ class LGBMModel:
             self.sigmoid_after_predict = True
         elif loss_type == "focal":
             gamma = model_params["loss"]["gamma"]
-            self.additional_params["fobj"] = functools.partial(focal_objective, gamma=gamma)
-            self.additional_params["feval"] = functools.partial(focal_metric, gamma=gamma)
+            self.additional_params["fobj"] = functools.partial(
+                focal_objective, gamma=gamma
+            )
+            self.additional_params["feval"] = functools.partial(
+                focal_metric, gamma=gamma
+            )
             self.sigmoid_after_predict = True
 
     @classmethod
@@ -209,11 +242,15 @@ class LGBMModel:
         log_prefix: str = "train",
     ):
         # TODO: log はできるだけ外 (呼び出し側) で行う
-        def log_auc(model: lgb.Booster, df_x: pd.DataFrame, df_y: pd.Series, log_suffix: str):
+        def log_auc(
+            model: lgb.Booster, df_x: pd.DataFrame, df_y: pd.Series, log_suffix: str
+        ):
             label = df_y.values
             pred = model.predict(df_x).astype(np.float32)
             self.run[f"{log_prefix}/auc/roc/{log_suffix}"] = roc_auc_score(label, pred)
-            self.run[f"{log_prefix}/auc/pr/{log_suffix}"] = average_precision_score(label, pred)
+            self.run[f"{log_prefix}/auc/pr/{log_suffix}"] = average_precision_score(
+                label, pred
+            )
 
         df_x_train = ds_train.bundle_features()
         if ds_valid is not None:
@@ -238,15 +275,17 @@ class LGBMModel:
 
             evals_results = {}
             model = lgb.train(
-                common_utils.drop_keys(self.model_params, LGBMModel.MODEL_PARAMS_TO_DROP),
+                common_utils.drop_keys(
+                    self.model_params, LGBMModel.MODEL_PARAMS_TO_DROP
+                ),
                 lds_train,
                 valid_sets=valid_sets,
                 valid_names=valid_names,
                 callbacks=[
                     lgb.callback.record_evaluation(evals_results),
-                    lgb.callback.log_evaluation()
+                    lgb.callback.log_evaluation(),
                 ],
-                **self.additional_params
+                **self.additional_params,
             )
             self.models[label_name] = model
 
@@ -254,17 +293,23 @@ class LGBMModel:
                 assert len(evals_results[valid_name]) == 1
                 loss_name = list(evals_results[valid_name].keys())[0]
                 for itr, loss in enumerate(evals_results[valid_name][loss_name]):
-                    self.run[f"{log_prefix}/loss/{valid_name}/{label_name}"].log(loss, itr + 1)
+                    self.run[f"{log_prefix}/loss/{valid_name}/{label_name}"].log(
+                        loss, itr + 1
+                    )
 
             if self.log_auc:
                 log_auc(model, df_x_train, df_y_train, log_suffix=f"train/{label_name}")
                 if ds_valid is not None:
-                    log_auc(model, df_x_valid, df_y_valid, log_suffix=f"valid/{label_name}")
+                    log_auc(
+                        model, df_x_valid, df_y_valid, log_suffix=f"valid/{label_name}"
+                    )
 
     def get_importance(self) -> Dict[str, pd.Series]:
         importance_dict = {}
         for label_name, model in self.models.items():
-            importance = pd.Series(model.feature_importance("gain"), index=model.feature_name())
+            importance = pd.Series(
+                model.feature_importance("gain"), index=model.feature_name()
+            )
             importance_dict[label_name] = importance.sort_values(ascending=False)
 
         return importance_dict
@@ -282,7 +327,10 @@ class LGBMModel:
     def save(self, output_path: str):
         assert self.models is not None and len(self.models) > 0
         with open(output_path, "wb") as f:
-            pickle.dump({
-                "params": self.model_params,
-                "models": self.models,
-            }, f)
+            pickle.dump(
+                {
+                    "params": self.model_params,
+                    "models": self.models,
+                },
+                f,
+            )

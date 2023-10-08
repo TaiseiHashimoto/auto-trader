@@ -1,61 +1,295 @@
+import cnn_utils
 import numpy as np
 import pandas as pd
 import torch
 import torch.nn as nn
 
-import cnn_utils
-
 
 class TestCNNDataset:
     def prepare_dataset(self):
-        base_index = pd.date_range("2022-01-01 00:10:00", "2022-01-01 00:15:00", freq="1min")
+        base_index = pd.date_range(
+            "2022-01-01 00:10:00", "2022-01-01 00:15:00", freq="1min"
+        )
         x = {
             "sequential": {
                 "center": {
-                    "1min": pd.DataFrame({
-                        "open": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15],
-                        "low": [0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100, -110, -120, -130, -140, -150],
-                        "sma2": [np.nan, 0.5, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5, 14.5],
-                        "sma4": [np.nan, np.nan, np.nan, 1.5, 2.5, 3.5, 4.5, 5.5, 6.5, 7.5, 8.5, 9.5, 10.5, 11.5, 12.5, 13.5],
-                    }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="1min")),
-                    "2min": pd.DataFrame({
-                        "open": [0, 2, 4, 6, 8, 10, 12, 14],
-                        "low": [-10, -30, -50, -70, -90, -110, -130, -150],
-                        "sma2": [np.nan, 1, 3, 5, 7, 9, 11, 13],
-                        "sma4": [np.nan, np.nan, np.nan, 3, 5, 7, 9, 11],
-                    }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="2min")),
+                    "1min": pd.DataFrame(
+                        {
+                            "open": [
+                                0,
+                                1,
+                                2,
+                                3,
+                                4,
+                                5,
+                                6,
+                                7,
+                                8,
+                                9,
+                                10,
+                                11,
+                                12,
+                                13,
+                                14,
+                                15,
+                            ],
+                            "low": [
+                                0,
+                                -10,
+                                -20,
+                                -30,
+                                -40,
+                                -50,
+                                -60,
+                                -70,
+                                -80,
+                                -90,
+                                -100,
+                                -110,
+                                -120,
+                                -130,
+                                -140,
+                                -150,
+                            ],
+                            "sma2": [
+                                np.nan,
+                                0.5,
+                                1.5,
+                                2.5,
+                                3.5,
+                                4.5,
+                                5.5,
+                                6.5,
+                                7.5,
+                                8.5,
+                                9.5,
+                                10.5,
+                                11.5,
+                                12.5,
+                                13.5,
+                                14.5,
+                            ],
+                            "sma4": [
+                                np.nan,
+                                np.nan,
+                                np.nan,
+                                1.5,
+                                2.5,
+                                3.5,
+                                4.5,
+                                5.5,
+                                6.5,
+                                7.5,
+                                8.5,
+                                9.5,
+                                10.5,
+                                11.5,
+                                12.5,
+                                13.5,
+                            ],
+                        },
+                        index=pd.date_range(
+                            "2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="1min"
+                        ),
+                    ),
+                    "2min": pd.DataFrame(
+                        {
+                            "open": [0, 2, 4, 6, 8, 10, 12, 14],
+                            "low": [-10, -30, -50, -70, -90, -110, -130, -150],
+                            "sma2": [np.nan, 1, 3, 5, 7, 9, 11, 13],
+                            "sma4": [np.nan, np.nan, np.nan, 3, 5, 7, 9, 11],
+                        },
+                        index=pd.date_range(
+                            "2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="2min"
+                        ),
+                    ),
                 },
                 "nocenter": {
-                    "1min": pd.DataFrame({
-                        "macd": [0., 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0, 1.1, 1.2, 1.3, 1.4, 1.5],
-                        "macd_signal": [-0., -0.1, -0.2, -0.3, -0.4, -0.5, -0.6, -0.7, -0.8, -0.9, -1.0, -1.1, -1.2, -1.3, -1.4, -1.5],
-                    }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="1min")),
-                    "2min": pd.DataFrame({
-                        "macd": [0., 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4],
-                        "macd_signal": [-0., -0.2, -0.4, -0.6, -0.8, -1.0, -1.2, -1.4],
-                    }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="2min")),
-                }
+                    "1min": pd.DataFrame(
+                        {
+                            "macd": [
+                                0.0,
+                                0.1,
+                                0.2,
+                                0.3,
+                                0.4,
+                                0.5,
+                                0.6,
+                                0.7,
+                                0.8,
+                                0.9,
+                                1.0,
+                                1.1,
+                                1.2,
+                                1.3,
+                                1.4,
+                                1.5,
+                            ],
+                            "macd_signal": [
+                                -0.0,
+                                -0.1,
+                                -0.2,
+                                -0.3,
+                                -0.4,
+                                -0.5,
+                                -0.6,
+                                -0.7,
+                                -0.8,
+                                -0.9,
+                                -1.0,
+                                -1.1,
+                                -1.2,
+                                -1.3,
+                                -1.4,
+                                -1.5,
+                            ],
+                        },
+                        index=pd.date_range(
+                            "2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="1min"
+                        ),
+                    ),
+                    "2min": pd.DataFrame(
+                        {
+                            "macd": [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 1.2, 1.4],
+                            "macd_signal": [
+                                -0.0,
+                                -0.2,
+                                -0.4,
+                                -0.6,
+                                -0.8,
+                                -1.0,
+                                -1.2,
+                                -1.4,
+                            ],
+                        },
+                        index=pd.date_range(
+                            "2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="2min"
+                        ),
+                    ),
+                },
             },
             "continuous": {
-                "1min": pd.DataFrame({
-                    "sma2_frac_lag1": [np.nan, np.nan, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50, 50],
-                    "hour": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-                    "day_of_week": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
-                    "month": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="1min")),
-                "2min": pd.DataFrame({
-                    "sma2_frac_lag1": [np.nan, np.nan, 0, 0, 0, 0, 0, 0],
-                }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="2min")),
-            }
+                "1min": pd.DataFrame(
+                    {
+                        "sma2_frac_lag1": [
+                            np.nan,
+                            np.nan,
+                            50,
+                            50,
+                            50,
+                            50,
+                            50,
+                            50,
+                            50,
+                            50,
+                            50,
+                            50,
+                            50,
+                            50,
+                            50,
+                            50,
+                        ],
+                        "hour": [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+                        "day_of_week": [5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5, 5],
+                        "month": [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
+                    },
+                    index=pd.date_range(
+                        "2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="1min"
+                    ),
+                ),
+                "2min": pd.DataFrame(
+                    {
+                        "sma2_frac_lag1": [np.nan, np.nan, 0, 0, 0, 0, 0, 0],
+                    },
+                    index=pd.date_range(
+                        "2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="2min"
+                    ),
+                ),
+            },
         }
-        y = pd.DataFrame({
-            "long_entry": [True, False, False, False, True, False, False, False, True, False, False, False, True, False, False, False],
-            "short_entry": [False, False, False, True, False, False, False, True, False, False, False, True, False, False, False, True],
-            "long_exit": [False, False, True, True, False, False, True, True, False, False, True, True, False, False, True, True],
-            "short_exit": [True, True, False, False, True, True, False, False, True, True, False, False, True, True, False, False],
-        }, index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="1min"))
+        y = pd.DataFrame(
+            {
+                "long_entry": [
+                    True,
+                    False,
+                    False,
+                    False,
+                    True,
+                    False,
+                    False,
+                    False,
+                    True,
+                    False,
+                    False,
+                    False,
+                    True,
+                    False,
+                    False,
+                    False,
+                ],
+                "short_entry": [
+                    False,
+                    False,
+                    False,
+                    True,
+                    False,
+                    False,
+                    False,
+                    True,
+                    False,
+                    False,
+                    False,
+                    True,
+                    False,
+                    False,
+                    False,
+                    True,
+                ],
+                "long_exit": [
+                    False,
+                    False,
+                    True,
+                    True,
+                    False,
+                    False,
+                    True,
+                    True,
+                    False,
+                    False,
+                    True,
+                    True,
+                    False,
+                    False,
+                    True,
+                    True,
+                ],
+                "short_exit": [
+                    True,
+                    True,
+                    False,
+                    False,
+                    True,
+                    True,
+                    False,
+                    False,
+                    True,
+                    True,
+                    False,
+                    False,
+                    True,
+                    True,
+                    False,
+                    False,
+                ],
+            },
+            index=pd.date_range(
+                "2022-01-01 00:00:00", "2022-01-01 00:15:00", freq="1min"
+            ),
+        )
 
-        return cnn_utils.CNNDataset(base_index, x, y, lag_max=2, sma_window_size_center=2)
+        return cnn_utils.CNNDataset(
+            base_index, x, y, lag_max=2, sma_window_size_center=2
+        )
 
     def test_get_continuous_dim(self):
         ds = self.prepare_dataset()
@@ -64,8 +298,14 @@ class TestCNNDataset:
     def test_train_test_split(self):
         ds = self.prepare_dataset()
         ds_train, ds_test = ds.train_test_split(test_proportion=0.5)
-        assert (ds_train.base_index == pd.date_range("2022-01-01 00:10:00", "2022-01-01 00:12:00", freq="1min")).all()
-        assert (ds_test.base_index == pd.date_range("2022-01-01 00:13:00", "2022-01-01 00:15:00", freq="1min")).all()
+        assert (
+            ds_train.base_index
+            == pd.date_range("2022-01-01 00:10:00", "2022-01-01 00:12:00", freq="1min")
+        ).all()
+        assert (
+            ds_test.base_index
+            == pd.date_range("2022-01-01 00:13:00", "2022-01-01 00:15:00", freq="1min")
+        ).all()
         assert id(ds_train.x) == id(ds.x)
         assert id(ds_train.y) == id(ds.y)
         assert id(ds_test.x) == id(ds.x)
@@ -78,104 +318,181 @@ class TestCNNDataset:
         actual_data, actual_labels = next(loader)
         expected_data = {
             "sequential": {
-                "1min": np.array([
+                "1min": np.array(
                     [
-                        # lag1 (open, low, sma2, sma4, macd, macd_signal)
-                        [9 - 8.5, -90 - 8.5, 8.5 - 8.5, 7.5 - 8.5, 0.9, -0.9],
-                        # lag2 (open, low, sma2, sma4, macd, macd_signal)
-                        [8 - 8.5, -80 - 8.5, 7.5 - 8.5, 6.5 - 8.5, 0.8, -0.8],
-                    ], [
-                        [10 - 9.5, -100 - 9.5, 9.5 - 9.5, 8.5 - 9.5, 1.0, -1.0],
-                        [9 - 9.5, -90 - 9.5, 8.5 - 9.5, 7.5 - 9.5, 0.9, -0.9],
-                    ],[
-                        [11 - 10.5, -110 - 10.5, 10.5 - 10.5, 9.5 - 10.5, 1.1, -1.1],
-                        [10 - 10.5, -100 - 10.5, 9.5 - 10.5, 8.5 - 10.5, 1.0, -1.0],
-                    ], [
-                        [12 - 11.5, -120 - 11.5, 11.5 - 11.5, 10.5 - 11.5, 1.2, -1.2],
-                        [11 - 11.5, -110 - 11.5, 10.5 - 11.5, 9.5 - 11.5, 1.1, -1.1],
-                    ], [
-                        [13 - 12.5, -130 - 12.5, 12.5 - 12.5, 11.5 - 12.5, 1.3, -1.3],
-                        [12 - 12.5, -120 - 12.5, 11.5 - 12.5, 10.5 - 12.5, 1.2, -1.2],
+                        [
+                            # lag1 (open, low, sma2, sma4, macd, macd_signal)
+                            [9 - 8.5, -90 - 8.5, 8.5 - 8.5, 7.5 - 8.5, 0.9, -0.9],
+                            # lag2 (open, low, sma2, sma4, macd, macd_signal)
+                            [8 - 8.5, -80 - 8.5, 7.5 - 8.5, 6.5 - 8.5, 0.8, -0.8],
+                        ],
+                        [
+                            [10 - 9.5, -100 - 9.5, 9.5 - 9.5, 8.5 - 9.5, 1.0, -1.0],
+                            [9 - 9.5, -90 - 9.5, 8.5 - 9.5, 7.5 - 9.5, 0.9, -0.9],
+                        ],
+                        [
+                            [
+                                11 - 10.5,
+                                -110 - 10.5,
+                                10.5 - 10.5,
+                                9.5 - 10.5,
+                                1.1,
+                                -1.1,
+                            ],
+                            [10 - 10.5, -100 - 10.5, 9.5 - 10.5, 8.5 - 10.5, 1.0, -1.0],
+                        ],
+                        [
+                            [
+                                12 - 11.5,
+                                -120 - 11.5,
+                                11.5 - 11.5,
+                                10.5 - 11.5,
+                                1.2,
+                                -1.2,
+                            ],
+                            [
+                                11 - 11.5,
+                                -110 - 11.5,
+                                10.5 - 11.5,
+                                9.5 - 11.5,
+                                1.1,
+                                -1.1,
+                            ],
+                        ],
+                        [
+                            [
+                                13 - 12.5,
+                                -130 - 12.5,
+                                12.5 - 12.5,
+                                11.5 - 12.5,
+                                1.3,
+                                -1.3,
+                            ],
+                            [
+                                12 - 12.5,
+                                -120 - 12.5,
+                                11.5 - 12.5,
+                                10.5 - 12.5,
+                                1.2,
+                                -1.2,
+                            ],
+                        ],
                     ]
-                ]),
-                "2min": np.array([
+                ),
+                "2min": np.array(
                     [
-                        # lag1 (open, low, sma2, sma4, macd, macd_signal)
-                        [8 - 7, -90 - 7, 7 - 7, 5 - 7, 0.8, -0.8],
-                        # lag2 (open, low, sma2, sma4, macd, macd_signal)
-                        [6 - 7, -70 - 7, 5 - 7, 3 - 7, 0.6, -0.6],
-                    ], [
-                        [8 - 7, -90 - 7, 7 - 7, 5 - 7, 0.8, -0.8],
-                        [6 - 7, -70 - 7, 5 - 7, 3 - 7, 0.6, -0.6],
-                    ], [
-                        [10 - 9, -110 - 9, 9 - 9, 7 - 9, 1.0, -1.0],
-                        [8 - 9, -90 - 9, 7 - 9, 5 - 9, 0.8, -0.8],
-                    ], [
-                        [10 - 9, -110 - 9, 9 - 9, 7 - 9, 1.0, -1.0],
-                        [8 - 9, -90 - 9, 7 - 9, 5 - 9, 0.8, -0.8],
-                    ], [
-                        [12 - 11, -130 - 11, 11 - 11, 9 - 11, 1.2, -1.2],
-                        [10 - 11, -110 - 11, 9 - 11, 7 - 11, 1.0, -1.0],
+                        [
+                            # lag1 (open, low, sma2, sma4, macd, macd_signal)
+                            [8 - 7, -90 - 7, 7 - 7, 5 - 7, 0.8, -0.8],
+                            # lag2 (open, low, sma2, sma4, macd, macd_signal)
+                            [6 - 7, -70 - 7, 5 - 7, 3 - 7, 0.6, -0.6],
+                        ],
+                        [
+                            [8 - 7, -90 - 7, 7 - 7, 5 - 7, 0.8, -0.8],
+                            [6 - 7, -70 - 7, 5 - 7, 3 - 7, 0.6, -0.6],
+                        ],
+                        [
+                            [10 - 9, -110 - 9, 9 - 9, 7 - 9, 1.0, -1.0],
+                            [8 - 9, -90 - 9, 7 - 9, 5 - 9, 0.8, -0.8],
+                        ],
+                        [
+                            [10 - 9, -110 - 9, 9 - 9, 7 - 9, 1.0, -1.0],
+                            [8 - 9, -90 - 9, 7 - 9, 5 - 9, 0.8, -0.8],
+                        ],
+                        [
+                            [12 - 11, -130 - 11, 11 - 11, 9 - 11, 1.2, -1.2],
+                            [10 - 11, -110 - 11, 9 - 11, 7 - 11, 1.0, -1.0],
+                        ],
                     ]
-                ]),
+                ),
             },
             "continuous": {
-                "1min": np.array([
-                    # sma2_frac_lag1, hour, day_of_week, month
-                    [50, 0, 5, 1],
-                    [50, 0, 5, 1],
-                    [50, 0, 5, 1],
-                    [50, 0, 5, 1],
-                    [50, 0, 5, 1],
-                ]),
-                "2min": np.array([
-                    # sma2frac_lag1
-                    [0],
-                    [0],
-                    [0],
-                    [0],
-                    [0],
-                ])
-            }
+                "1min": np.array(
+                    [
+                        # sma2_frac_lag1, hour, day_of_week, month
+                        [50, 0, 5, 1],
+                        [50, 0, 5, 1],
+                        [50, 0, 5, 1],
+                        [50, 0, 5, 1],
+                        [50, 0, 5, 1],
+                    ]
+                ),
+                "2min": np.array(
+                    [
+                        # sma2frac_lag1
+                        [0],
+                        [0],
+                        [0],
+                        [0],
+                        [0],
+                    ]
+                ),
+            },
         }
-        expected_labels = np.array([
-            [False, False, True, False],
-            [False, True, True, False],
-            [True, False, False, True],
-            [False, False, False, True],
-            [False, False, True, False],
-        ])
+        expected_labels = np.array(
+            [
+                [False, False, True, False],
+                [False, True, True, False],
+                [True, False, False, True],
+                [False, False, False, True],
+                [False, False, True, False],
+            ]
+        )
         assert_np_dict_close(actual_data, expected_data)
         np.testing.assert_equal(actual_labels, expected_labels)
 
         actual_data, actual_labels = next(loader)
         expected_data = {
             "sequential": {
-                "1min": np.array([
+                "1min": np.array(
                     [
-                        [14 - 13.5, -140 - 13.5, 13.5 - 13.5, 12.5 - 13.5, 1.4, -1.4],
-                        [13 - 13.5, -130 - 13.5, 12.5 - 13.5, 11.5 - 13.5, 1.3, -1.3],
+                        [
+                            [
+                                14 - 13.5,
+                                -140 - 13.5,
+                                13.5 - 13.5,
+                                12.5 - 13.5,
+                                1.4,
+                                -1.4,
+                            ],
+                            [
+                                13 - 13.5,
+                                -130 - 13.5,
+                                12.5 - 13.5,
+                                11.5 - 13.5,
+                                1.3,
+                                -1.3,
+                            ],
+                        ]
                     ]
-                ]),
-                "2min": np.array([
+                ),
+                "2min": np.array(
                     [
-                        [12 - 11, -130 - 11, 11 - 11, 9 - 11, 1.2, -1.2],
-                        [10 - 11, -110 - 11, 9 - 11, 7 - 11, 1.0, -1.0],
+                        [
+                            [12 - 11, -130 - 11, 11 - 11, 9 - 11, 1.2, -1.2],
+                            [10 - 11, -110 - 11, 9 - 11, 7 - 11, 1.0, -1.0],
+                        ]
                     ]
-                ]),
+                ),
             },
             "continuous": {
-                "1min": np.array([
-                    [50, 0, 5, 1],
-                ]),
-                "2min": np.array([
-                    [0],
-                ])
-            }
+                "1min": np.array(
+                    [
+                        [50, 0, 5, 1],
+                    ]
+                ),
+                "2min": np.array(
+                    [
+                        [0],
+                    ]
+                ),
+            },
         }
-        expected_labels = np.array([
-            [False, True, True, False],
-        ])
+        expected_labels = np.array(
+            [
+                [False, True, True, False],
+            ]
+        )
         assert_np_dict_close(actual_data, expected_data)
         assert (actual_labels == expected_labels).all()
 
@@ -204,12 +521,12 @@ class TestCNNModel:
                 "loss": {
                     "loss_type": "binary",
                     "pos_weight": 1.0,
-                }
+                },
             },
             model=None,
             stats_mean=None,
             stats_var=None,
-            run=None
+            run=None,
         )
 
     def test__calc_stats(self):
@@ -217,79 +534,92 @@ class TestCNNModel:
         # lag_max = 2
         x = {
             "sequential": {
-                "1min": np.array([
+                "1min": np.array(
                     [
-                        [0, 1, 2, 3],
-                        [1, 3, 5, 7],
-                    ],
+                        [
+                            [0, 1, 2, 3],
+                            [1, 3, 5, 7],
+                        ],
+                        [
+                            [2, 5, 8, 11],
+                            [3, 7, 11, 15],
+                        ],
+                        [
+                            [4, 9, 14, 19],
+                            [5, 11, 17, 23],
+                        ],
+                    ]
+                ),
+                "4h": np.array(
                     [
-                        [2, 5, 8, 11],
-                        [3, 7, 11, 15],
-                    ],
-                    [
-                        [4, 9, 14, 19],
-                        [5, 11, 17, 23],
-                    ],
-                ]),
-                "4h": np.array([
-                    [
-                        [0, 10, 20, 30],
-                        [10, 30, 50, 70],
-                    ],
-                    [
-                        [20, 50, 80, 110],
-                        [30, 70, 110, 150],
-                    ],
-                    [
-                        [40, 90, 140, 190],
-                        [50, 110, 170, 230],
-                    ],
-                ])
+                        [
+                            [0, 10, 20, 30],
+                            [10, 30, 50, 70],
+                        ],
+                        [
+                            [20, 50, 80, 110],
+                            [30, 70, 110, 150],
+                        ],
+                        [
+                            [40, 90, 140, 190],
+                            [50, 110, 170, 230],
+                        ],
+                    ]
+                ),
             },
             "continuous": {
-                "1min": np.array([
-                    [-1, -2, -3, -4],
-                    [-2, -4, -6, -8],
-                    [-3, -6, -9, -12],
-                ]),
-                "4h": np.array([
-                    [-10, -20, -30, -40],
-                    [-20, -40, -60, -80],
-                    [-30, -60, -90, -120],
-                ])
-            }
+                "1min": np.array(
+                    [
+                        [-1, -2, -3, -4],
+                        [-2, -4, -6, -8],
+                        [-3, -6, -9, -12],
+                    ]
+                ),
+                "4h": np.array(
+                    [
+                        [-10, -20, -30, -40],
+                        [-20, -40, -60, -80],
+                        [-30, -60, -90, -120],
+                    ]
+                ),
+            },
         }
-        y = np.array([
-            [False, False, True, True],
-            [True, True, False, False],
-            [False, True, True, False],
-        ])
+        y = np.array(
+            [
+                [False, False, True, True],
+                [True, True, False, False],
+                [False, True, True, False],
+            ]
+        )
 
         # batch_size = 2 (data_size = 3 なので2個目のバッチはサイズ1)
         ds = MockedCNNDataset(
-            x = [{
-                "sequential": {
-                    "1min": x["sequential"]["1min"][[0, 1]],
-                    "4h": x["sequential"]["4h"][[0, 1]],
+            x=[
+                {
+                    "sequential": {
+                        "1min": x["sequential"]["1min"][[0, 1]],
+                        "4h": x["sequential"]["4h"][[0, 1]],
+                    },
+                    "continuous": {
+                        "1min": x["continuous"]["1min"][[0, 1]],
+                        "4h": x["continuous"]["4h"][[0, 1]],
+                    },
                 },
-                "continuous": {
-                    "1min": x["continuous"]["1min"][[0, 1]],
-                    "4h": x["continuous"]["4h"][[0, 1]],
-                }
-            }, {
-                "sequential": {
-                    "1min": x["sequential"]["1min"][[2]],
-                    "4h": x["sequential"]["4h"][[2]],
+                {
+                    "sequential": {
+                        "1min": x["sequential"]["1min"][[2]],
+                        "4h": x["sequential"]["4h"][[2]],
+                    },
+                    "continuous": {
+                        "1min": x["continuous"]["1min"][[2]],
+                        "4h": x["continuous"]["4h"][[2]],
+                    },
                 },
-                "continuous": {
-                    "1min": x["continuous"]["1min"][[2]],
-                    "4h": x["continuous"]["4h"][[2]],
-                }
-            }],
-            y = [
+            ],
+            y=[
                 y[[0, 1]],
                 y[[2]],
-            ]
+            ],
         )
         model = self.prepare_model()
         model._calc_stats(ds)
@@ -304,7 +634,7 @@ class TestCNNModel:
             "continuous": {
                 "1min": x["continuous"]["1min"].mean(axis=0),
                 "4h": x["continuous"]["4h"].mean(axis=0),
-            }
+            },
         }
         expected_var = {
             "sequential": {
@@ -314,7 +644,7 @@ class TestCNNModel:
             "continuous": {
                 "1min": x["continuous"]["1min"].var(axis=0),
                 "4h": x["continuous"]["4h"].var(axis=0),
-            }
+            },
         }
         assert_np_dict_close(expected_mean, actual_mean)
         assert_np_dict_close(expected_var, actual_var)
@@ -329,7 +659,7 @@ class TestCNNBase:
         max_pool_list = [True, False, True]
         out_dim = 128
         batch_norm = False
-        dropout = 0.
+        dropout = 0.0
         base = cnn_utils.CNNBase(
             in_channels=in_channels,
             window_size=window_size,
@@ -352,23 +682,26 @@ class TestCNNBase:
         assert isinstance(base.convs[2], nn.MaxPool1d)
 
         assert isinstance(base.convs[3], nn.Conv1d)
-        expected_count = (out_channels_list[0] * kernel_size_list[1] + 1) * out_channels_list[1]
+        expected_count = (
+            out_channels_list[0] * kernel_size_list[1] + 1
+        ) * out_channels_list[1]
         print(f"convs_1: {expected_count}")
         assert count_params(base.convs[3]) == expected_count
         assert isinstance(base.convs[4], nn.ReLU)
 
         assert isinstance(base.convs[5], nn.Conv1d)
-        expected_count = (out_channels_list[1] * kernel_size_list[2] + 1) * out_channels_list[2]
+        expected_count = (
+            out_channels_list[1] * kernel_size_list[2] + 1
+        ) * out_channels_list[2]
         print(f"convs_2: {expected_count}")
         assert count_params(base.convs[5]) == expected_count
         assert isinstance(base.convs[6], nn.ReLU)
         assert isinstance(base.convs[7], nn.MaxPool1d)
 
         assert isinstance(base.fc_out, nn.Linear)
-        expected_count = (out_channels_list[-1] * window_size // (2 ** 2) + 1) * out_dim
+        expected_count = (out_channels_list[-1] * window_size // (2**2) + 1) * out_dim
         print(f"fc_out: {expected_count}")
         assert count_params(base.fc_out) == expected_count
-
 
         in_channels = 3
         window_size = 16
@@ -402,7 +735,9 @@ class TestCNNBase:
         assert isinstance(base.convs[3], nn.Dropout)
 
         assert isinstance(base.convs[4], nn.Conv1d)
-        expected_count = (out_channels_list[0] * kernel_size_list[1] + 1) * out_channels_list[1]
+        expected_count = (
+            out_channels_list[0] * kernel_size_list[1] + 1
+        ) * out_channels_list[1]
         print(f"convs_1: {expected_count}")
         assert count_params(base.convs[4]) == expected_count
         assert isinstance(base.convs[5], nn.BatchNorm1d)
@@ -412,7 +747,9 @@ class TestCNNBase:
         assert isinstance(base.convs[8], nn.MaxPool1d)
 
         assert isinstance(base.convs[9], nn.Conv1d)
-        expected_count = (out_channels_list[1] * kernel_size_list[2] + 1) * out_channels_list[2]
+        expected_count = (
+            out_channels_list[1] * kernel_size_list[2] + 1
+        ) * out_channels_list[2]
         print(f"convs_2: {expected_count}")
         assert count_params(base.convs[9]) == expected_count
         assert isinstance(base.convs[10], nn.BatchNorm1d)
@@ -421,7 +758,7 @@ class TestCNNBase:
         assert isinstance(base.convs[12], nn.Dropout)
 
         assert isinstance(base.fc_out, nn.Linear)
-        expected_count = (out_channels_list[-1] * window_size // (2 ** 1) + 1) * out_dim
+        expected_count = (out_channels_list[-1] * window_size // (2**1) + 1) * out_dim
         print(f"fc_out: {expected_count}")
         assert count_params(base.fc_out) == expected_count
 
@@ -467,7 +804,7 @@ class TestCNNNet:
             (sequential_channels * kernel_size_list[0] + 3) * out_channels_list[0]
             + (out_channels_list[0] * kernel_size_list[1] + 3) * out_channels_list[1]
             + (out_channels_list[1] * kernel_size_list[2] + 3) * out_channels_list[2]
-            + (out_channels_list[-1] * window_size // (2 ** 2) + 1) * base_out_dim
+            + (out_channels_list[-1] * window_size // (2**2) + 1) * base_out_dim
         )
         print(f"convs (each): expected_count = {expected_count_convs}")
         for conv in model.convs.values():
@@ -496,4 +833,6 @@ def assert_np_dict_close(np_dict1, np_dict2, **kwargs):
 
 
 def count_params(model: nn.Module, only_trainable=False) -> int:
-    return sum(p.numel() for p in model.parameters() if not only_trainable or p.requires_grad)
+    return sum(
+        p.numel() for p in model.parameters() if not only_trainable or p.requires_grad
+    )

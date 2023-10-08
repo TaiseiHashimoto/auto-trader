@@ -1,10 +1,9 @@
 import pandas as pd
-
 import utils
 
 
 def test_remove_flat_data():
-    index_all = pd.date_range('2019-7-9 00:00:00', '2020-7-8 23:59:00', freq='1min')
+    index_all = pd.date_range("2019-7-9 00:00:00", "2020-7-8 23:59:00", freq="1min")
     df_all = pd.DataFrame(index=index_all)
     df_returned = utils.remove_flat_data(df_all)
     index_returned = df_returned.index
