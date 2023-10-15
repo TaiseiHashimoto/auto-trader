@@ -1,11 +1,12 @@
-import argparse
 import glob
 import os
 
 import numpy as np
 import pandas as pd
+from omegaconf import OmegaConf
 
-from auto_trader.common import common_utils
+from auto_trader.common import utils
+from auto_trader.data.config import CleanseConfig
 
 
 def read_raw_data(
@@ -23,8 +24,8 @@ def read_raw_data(
     if len(bid_paths) != 1 or len(ask_paths) != 1:
         raise RuntimeError(f"Raw data for {symbol} {yyyymm} is not properly prepared.")
 
-    df_bid = pd.read_csv(bid_paths[0]).astype(np.float32)
-    df_ask = pd.read_csv(ask_paths[0]).astype(np.float32)
+    df_bid = pd.read_csv(bid_paths[0])
+    df_ask = pd.read_csv(ask_paths[0])
     assert (df_bid["timestamp"] == df_ask["timestamp"]).all()
 
     datetime = pd.DatetimeIndex(pd.to_datetime(df_bid["timestamp"], unit="ms"))
@@ -37,14 +38,14 @@ def read_raw_data(
 
     df = pd.DataFrame(
         {
-            "bid_open": df_bid["open"].values,
-            "bid_high": df_bid["high"].values,
-            "bid_low": df_bid["low"].values,
-            "bid_close": df_bid["close"].values,
-            "ask_open": df_ask["open"].values,
-            "ask_high": df_ask["high"].values,
-            "ask_low": df_ask["low"].values,
-            "ask_close": df_ask["close"].values,
+            "bid_open": df_bid["open"].values.astype(np.float32),
+            "bid_high": df_bid["high"].values.astype(np.float32),
+            "bid_low": df_bid["low"].values.astype(np.float32),
+            "bid_close": df_bid["close"].values.astype(np.float32),
+            "ask_open": df_ask["open"].values.astype(np.float32),
+            "ask_high": df_ask["high"].values.astype(np.float32),
+            "ask_low": df_ask["low"].values.astype(np.float32),
+            "ask_close": df_ask["close"].values.astype(np.float32),
         },
         index=datetime,
     )
@@ -121,24 +122,13 @@ def validate_data(df: pd.DataFrame, symbol: str) -> None:
     assert (extreme_value_mask.sum() == 0).all()
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--symbol", type=str, choices=["usdjpy", "eurusd"], required=True
-    )
-    parser.add_argument("--yyyymm-begin", type=int, required=True)
-    parser.add_argument("--yyyymm-end", type=int, required=True)
-    parser.add_argument("--raw-data-dir", type=str, default="./raw")
-    parser.add_argument("--cleansed-data-dir", type=str, default="./cleansed")
-    parser.add_argument("--recreate-latest", action="store_true")
-    args = parser.parse_args()
+def main(config):
+    os.makedirs(config.cleansed_data_dir, exist_ok=True)
 
-    os.makedirs(args.cleansed_data_dir, exist_ok=True)
-
-    if args.recreate_latest:
+    if config.recreate_latest:
         # 最新ファイルを削除して作り直す
         cleansed_data_files = sorted(
-            glob.glob(f"{args.cleansed_data_dir}/{args.symbol}-*.parquet")
+            glob.glob(f"{config.cleansed_data_dir}/{config.symbol}-*.parquet")
         )
         if len(cleansed_data_files) > 0:
             latest_file_path = cleansed_data_files[-1]
@@ -146,39 +136,50 @@ def main():
             os.remove(latest_file_path)
 
     # データを整形して保存
-    yyyymm = args.yyyymm_begin
+    yyyymm = config.yyyymm_begin
     raw_data_buffer = {}
-    while yyyymm <= args.yyyymm_end:
+    while yyyymm <= config.yyyymm_end:
         print(yyyymm)
 
-        cleansed_data_file = f"{args.cleansed_data_dir}/{args.symbol}-{yyyymm}.parquet"
+        cleansed_data_file = (
+            f"{config.cleansed_data_dir}/{config.symbol}-{yyyymm}.parquet"
+        )
         if os.path.exists(cleansed_data_file):
             print("Skip")
         else:
             raw_data_buffer[yyyymm] = read_raw_data(
-                args.symbol, args.raw_data_dir, yyyymm, convert_timezone=True
+                config.symbol, config.raw_data_dir, yyyymm, convert_timezone=True
             )
             # 元データファイルは UTC+0 基準で保存されているので, UTC+2/+3 に合わせるために前月のデータが2/3時間分だけ必要
-            yyyymm_prev = common_utils.calc_yyyymm(yyyymm, month_delta=-1)
+            yyyymm_prev = utils.calc_yyyymm(yyyymm, month_delta=-1)
             if yyyymm_prev not in raw_data_buffer:
                 raw_data_buffer[yyyymm_prev] = read_raw_data(
-                    args.symbol, args.raw_data_dir, yyyymm_prev, convert_timezone=True
+                    config.symbol,
+                    config.raw_data_dir,
+                    yyyymm_prev,
+                    convert_timezone=True,
                 )
 
             df_source = pd.concat(
                 [raw_data_buffer[yyyymm_prev], raw_data_buffer[yyyymm]]
-            ) / common_utils.get_pip_scale(args.symbol)
+            ) / utils.get_pip_scale(config.symbol)
+            del raw_data_buffer[yyyymm_prev]
 
             # 当月データを抽出
-            df = df_source.loc[common_utils.parse_yyyymm(yyyymm).strftime("%Y-%m")]
+            df = df_source.loc[utils.parse_yyyymm(yyyymm).strftime("%Y-%m")]
             df = remove_flat_data(df)
 
-            validate_data(df, args.symbol)
+            validate_data(df, config.symbol)
 
             df.to_parquet(cleansed_data_file)
 
-        yyyymm = common_utils.calc_yyyymm(yyyymm, month_delta=1)
+        yyyymm = utils.calc_yyyymm(yyyymm, month_delta=1)
 
 
 if __name__ == "__main__":
-    main()
+    base_config = OmegaConf.structured(CleanseConfig)
+    cli_config = OmegaConf.from_cli()
+    config = OmegaConf.merge(base_config, cli_config)
+    print(OmegaConf.to_yaml(config))
+
+    main(config)

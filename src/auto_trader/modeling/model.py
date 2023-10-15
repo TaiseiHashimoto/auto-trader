@@ -1,0 +1,312 @@
+from typing import Any
+
+import lightning.pytorch as pl
+import numpy as np
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+
+def build_cnn_layer(
+    window_size: int,
+    in_channels: int,
+    output_channels: list[int],
+    kernel_sizes: list[int],
+    batchnorm: bool,
+    dropout: float,
+) -> tuple[nn.Sequential, int]:
+    if len(output_channels) != len(kernel_sizes):
+        raise ValueError("Number of channels and kernel sizes must be the same.")
+
+    layers = []
+    size = window_size
+    for output_channels, kernel_size in zip(output_channels, kernel_sizes):
+        layers.append(
+            nn.Conv1d(in_channels, output_channels, kernel_size, padding="same")
+        )
+        if batchnorm:
+            layers.append(nn.BatchNorm1d(output_channels))
+        layers.append(nn.ReLU())
+        if dropout > 0:
+            layers.append(nn.Dropout(dropout))
+        layers.append(nn.MaxPool1d(kernel_size=2))
+
+        size = size // 2
+        in_channels = output_channels
+
+    return nn.Sequential(*layers), size
+
+
+def build_fc_layer(
+    in_dim: int,
+    hidden_dims: list[int],
+    batchnorm: bool,
+    dropout: float,
+    output_dim: int,
+):
+    layers = []
+    for hidden_dim in hidden_dims:
+        layers.append(nn.Linear(in_dim, hidden_dim))
+        if batchnorm:
+            layers.append(nn.BatchNorm1d(hidden_dim))
+        layers.append(nn.ReLU())
+        if dropout > 0:
+            layers.append(nn.Dropout(dropout))
+        in_dim = hidden_dim
+
+    layers.append(nn.Linear(hidden_dim, output_dim))
+    return nn.Sequential(*layers)
+
+
+class BaseNet(nn.Module):
+    def __init__(
+        self,
+        feature_info: dict[str, dict[str, Any]],
+        window_size: int,
+        numerical_emb_dim: int,
+        categorical_emb_dim: int,
+        cnn_output_channels: list[int],
+        cnn_kernel_sizes: list[int],
+        cnn_batchnorm: bool,
+        cnn_dropout: float,
+        fc_hidden_dims: list[int],
+        fc_batchnorm: bool,
+        fc_dropout: float,
+        output_dim: int,
+    ):
+        super().__init__()
+
+        self.normalize_funs: dict[str, callable[[torch.Tensor], torch.Tensor]] = {}
+        self.embed_layers = nn.ModuleDict()
+        emb_output_dim = 0
+        for name, info in feature_info.items():
+            if info["dtype"] == np.float32:
+                mean = info["mean"]
+                std = info["var"] ** 0.5
+                self.normalize_funs[name] = lambda x: (x - mean) / (std + 1e-6)
+                self.embed_layers[name] = nn.Linear(1, numerical_emb_dim)
+                emb_output_dim += numerical_emb_dim
+            elif info["dtype"] == np.int64:
+                self.normalize_funs[name] = lambda x: x
+                self.embed_layers[name] = nn.Embedding(
+                    num_embeddings=info["cardinality"] + 1,
+                    embedding_dim=categorical_emb_dim,
+                )
+                emb_output_dim += categorical_emb_dim
+
+        self.conv_layer, conv_output_size = build_cnn_layer(
+            window_size=window_size,
+            in_channels=emb_output_dim,
+            output_channels=cnn_output_channels,
+            kernel_sizes=cnn_kernel_sizes,
+            batchnorm=cnn_batchnorm,
+            dropout=cnn_dropout,
+        )
+        print(f"conv_output_size = {conv_output_size}")
+        self.fc_layer = build_fc_layer(
+            in_dim=cnn_output_channels[-1] * conv_output_size,
+            hidden_dims=fc_hidden_dims,
+            batchnorm=fc_batchnorm,
+            dropout=fc_dropout,
+            output_dim=output_dim,
+        )
+
+    def forward(self, features: dict[str, torch.Tensor]) -> torch.Tensor:
+        embedded_tensors = []
+        for name, value in features.items():
+            value_norm = self.normalize_funs[name](value)
+            embedded_tensors.append(self.embed_layers[name](value_norm))
+
+        # (batch, length, channel)
+        x = torch.cat(embedded_tensors, dim=2)
+        # (batch, channel, length)
+        x = x.permute(0, 2, 1)
+        # (batch, channel, conv_output_size)
+        x = self.conv_layer(x)
+        # (batch, channel * conv_output_size)
+        # import pdb; pdb.set_trace()
+        x = x.reshape(x.shape[0], -1)
+        x = F.relu(x)
+        # (batch, output_dim)
+        return self.fc_layer(x)
+
+
+class Net(nn.Module):
+    def __init__(
+        self,
+        feature_info: dict[str, dict[str, dict[str, Any]]],
+        window_size: int,
+        numerical_emb_dim: int,
+        categorical_emb_dim: int,
+        base_cnn_output_channels: list[int],
+        base_cnn_kernel_sizes: list[int],
+        base_cnn_batchnorm: bool,
+        base_cnn_dropout: float,
+        base_fc_hidden_dims: list[int],
+        base_fc_batchnorm: bool,
+        base_fc_dropout: float,
+        base_fc_output_dim: int,
+        head_hidden_dims: list[int],
+        head_batchnorm: bool,
+        head_dropout: int,
+    ):
+        super().__init__()
+
+        self.base_nets = nn.ModuleDict()
+        for timeframe in feature_info:
+            self.base_nets[timeframe] = BaseNet(
+                feature_info[timeframe],
+                window_size=window_size,
+                numerical_emb_dim=numerical_emb_dim,
+                categorical_emb_dim=categorical_emb_dim,
+                cnn_output_channels=base_cnn_output_channels,
+                cnn_kernel_sizes=base_cnn_kernel_sizes,
+                cnn_batchnorm=base_cnn_batchnorm,
+                cnn_dropout=base_cnn_dropout,
+                fc_hidden_dims=base_fc_hidden_dims,
+                fc_batchnorm=base_fc_batchnorm,
+                fc_dropout=base_fc_dropout,
+                output_dim=base_fc_output_dim,
+            )
+
+        self.head = build_fc_layer(
+            in_dim=base_fc_output_dim * len(feature_info),
+            hidden_dims=head_hidden_dims,
+            batchnorm=head_batchnorm,
+            dropout=head_dropout,
+            output_dim=2,
+        )
+
+    def forward(self, features: dict[str, dict[str, torch.Tensor]]) -> torch.Tensor:
+        base_outputs = []
+        for timeframe, base_net in self.base_nets.items():
+            base_outputs.append(base_net(features[timeframe]))
+
+        x = torch.cat(base_outputs, dim=1)
+        x = F.relu(x)
+        return self.head(x)
+
+
+class Model(pl.LightningModule):
+    def __init__(
+        self,
+        net: nn.Module,
+        entropy_coef: float,
+        spread: float,
+        learning_rate: float,
+        weight_decay: float,
+    ):
+        super().__init__()
+        self.net = net
+        self.entropy_coef = entropy_coef
+        self.spread = spread
+        self.learning_rate = learning_rate
+        self.weight_decay = weight_decay
+
+    def configure_optimizers(self) -> torch.optim.Optimizer:
+        if self.weight_decay == 0:
+            return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+        else:
+            return torch.optim.AdamW(
+                self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay
+            )
+
+    def _to_torch_features(
+        self, features_np: dict[str, dict[str, np.ndarray]]
+    ) -> dict[str, dict[str, torch.Tensor]]:
+        features_torch: dict[str, dict[str, torch.Tensor]] = {}
+
+        for timeframe in features_np:
+            features_torch[timeframe]: dict[str, torch.Tensor] = {}
+            for feature_name, value_np in features_np[timeframe].items():
+                if value_np.dtype == np.float32:
+                    # shape: (batch, length, feature=1)
+                    features_torch[timeframe][feature_name] = torch.unsqueeze(
+                        torch.from_numpy(features_np[timeframe][feature_name]),
+                        dim=2,
+                    )
+                elif value_np.dtype == np.int64:
+                    # shape: (batch, length)
+                    features_torch[timeframe][feature_name] = torch.from_numpy(
+                        features_np[timeframe][feature_name]
+                    )
+                else:
+                    raise ValueError(
+                        f"Data type of {timeframe} {feature_name} is not supported: "
+                        f"{value_np.dtype}"
+                    )
+
+        return features_torch
+
+    def _to_torch_gain(self, gain: np.ndarray) -> torch.Tensor:
+        return torch.from_numpy(gain)
+
+    def _predict_prob(
+        self, features_torch: dict[str, dict[str, torch.Tensor]]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        pred = self.net(features_torch)
+        prob_entry = torch.exp(pred[:, 0])
+        prob_exit = torch.exp(pred[:, 1])
+        return prob_entry, prob_exit
+
+    def _calc_loss(
+        self,
+        prob_entry: torch.Tensor,
+        prob_exit: torch.Tensor,
+        gain_torch: torch.Tensor,
+    ) -> torch.Tensor:
+        batch_size = prob_entry.shape[0]
+        gain_entry = (prob_entry * (gain_torch - self.spread)).mean()
+        gain_exit = (-prob_exit * gain_torch).mean()
+        entropy_entry = self._calc_binary_entropy(prob_entry).mean()
+        entropy_exit = self._calc_binary_entropy(prob_exit).mean()
+        loss = (
+            gain_entry + gain_exit + self.entropy_coef * (entropy_entry + entropy_exit)
+        )
+
+        self.log_dict(
+            {
+                "gain_entry": gain_entry,
+                "gain_exit": gain_exit,
+                "entropy_entry": entropy_entry,
+                "entropy_exit": entropy_exit,
+                "loss": loss,
+            },
+            # Accumulate metrics on epoch level
+            on_step=False,
+            on_epoch=True,
+            batch_size=batch_size,
+        )
+
+        return loss
+
+    def _calc_binary_entropy(self, prob: torch.Tensor) -> torch.Tensor:
+        return -(
+            prob * torch.log(prob + 1e-9) + (1 - prob) * torch.log(1 - prob + 1e-9)
+        )
+
+    def training_step(
+        self, batch: tuple[dict[str, dict[str, np.ndarray]], np.ndarray], batch_idx: int
+    ) -> torch.Tensor:
+        features_np, gain_np = batch
+        features_torch = self._to_torch_features(features_np)
+        gain_torch = self._to_torch_gain(gain_np)
+        prob_entry, prob_exit = self._predict_prob(features_torch)
+        return self._calc_loss(prob_entry, prob_exit, gain_torch)
+
+    def validation_step(
+        self, batch: tuple[dict[str, dict[str, np.ndarray]], np.ndarray], batch_idx: int
+    ) -> None:
+        features_np, gain_np = batch
+        features_torch = self._to_torch_features(features_np)
+        gain_torch = self._to_torch_gain(gain_np)
+        prob_entry, prob_exit = self._predict_prob(features_torch)
+        _ = self._calc_loss(prob_entry, prob_exit, gain_torch)
+
+    def predict_step(
+        self, batch: tuple[dict[str, dict[str, np.ndarray]], None]
+    ) -> torch.Tensor:
+        features_np, gain_np = batch
+        features_torch = self._to_torch_features(features_np)
+        prob_entry, prob_exit = self._predict_prob(features_torch)
+        return prob_entry, prob_exit

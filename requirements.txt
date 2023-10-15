@@ -1,7 +1,4 @@
-google-cloud-secret-manager
-google-cloud-storage
-lightgbm >= 3.3.2
-neptune-client
+neptune
 numpy
 hydra-core
-pandas >= 1.3.5
+pandas

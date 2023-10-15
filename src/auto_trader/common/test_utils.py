@@ -2,14 +2,14 @@ import numpy as np
 import pandas as pd
 from pytest import approx
 
-from auto_trader.common import common_utils
+from auto_trader.common import utils
 
 
 class TestOrder:
     # def prepare_long_order(self):
     def test_gain(self):
-        order_long = common_utils.Order(
-            position_type=common_utils.PositionType.LONG,
+        order_long = utils.Order(
+            position_type=utils.PositionType.LONG,
             entry_timestamp=pd.Timestamp("2022-01-01 10:00:00"),
             entry_rate=100.1,
         )
@@ -19,8 +19,8 @@ class TestOrder:
         )
         assert order_long.gain == approx(0.4)
 
-        order_short = common_utils.Order(
-            position_type=common_utils.PositionType.SHORT,
+        order_short = utils.Order(
+            position_type=utils.PositionType.SHORT,
             entry_timestamp=pd.Timestamp("2022-01-02 10:00:00"),
             entry_rate=100.1,
         )
@@ -50,9 +50,7 @@ class TestOrderSimulator:
             index=index,
         )
 
-        simulator = common_utils.OrderSimulator(
-            start_hour=2, end_hour=22, thresh_loss_cut=5.0
-        )
+        simulator = utils.OrderSimulator(start_hour=2, end_hour=22, thresh_loss_cut=5.0)
 
         expected = {
             "position_type": [],
@@ -136,9 +134,9 @@ class TestOrderSimulator:
 
 
 def test_calc_yyyymm():
-    assert common_utils.calc_yyyymm(202001, month_delta=2) == 202003
-    assert common_utils.calc_yyyymm(202001, month_delta=11) == 202012
-    assert common_utils.calc_yyyymm(202001, month_delta=12) == 202101
-    assert common_utils.calc_yyyymm(202001, month_delta=-1) == 201912
-    assert common_utils.calc_yyyymm(202002, month_delta=-1) == 202001
-    assert common_utils.calc_yyyymm(202002, month_delta=0) == 202002
+    assert utils.calc_yyyymm(202001, month_delta=2) == 202003
+    assert utils.calc_yyyymm(202001, month_delta=11) == 202012
+    assert utils.calc_yyyymm(202001, month_delta=12) == 202101
+    assert utils.calc_yyyymm(202001, month_delta=-1) == 201912
+    assert utils.calc_yyyymm(202002, month_delta=-1) == 202001
+    assert utils.calc_yyyymm(202002, month_delta=0) == 202002

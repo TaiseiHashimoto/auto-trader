@@ -4,19 +4,13 @@ import pathlib
 
 import neptune.new as neptune
 import numpy as np
-import utils
-from config import get_eval_config
 from omegaconf import OmegaConf
-from sklearn.metrics import (
-    average_precision_score,
-    precision_score,
-    recall_score,
-    roc_auc_score,
-)
+from sklearn.metrics import precision_score, recall_score
 from tqdm import tqdm
 
-from auto_trader.common import common_utils
-from auto_trader.modeling import cnn_utils, lgbm_utils
+from auto_trader.common import utils
+from auto_trader.modeling import data
+from auto_trader.modeling.config import EvalConfig
 
 
 def get_latest_model_version_id(model_id: str):
@@ -27,14 +21,18 @@ def get_latest_model_version_id(model_id: str):
     return model_versions_df.iloc[0]["sys/id"]
 
 
+def calc_specificity(label: np.ndarray, pred: np.ndarray) -> float:
+    return ((~label) & (~pred)).sum() / (~label).sum()
+
+
 def main(config):
     run = neptune.init_run(
         project=config.neptune.project, tags=["eval", config.model_type]
     )
     run["config"] = OmegaConf.to_yaml(config)
 
-    OUTPUT_DIRECTORY = str(pathlib.Path(__file__).resolve().parent / "output_eval")
-    os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
+    config.output_dir = str(pathlib.Path(__file__).resolve().parent / "output_eval")
+    os.makedirs(config.output_dir, exist_ok=True)
 
     if ON_COLAB:
         DATA_DIRECTORY = str(pathlib.Path(__file__).resolve().parent / "preprocessed")
@@ -42,7 +40,7 @@ def main(config):
 
         # GCS からデータ取得
         print("Download data from GCS")
-        gcs = common_utils.GCSWrapper(config.gcp.project_id, config.gcp.bucket_name)
+        gcs = utils.GCSWrapper(config.gcp.project_id, config.gcp.bucket_name)
         utils.download_preprocessed_data_range(
             gcs,
             config.data.symbol,
@@ -61,7 +59,7 @@ def main(config):
     print("Fetch model")
     model_version_id = config.neptune.model_version_id
     if model_version_id == "":
-        model_id = common_utils.get_neptune_model_id(
+        model_id = utils.get_neptune_model_id(
             config.neptune.project_key, config.model_type
         )
         model_version_id = get_latest_model_version_id(model_id)
@@ -70,14 +68,14 @@ def main(config):
     print(f"model_version_id = {model_version_id}")
 
     model_version = neptune.init_model_version(version=model_version_id)
-    model_path = f"{OUTPUT_DIRECTORY}/{model_version_id}_binary.bin"
+    model_path = f"{config.output_dir}/{model_version_id}_binary.bin"
     if not os.path.exists(model_path):
         model_version["binary"].download(model_path)
 
     if config.model_type == "lgbm":
         model = lgbm_utils.LGBMModel.from_file(model_path)
     elif config.model_type == "cnn":
-        model = cnn_utils.CNNModel.from_file(model_path)
+        model = model.CNNModel.from_file(model_path)
 
     run["model_version_url"] = model_version.get_url()
     model_version["eval_run_url"] = run.get_url()
@@ -86,13 +84,11 @@ def main(config):
 
     # データ読み込み
     print("Load data")
-    df = utils.read_preprocessed_data_range(
+    df = data.read_cleansed_data(
         config.data.symbol,
-        config.data.first_year,
-        config.data.first_month,
-        config.data.last_year,
-        config.data.last_month,
-        DATA_DIRECTORY,
+        config.data.yyyymm_begin,
+        config.data.yyyymm_end,
+        config.data.cleansed_data_dir,
     )
     df = utils.merge_bid_ask(df)
 
@@ -104,15 +100,13 @@ def main(config):
         train_config.critical.thresh_hold,
         train_config.critical.prev_max,
     )
-    feature_params = common_utils.conf2dict(train_config.feature)
+    feature_params = utils.conf2dict(train_config.feature)
     base_index, df_x_dict = utils.create_features(
         df, df_dict_critical, train_config.data.symbol, **feature_params
     )
 
     print("Create labels")
-    label_params = common_utils.drop_keys(
-        common_utils.conf2dict(train_config.label), ["label_type"]
-    )
+    label_params = utils.drop_keys(utils.conf2dict(train_config.label), ["label_type"])
     df_y = utils.create_labels(
         train_config.label.label_type,
         df,
@@ -134,7 +128,7 @@ def main(config):
             train_config.feature.sma_window_size_center,
         )
     elif config.model_type == "cnn":
-        ds = cnn_utils.CNNDataset(
+        ds = model.CNNDataset(
             base_index,
             df_x_dict,
             df_y,
@@ -154,20 +148,17 @@ def main(config):
     preds = model.predict_score(ds)
     preds = preds.reindex(df.index, fill_value=0.0)
 
-    # 予測スコアの AUC とパーセンタイルを計算
+    # 予測スコアのパーセンタイルを計算
     PERCENTILES = [0, 5, 10, 25, 50, 75, 90, 95, 100]
     for label_name in preds.columns:
         pred = preds.loc[base_index, label_name].values
-        label = df_y.loc[base_index, label_name].values
-        run[f"stats/auc/roc/{label_name}"] = roc_auc_score(label, pred)
-        run[f"stats/auc/pr/{label_name}"] = average_precision_score(label, pred)
         run[f"stats/score_percentile/{label_name}"] = {
             p: np.percentile(pred, p) for p in PERCENTILES
         }
 
     # ラベルとスコアの CSV をアップロード（分析用）
-    labels_path = f"{OUTPUT_DIRECTORY}/labels.csv"
-    scores_path = f"{OUTPUT_DIRECTORY}/scores.csv"
+    labels_path = f"{config.output_dir}/labels.csv"
+    scores_path = f"{config.output_dir}/scores.csv"
     df_y.to_csv(labels_path)
     preds.to_csv(scores_path)
     run["dump/scores"].upload(scores_path)
@@ -197,9 +188,9 @@ def main(config):
             run[f"stats/recall/{label_name}/{percentile}"] = recall_score(
                 y_label, y_pred
             )
-            run[
-                f"stats/specificity/{label_name}/{percentile}"
-            ] = utils.calc_specificity(y_label, y_pred)
+            run[f"stats/specificity/{label_name}/{percentile}"] = calc_specificity(
+                y_label, y_pred
+            )
 
             for fs in FUTURE_STEPS:
                 rates_diff = rates.shift(-fs) - rates
@@ -214,7 +205,7 @@ def main(config):
     for percentile_entry, percentile_exit in tqdm(params_list):
         param_str = f"{percentile_entry},{percentile_exit}"
 
-        simulator = common_utils.OrderSimulator(
+        simulator = utils.OrderSimulator(
             config.start_hour, config.end_hour, config.thresh_loss_cut
         )
 
@@ -249,25 +240,17 @@ def main(config):
             run[f"simulation/timedelta/median/{param_str}"] = np.median(timedeltas)
 
         results = simulator.export_results()
-        results_path = f"{OUTPUT_DIRECTORY}/results_{param_str}.csv"
+        results_path = f"{config.output_dir}/results_{param_str}.csv"
         results.to_csv(results_path, index=False)
         run[f"simulation/results/{param_str}"].upload(results_path)
 
 
 if __name__ == "__main__":
-    if "NEPTUNE_API_TOKEN" not in os.environ:
-        raise RuntimeError("NEPTUNE_API_TOKEN has to be set.")
-
-    config = get_eval_config()
+    base_config = OmegaConf.structured(EvalConfig)
+    cli_config = OmegaConf.from_cli()
+    config = OmegaConf.merge(base_config, cli_config)
     print(OmegaConf.to_yaml(config))
 
-    ON_COLAB = os.environ.get("ON_COLAB", False)
-    if not ON_COLAB:
-        # GCP サービスアカウントキーの設定
-        # colab ではユーザ認証するため不要
-        credential_path = (
-            pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
-        )
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
+    utils.validate_neptune_settings()
 
     main(config)

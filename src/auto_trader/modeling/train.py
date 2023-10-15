@@ -1,170 +1,162 @@
 import os
-import pathlib
 
-import neptune.new as neptune
+import lightning.pytorch as pl
 import numpy as np
+import torch
+from lightning.pytorch.loggers import NeptuneLogger
+from neptune.utils import stringify_unsupported
 from omegaconf import OmegaConf
 
-from auto_trader.common import common_utils
-from auto_trader.modeling import cnn_utils, lgbm_utils, utils
-from auto_trader.modeling.config import get_train_config
-
-
-def index2mask(index: np.ndarray, size: int) -> np.ndarray:
-    mask = np.zeros(size, dtype=bool)
-    mask[index] = True
-    return mask
+from auto_trader.common import utils
+from auto_trader.modeling import data, model
+from auto_trader.modeling.config import TrainConfig
 
 
 def main(config):
-    run = neptune.init_run(
+    logger = NeptuneLogger(
         project=config.neptune.project,
-        tags=["train", config.model.model_type, config.label.label_type],
+        mode=config.neptune.mode,
+        tags=["train", "cnn"],
     )
-    run["config"] = OmegaConf.to_yaml(config)
-
-    if ON_COLAB:
-        DATA_DIRECTORY = str(pathlib.Path(__file__).resolve().parent / "preprocessed")
-        os.makedirs(DATA_DIRECTORY, exist_ok=True)
-
-        # GCS からデータ取得
-        print("Download data from GCS")
-        gcs = common_utils.GCSWrapper(config.gcp.project_id, config.gcp.bucket_name)
-        utils.download_preprocessed_data_range(
-            gcs,
-            config.data.symbol,
-            config.data.first_year,
-            config.data.first_month,
-            config.data.last_year,
-            config.data.last_month,
-            DATA_DIRECTORY,
-        )
-    else:
-        DATA_DIRECTORY = str(
-            pathlib.Path(__file__).resolve().parents[1] / "data" / "preprocessed"
-        )
-
-    OUTPUT_DIRECTORY = str(pathlib.Path(__file__).resolve().parent / "output")
-    os.makedirs(OUTPUT_DIRECTORY, exist_ok=True)
+    logger.experiment["param"] = stringify_unsupported(OmegaConf.to_container(config))
 
     # データ読み込み
     print("Load data")
-    df = utils.read_preprocessed_data_range(
+    df = data.read_cleansed_data(
         config.data.symbol,
-        config.data.first_year,
-        config.data.first_month,
-        config.data.last_year,
-        config.data.last_month,
-        DATA_DIRECTORY,
+        config.data.yyyymm_begin,
+        config.data.yyyymm_end,
+        config.data.cleansed_data_dir,
     )
-    df = utils.merge_bid_ask(df)
+    df_org = data.merge_bid_ask(df)
 
     # 学習データを準備
     print("Create features")
-    df_dict_critical = utils.compute_critical_info(
-        df, config.feature.freqs, config.critical.thresh_hold, config.critical.prev_max
-    )
-    feature_params = common_utils.conf2dict(config.feature)
-    base_index, df_x_dict = utils.create_features(
-        df, df_dict_critical, config.data.symbol, **feature_params
+    features = {}
+    for timeframe in config.feature.timeframes:
+        df_resampled = data.resample(df_org, timeframe)
+        features[timeframe] = data.create_features(
+            df_resampled,
+            base_timing=config.feature.base_timing,
+            sma_window_sizes=config.feature.sma_window_sizes,
+            sma_window_size_center=config.feature.sma_window_size_center,
+            sigma_window_sizes=config.feature.sigma_window_sizes,
+            sma_frac_ndigits=config.feature.sma_frac_ndigits,
+        )
+
+    print("Calculate gain")
+    gain = data.calc_gain(df_org["close"], config.gain.target_alpha)
+
+    base_index = data.calc_available_index(
+        features,
+        gain,
+        config.feature.lag_max,
+        config.feature.start_hour,
+        config.feature.end_hour,
     )
     print(f"Train period: {base_index[0]} ~ {base_index[-1]}")
 
-    print("Create labels")
-    label_params = common_utils.drop_keys(
-        common_utils.conf2dict(config.label), ["label_type"]
+    total_size = len(base_index)
+    valid_size = int(total_size * config.valid_ratio)
+    train_size = total_size - valid_size
+    logger.experiment["data/size/total"] = total_size
+    logger.experiment["data/size/train"] = train_size
+    logger.experiment["data/size/valid"] = valid_size
+
+    idxs_permuted = np.random.permutation(total_size)
+    base_index_train = base_index[idxs_permuted[:train_size]]
+    base_index_valid = base_index[idxs_permuted[train_size:]]
+    loader_train = data.DataLoader(
+        base_index=base_index_train,
+        features=features,
+        gain=gain,
+        lag_max=config.feature.lag_max,
+        sma_window_size_center=config.feature.sma_window_size_center,
+        batch_size=config.batch_size,
+        shuffle=True,
+        rel_shuffle=True,
     )
-    # TODO: df_dict_critical の引き回し方を改善する
-    df_y = utils.create_labels(
-        config.label.label_type, df, df_x_dict, df_dict_critical["1min"], label_params
+    loader_valid = data.DataLoader(
+        base_index=base_index_valid,
+        features=features,
+        gain=gain,
+        lag_max=config.feature.lag_max,
+        sma_window_size_center=config.feature.sma_window_size_center,
+        batch_size=config.batch_size,
     )
 
-    del df
-    del df_dict_critical
+    feature_info = data.get_feature_info(loader_train)
+    # import pdb; pdb.set_trace()
 
-    if config.model.model_type == "lgbm":
-        ds = lgbm_utils.LGBMDataset(
-            base_index,
-            df_x_dict,
-            df_y,
-            config.feature.lag_max,
-            config.feature.sma_window_size_center,
-        )
-    elif config.model.model_type == "cnn":
-        ds = cnn_utils.CNNDataset(
-            base_index,
-            df_x_dict,
-            df_y,
-            config.feature.lag_max,
-            config.feature.sma_window_size_center,
-        )
+    net = model.Net(
+        feature_info=feature_info,
+        window_size=config.feature.lag_max,
+        numerical_emb_dim=config.net.numerical_emb_dim,
+        categorical_emb_dim=config.net.categorical_emb_dim,
+        base_cnn_output_channels=config.net.base_cnn_output_channels,
+        base_cnn_kernel_sizes=config.net.base_cnn_kernel_sizes,
+        base_cnn_batchnorm=config.net.base_cnn_batchnorm,
+        base_cnn_dropout=config.net.base_cnn_dropout,
+        base_fc_hidden_dims=config.net.base_fc_hidden_dims,
+        base_fc_batchnorm=config.net.base_fc_batchnorm,
+        base_fc_dropout=config.net.base_fc_dropout,
+        base_fc_output_dim=config.net.base_fc_output_dim,
+        head_hidden_dims=config.net.head_hidden_dims,
+        head_batchnorm=config.net.head_batchnorm,
+        head_dropout=config.net.head_dropout,
+    )
 
-    # 学習用パラメータを準備
-    model_params = common_utils.conf2dict(config.model)
-    if config.model.model_type == "lgbm":
-        model = lgbm_utils.LGBMModel.from_scratch(model_params, run)
-    elif config.model.model_type == "cnn":
-        model = cnn_utils.CNNModel.from_scratch(model_params, run)
-
-    # 学習データとテストデータに分けて学習・評価
     print("Train")
-    ds_train, ds_valid = ds.train_test_split(config.valid_ratio)
-    run["label/positive_ratio/train"] = ds_train.get_labels().mean().to_dict()
-    run["label/positive_ratio/valid"] = ds_valid.get_labels().mean().to_dict()
-    model.train(ds_train, ds_valid, log_prefix="train_w_valid")
-
-    if config.retrain:
-        # 全データで再学習
-        print("Re-train")
-        model.train(ds, log_prefix="train_wo_valid")
-
-    if config.model.model_type == "lgbm":
-        importance_dict = model.get_importance()
-        log_prefix = "train_wo_valid" if config.retrain else "train_w_valid"
-        for label_name in importance_dict:
-            importance_path = f"{OUTPUT_DIRECTORY}/importance_{label_name}.csv"
-            importance_dict[label_name].to_csv(importance_path)
-            run[f"{log_prefix}/importance/{label_name}"].upload(importance_path)
-
-    # モデル保存
-    print("Save model")
-    model_path = f"{OUTPUT_DIRECTORY}/model.bin"
-    model.save(model_path)
-
-    model_id = common_utils.get_neptune_model_id(
-        config.neptune.project_key, config.model.model_type
+    trainer = pl.Trainer(
+        max_epochs=config.max_epochs, logger=logger, enable_checkpointing=False
     )
-    model_version = neptune.init_model_version(model=model_id)
-    model_version["binary"].upload(model_path)
+    model_ = model.Model(
+        net,
+        entropy_coef=config.loss.entropy_coef,
+        spread=config.loss.spread,
+        learning_rate=config.optim.learning_rate,
+        weight_decay=config.optim.weight_decay,
+    )
+    trainer.fit(
+        model=model_,
+        train_dataloaders=loader_train,
+        val_dataloaders=loader_valid,
+    )
 
-    # メタデータ保存
-    model_version["config"] = OmegaConf.to_yaml(config)
-    model_version["train_run_url"] = run.get_url()
-    # config だけからでは学習データの期間が正確にはわからないため、別途記録する
-    first_timestamp = ds.base_index[0]
-    last_timestamp = ds.base_index[-1] if config.retrain else ds_train.base_index[-1]
-    model_version["train/first_timestamp"] = str(first_timestamp)
-    model_version["train/last_timestamp"] = str(last_timestamp)
+    print("Save model")
+    os.makedirs(config.output_dir, exist_ok=True)
+    params_file = os.path.join(config.output_dir, "model.pt")
+    torch.save(
+        {
+            "config": OmegaConf.to_container(config),
+            "feature_info": feature_info,
+            "net_state": net.state_dict(),
+        },
+        params_file,
+    )
+    logger.experiment["params_file"].upload(params_file)
 
-    run["model_version_url"] = model_version.get_url()
+    # model_id = utils.get_neptune_model_id(config.neptune.project_key, "cnn")
+    # model_version = neptune.init_model_version(model=model_id)
+    # model_version["params"].upload(params_file)
+
+    # # メタデータ保存
+    # model_version["config"] = OmegaConf.to_container(config)
+    # model_version["train_run_url"] = logger.experiment.get_url()
+    # # config だけからでは学習データの期間が正確にはわからないため、別途記録する
+    # model_version["train/first_timestamp"] = str(base_index[0])
+    # model_version["train/last_timestamp"] = str(base_index[-1])
+
+    # logger.experiment["model_version_url"] = model_version.get_url()
 
 
 if __name__ == "__main__":
-    if "NEPTUNE_API_TOKEN" not in os.environ:
-        raise RuntimeError("NEPTUNE_API_TOKEN has to be set.")
-
-    config = get_train_config()
+    base_config = OmegaConf.structured(TrainConfig)
+    cli_config = OmegaConf.from_cli()
+    config = OmegaConf.merge(base_config, cli_config)
     print(OmegaConf.to_yaml(config))
 
-    common_utils.set_random_seed(config.random_seed)
-
-    ON_COLAB = os.environ.get("ON_COLAB", False)
-    if not ON_COLAB:
-        # GCP サービスアカウントキーの設定
-        # colab ではユーザ認証するため不要
-        credential_path = (
-            pathlib.Path(__file__).resolve().parents[1] / "auto-trader-sa.json"
-        )
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(credential_path)
+    utils.set_random_seed(config.random_seed)
+    utils.validate_neptune_settings(config.neptune.mode)
 
     main(config)

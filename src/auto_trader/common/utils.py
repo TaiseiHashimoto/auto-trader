@@ -1,7 +1,8 @@
+import os
 import random
 from datetime import date
 from enum import Enum
-from typing import Dict, List, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -151,10 +152,6 @@ def calc_yyyymm(yyyymm_base: int, month_delta: int) -> int:
     return year * 100 + month
 
 
-def drop_keys(d: Dict, keys_to_drop: List[str]) -> Dict:
-    return {k: v for k, v in d.items() if k not in keys_to_drop}
-
-
 def get_pip_scale(symbol: str) -> float:
     return 0.01 if symbol == "usdjpy" else 0.0001
 
@@ -163,6 +160,11 @@ def set_random_seed(seed: int):
     np.random.seed(seed)
     torch.manual_seed(seed)
     random.seed(seed)
+
+
+def validate_neptune_settings(mode: str) -> None:
+    if mode not in ("debug") and "NEPTUNE_API_TOKEN" not in os.environ:
+        raise RuntimeError("NEPTUNE_API_TOKEN has to be set.")
 
 
 def get_neptune_model_id(project_key: str, model_type: str) -> str:

@@ -2,7 +2,7 @@ import numpy as np
 import pandas as pd
 import torch.nn as nn
 
-from auto_trader.modeling import cnn_utils
+from auto_trader.modeling import model
 
 
 class TestCNNDataset:
@@ -287,9 +287,7 @@ class TestCNNDataset:
             ),
         )
 
-        return cnn_utils.CNNDataset(
-            base_index, x, y, lag_max=2, sma_window_size_center=2
-        )
+        return model.CNNDataset(base_index, x, y, lag_max=2, sma_window_size_center=2)
 
     def test_get_continuous_dim(self):
         ds = self.prepare_dataset()
@@ -515,7 +513,7 @@ class MockedCNNDataset:
 
 class TestCNNModel:
     def prepare_model(self):
-        return cnn_utils.CNNModel(
+        return model.Model(
             model_params={
                 "batch_size": 2,
                 "loss": {
@@ -523,7 +521,7 @@ class TestCNNModel:
                     "pos_weight": 1.0,
                 },
             },
-            model=None,
+            net=None,
             stats_mean=None,
             stats_var=None,
             run=None,
@@ -658,16 +656,16 @@ class TestCNNBase:
         kernel_size_list = [5, 5, 5]
         max_pool_list = [True, False, True]
         out_dim = 128
-        batch_norm = False
+        batchnorm = False
         dropout = 0.0
-        base = cnn_utils.CNNBase(
+        base = model.CNNBase(
             in_channels=in_channels,
             window_size=window_size,
             out_channels_list=out_channels_list,
             kernel_size_list=kernel_size_list,
             max_pool_list=max_pool_list,
             out_dim=out_dim,
-            batch_norm=batch_norm,
+            batchnorm=batchnorm,
             dropout=dropout,
         )
         assert len(base.convs) == 3 + 2 + 3
@@ -709,16 +707,16 @@ class TestCNNBase:
         kernel_size_list = [7, 7, 7]
         max_pool_list = [False, True, False]
         out_dim = 64
-        batch_norm = True
+        batchnorm = True
         dropout = 0.5
-        base = cnn_utils.CNNBase(
+        base = model.CNNBase(
             in_channels=in_channels,
             window_size=window_size,
             out_channels_list=out_channels_list,
             kernel_size_list=kernel_size_list,
             max_pool_list=max_pool_list,
             out_dim=out_dim,
-            batch_norm=batch_norm,
+            batchnorm=batchnorm,
             dropout=dropout,
         )
         assert len(base.convs) == 4 + 5 + 4
@@ -775,12 +773,12 @@ class TestCNNNet:
         base_out_dim = 128
         hidden_dim_list = [256, 128]
         out_dim = 4
-        cnn_batch_norm = True
-        fc_batch_norm = True
+        cnn_batchnorm = True
+        fc_batchnorm = True
         cnn_dropout = 0.5
         fc_dropout = 0.5
 
-        model = cnn_utils.CNNNet(
+        model = model.CNNNet(
             continuous_dim=continuous_dim,
             sequential_channels=sequential_channels,
             freqs=freqs,
@@ -791,8 +789,8 @@ class TestCNNNet:
             base_out_dim=base_out_dim,
             hidden_dim_list=hidden_dim_list,
             out_dim=out_dim,
-            cnn_batch_norm=cnn_batch_norm,
-            fc_batch_norm=fc_batch_norm,
+            cnn_batchnorm=cnn_batchnorm,
+            fc_batchnorm=fc_batchnorm,
             cnn_dropout=cnn_dropout,
             fc_dropout=fc_dropout,
         )

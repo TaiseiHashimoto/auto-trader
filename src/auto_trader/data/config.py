@@ -1,22 +1,22 @@
-import datetime
-from dataclasses import dataclass, field
-from typing import List
+from dataclasses import dataclass
 
-from auto_trader.common.common_config import GCPConfig
+from omegaconf import MISSING
 
 
 @dataclass
 class RawConfig:
-    symbols: List[str] = field(default_factory=lambda: ["usdjpy", "eurusd"])
-    first_datetime: str = "2010-01-01T00:00:00+00:00"
-    last_datetime: str = datetime.datetime.now(tz=datetime.timezone.utc).isoformat()
+    symbol: str = "usdjpy"
+    raw_data_dir: str = "./raw"
+    yyyymm_begin: int = MISSING
+    yyyymm_end: int = MISSING
+    recreate_latest: bool = True
 
 
 @dataclass
-class PreprocessConfig:
-    symbols: List[str] = field(default_factory=lambda: ["usdjpy", "eurusd"])
-    first_year: int = 2020
-    first_month: int = 11
-    last_year: int = datetime.datetime.now().year
-    last_month: int = datetime.datetime.now().month
-    gcp: GCPConfig = GCPConfig()
+class CleanseConfig:
+    symbol: str = "usdjpy"
+    raw_data_dir: str = "./raw"
+    cleansed_data_dir: str = "./cleansed"
+    yyyymm_begin: int = MISSING
+    yyyymm_end: int = MISSING
+    recreate_latest: bool = True
