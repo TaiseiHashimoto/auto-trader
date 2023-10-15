@@ -169,7 +169,8 @@ def main(config):
             df = df_source.loc[utils.parse_yyyymm(yyyymm).strftime("%Y-%m")]
             df = remove_flat_data(df)
 
-            validate_data(df, config.symbol)
+            if config.validate:
+                validate_data(df, config.symbol)
 
             df.to_parquet(cleansed_data_file)
 

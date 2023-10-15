@@ -20,3 +20,4 @@ class CleanseConfig:
     yyyymm_begin: int = MISSING
     yyyymm_end: int = MISSING
     recreate_latest: bool = True
+    validate: bool = True

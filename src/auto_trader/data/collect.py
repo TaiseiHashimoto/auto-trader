@@ -25,7 +25,6 @@ def main(config):
     if config.yyyymm_begin < 201008:
         raise RuntimeError("Trying to get too old data")
 
-    config.raw_data_dir = "./raw"
     os.makedirs(config.raw_data_dir, exist_ok=True)
 
     PRICE_TYPES = ["bid", "ask"]
