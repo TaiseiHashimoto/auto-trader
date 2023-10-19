@@ -2,17 +2,15 @@
 name = "auto-trader"
 version = "0.1.0"
 dependencies = [
-    "google-cloud-secret-manager", # to be deleted
-    "google-cloud-storage", # to be deleted
-    "lightgbm >= 3.3.2", # to be deleted
-    "neptune-client",
+    "neptune",
     "numpy",
-    "hydra-core", # to be deleted
     "pandas",
+    "omegaconf",
+    "hydra-core",
     "pyarrow",
     "fastparquet",
     "torch",
-    "scikit-learn", # to be deleted
+    "lightning",
     "tqdm",
 ]
 
