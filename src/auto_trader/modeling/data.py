@@ -1,10 +1,14 @@
 import os
-from typing import Generator, Optional, Union
+from typing import Generator, Literal, Optional
 
 import numpy as np
 import pandas as pd
 
 from auto_trader.common import utils
+
+Timeframe = str
+FeatureType = Literal["rel", "abs"]
+FeatureName = str
 
 
 def read_cleansed_data(
@@ -30,7 +34,7 @@ def read_cleansed_data(
     return pd.concat(df_data, axis=0)
 
 
-def merge_bid_ask(df):
+def merge_bid_ask(df) -> pd.DataFrame:
     # bid と ask の平均値を計算
     return pd.DataFrame(
         {
@@ -45,18 +49,18 @@ def merge_bid_ask(df):
 
 
 def resample(
-    values_1min: pd.DataFrame,
+    values_base: pd.DataFrame,
     timeframe: str,
 ) -> pd.DataFrame:
     if timeframe == "1min":
-        return values_1min
+        return values_base
     else:
         values_resampled = pd.DataFrame(
             {
-                "open": values_1min["open"].resample(timeframe).first(),
-                "high": values_1min["high"].resample(timeframe).max(),
-                "min": values_1min["low"].resample(timeframe).min(),
-                "close": values_1min["close"].resample(timeframe).last(),
+                "open": values_base["open"].resample(timeframe).first(),
+                "high": values_base["high"].resample(timeframe).max(),
+                "low": values_base["low"].resample(timeframe).min(),
+                "close": values_base["close"].resample(timeframe).last(),
             }
         )
         # 削除していた flat 期間が NaN になるので削除
@@ -71,8 +75,8 @@ def calc_sigma(s: pd.Series, window_size: int) -> pd.Series:
     return s.rolling(window_size).std(ddof=0).astype(np.float32)
 
 
-def calc_fraction(values: pd.Series, ndigits: int):
-    return (values % int(10**ndigits)).astype(np.float32)
+def calc_fraction(values: pd.Series, unit: int):
+    return (values % unit).astype(np.float32)
 
 
 def create_features(
@@ -81,8 +85,8 @@ def create_features(
     sma_window_sizes: list[int],
     sma_window_size_center: int,
     sigma_window_sizes: list[int],
-    sma_frac_ndigits: int,
-) -> tuple[pd.DatetimeIndex, dict[str, pd.DataFrame]]:
+    sma_frac_unit: int,
+) -> dict[FeatureType, pd.DataFrame]:
     features_rel = values.copy()
 
     for window_size in sma_window_sizes:
@@ -97,7 +101,7 @@ def create_features(
 
     features_abs[f"sma{sma_window_size_center}_frac"] = calc_fraction(
         features_rel[f"sma{sma_window_size_center}"],
-        ndigits=sma_frac_ndigits,
+        unit=sma_frac_unit,
     )
 
     features_abs["hour"] = values.index.hour.astype(np.int64)
@@ -106,28 +110,28 @@ def create_features(
     return {"rel": features_rel, "abs": features_abs}
 
 
-def calc_target(close_1min: pd.Series, alpha: float) -> pd.Series:
-    future_values = (
-        close_1min[::-1].ewm(alpha=alpha, adjust=True).mean().astype(np.float32)
+def calc_lift(value_base: pd.Series, alpha: float) -> pd.Series:
+    future_value = (
+        value_base.iloc[::-1]
+        .ewm(alpha=alpha, adjust=True)
+        .mean()
+        .iloc[::-1]
+        .shift(-1)
+        .astype(np.float32)
     )
-    return future_values[::-1].shift(-1)
-
-
-def calc_gain(close_1min: pd.Series, alpha: float) -> pd.Series:
-    targets = calc_target(close_1min, alpha)
-    return targets - close_1min
+    return future_value - value_base
 
 
 def calc_available_index(
-    features: dict[str, dict[str, pd.DataFrame]],
-    gain: pd.Series,
-    lag_max: int,
+    features: dict[Timeframe, dict[FeatureType, pd.DataFrame]],
+    lift: pd.Series,
+    hist_len: int,
     start_hour: int,
     end_hour: int,
 ) -> pd.DatetimeIndex:
     def get_first_index(df: pd.DataFrame):
         notnan_idxs = (df.notna().all(axis=1)).values.nonzero()[0]
-        first_idx = notnan_idxs[0] + lag_max - 1
+        first_idx = notnan_idxs[0] + hist_len - 1
         return df.index[first_idx]
 
     # features は前を見るため最初の方のデータは NaN になる
@@ -139,8 +143,8 @@ def calc_available_index(
             get_first_index(features[timeframe]["abs"]),
         )
 
-    # gain は後を見るため最後のデータは NaN になる。
-    last_index = gain.index[gain.notna()][-1]
+    # lift は後を見るため最後のデータは NaN になる。
+    last_index = lift.index[lift.notna()][-1]
 
     base_index = features["1min"]["rel"].index
     available_mask = (
@@ -148,6 +152,7 @@ def calc_available_index(
         & (base_index <= last_index)
         & (base_index.hour >= start_hour)
         & (base_index.hour < end_hour)
+        # クリスマスは一部時間がデータに含まれるが、傾向が特殊なので除外
         & ~((base_index.month == 12) & (base_index.day == 25))
     )
     return base_index[available_mask]
@@ -157,28 +162,26 @@ class DataLoader:
     def __init__(
         self,
         base_index: pd.DatetimeIndex,
-        features: dict[str, dict[str, pd.DataFrame]],
-        gain: Optional[pd.DataFrame],
-        lag_max: int,
+        features: dict[str, dict[FeatureType, pd.DataFrame]],
+        lift: Optional[pd.DataFrame],
+        hist_len: int,
         sma_window_size_center: int,
         batch_size: int,
         shuffle: bool = False,
-        rel_reverse: bool = False,
-        rel_shuffle: bool = False,
-    ):
+    ) -> None:
         self.base_index = base_index
         self.features = features
-        self.gain = gain
-        self.lag_max = lag_max
+        self.lift = lift
+        self.hist_len = hist_len
         self.sma_window_size_center = sma_window_size_center
         self.batch_size = batch_size
         self.shuffle = shuffle
-        self.rel_reverse = rel_reverse
-        self.rel_shuffle = rel_shuffle
 
     def __iter__(
         self,
-    ) -> Generator[tuple[dict[str, dict[str, np.ndarray]], np.ndarray], None, None]:
+    ) -> Generator[
+        tuple[dict[Timeframe, dict[FeatureName, np.ndarray]], np.ndarray], None, None
+    ]:
         index = self.base_index
         if self.shuffle:
             index = index[np.random.permutation(len(index))]
@@ -205,65 +208,98 @@ class DataLoader:
             features = {}
             for timeframe in timeframes:
                 idx_batch = idx_batch_dict[timeframe]
-                idx_expanded = (idx_batch[:, np.newaxis] - np.arange(self.lag_max))[
+                idx_expanded = (idx_batch[:, np.newaxis] - np.arange(self.hist_len))[
                     :, ::-1
                 ]
 
                 sma = self.features[timeframe]["rel"][
                     f"sma{self.sma_window_size_center}"
                 ].values[idx_batch]
-                # import pdb; pdb.set_trace()
 
                 features[timeframe] = {}
-                for feature_name in self.features[timeframe]["rel"]:
-                    value = (
-                        self.features[timeframe]["rel"][feature_name]
-                        .values[idx_expanded.flatten()]
-                        .reshape((len(idx_batch), self.lag_max))
-                        - sma[:, np.newaxis]
-                    )
-                    if self.rel_reverse:
-                        value = value * -1
-                    if self.rel_shuffle:
-                        rand = np.random.choice([1, -1], size=(len(value), 1))
-                        value = value * rand.astype(np.float32)
+                for feature_type in self.features[timeframe]:
+                    for feature_name in self.features[timeframe][feature_type]:
+                        value = (
+                            self.features[timeframe][feature_type][feature_name]
+                            .values[idx_expanded.flatten()]
+                            .reshape((len(idx_batch), self.hist_len))
+                        )
+                        if feature_type == "rel":
+                            value -= sma[:, np.newaxis]
 
-                    features[timeframe][feature_name] = value
+                        assert feature_name not in features[timeframe]
+                        features[timeframe][feature_name] = value
 
-                for feature_name in self.features[timeframe]["abs"]:
-                    features[timeframe][feature_name] = (
-                        self.features[timeframe]["abs"][feature_name]
-                        .values[idx_expanded.flatten()]
-                        .reshape((len(idx_batch), self.lag_max))
-                    )
-
-            if self.gain is None:
-                gain = np.zeros(len(idx_batch_dict["1min"]), dtype=np.float32)
+            if self.lift is None:
+                lift = np.zeros(len(idx_batch_dict["1min"]), dtype=np.float32)
             else:
-                gain = self.gain.values[idx_batch_dict["1min"]]
+                lift = self.lift.values[idx_batch_dict["1min"]]
 
             for timeframe in timeframes:
                 for feature_name in features[timeframe]:
-                    if np.isnan(features[timeframe][feature_name]).any():
-                        import pdb
-
-                        pdb.set_trace()
                     assert not np.isnan(
                         features[timeframe][feature_name]
                     ).any(), f"NaN found in {timeframe} {feature_name}"
 
-            assert not np.isnan(gain).any()
+            assert not np.isnan(lift).any()
 
-            yield features, gain
+            yield features, lift
 
             row_count += len(idx_batch_dict["1min"])
 
 
+class FeatureInfo:
+    def __init__(self, dtype: np.dtype):
+        self._dtype = dtype
+        if dtype == np.float32:
+            self._count = 0
+            self._mean = 0.0
+            self._var = 0.0
+        elif dtype == np.int64:
+            self._max = 0
+        else:
+            raise ValueError(f"Data type {dtype} is not supported")
+
+    def update(self, values: np.ndarray) -> None:
+        if self._dtype == np.float32:
+            count_add = values.size
+            mean_add = np.mean(values)
+            var_add = np.var(values)
+            count_new = self._count + count_add
+            mean_new = (self._mean * self._count + mean_add * count_add) / count_new
+            var_new = (self._var * self._count + var_add * count_add) / count_new + (
+                (self._mean - mean_add) ** 2
+            ) * self._count * count_add / count_new**2
+            self._count = count_new
+            self._mean = float(mean_new)
+            self._var = float(var_new)
+        else:
+            self._max = max(self._max, values.max())
+
+    @property
+    def dtype(self) -> np.dtype:
+        return self._dtype
+
+    @property
+    def mean(self) -> float:
+        assert self.dtype == np.float32
+        return self._mean
+
+    @property
+    def var(self) -> float:
+        assert self.dtype == np.float32
+        return self._var
+
+    @property
+    def max(self) -> int:
+        assert self.dtype == np.int64
+        return self._max
+
+
 def get_feature_info(
     loader: DataLoader, batch_num: int = 100
-) -> dict[str, dict[str, dict[str, Union[int, float]]]]:
-    feature_info = {}
-    count = 0
+) -> dict[Timeframe, dict[FeatureName, FeatureInfo]]:
+    feature_info: dict[Timeframe, dict[FeatureName, FeatureInfo]] = {}
     for batch_idx, (features, _) in enumerate(loader):
         if batch_idx == batch_num:
             break
@@ -275,44 +311,8 @@ def get_feature_info(
             for feature_name in features[timeframe]:
                 values = features[timeframe][feature_name]
                 if batch_idx == 0:
-                    feature_info[timeframe][feature_name] = {
-                        "dtype": values.dtype,
-                        "mean": 0,
-                        "var": 0,
-                        "cardinality": 0,
-                    }
+                    feature_info[timeframe][feature_name] = FeatureInfo(values.dtype)
 
-                if values.dtype == np.float32:
-                    count_add = values.size
-                    mean_add = np.mean(values)
-                    var_add = np.var(values)
-
-                    mean = feature_info[timeframe][feature_name]["mean"]
-                    var = feature_info[timeframe][feature_name]["var"]
-                    mean_new = (mean * count + mean_add * count_add) / (
-                        count + count_add
-                    )
-                    var_new = (var * count + var_add * count_add) / (
-                        count + count_add
-                    ) + ((mean - mean_add) ** 2) * count * count_add / (
-                        (count + count_add) ** 2
-                    )
-                    feature_info[timeframe][feature_name]["mean"] = float(mean_new)
-                    feature_info[timeframe][feature_name]["var"] = float(var_new)
-                elif values.dtype == np.int64:
-                    cardinality_old = feature_info[timeframe][feature_name][
-                        "cardinality"
-                    ]
-                    cardinality_new = max(cardinality_old, values.max())
-                    feature_info[timeframe][feature_name][
-                        "cardinality"
-                    ] = cardinality_new
-                else:
-                    raise ValueError(
-                        f"Data type of {timeframe} {feature_name} is not supported: "
-                        f"{values.dtype}"
-                    )
-
-            count += values.size
+                feature_info[timeframe][feature_name].update(values)
 
     return feature_info

@@ -1,38 +1,36 @@
-from typing import Any
-
 import lightning.pytorch as pl
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+from auto_trader.modeling import data
 
-def build_cnn_layer(
+
+def build_conv_layer(
     window_size: int,
-    in_channels: int,
-    output_channels: list[int],
+    in_channel: int,
+    out_channels: list[int],
     kernel_sizes: list[int],
     batchnorm: bool,
     dropout: float,
 ) -> tuple[nn.Sequential, int]:
-    if len(output_channels) != len(kernel_sizes):
+    if len(out_channels) != len(kernel_sizes):
         raise ValueError("Number of channels and kernel sizes must be the same.")
 
     layers = []
     size = window_size
-    for output_channels, kernel_size in zip(output_channels, kernel_sizes):
-        layers.append(
-            nn.Conv1d(in_channels, output_channels, kernel_size, padding="same")
-        )
+    for out_channels, kernel_size in zip(out_channels, kernel_sizes):
+        layers.append(nn.Conv1d(in_channel, out_channels, kernel_size, padding="same"))
         if batchnorm:
-            layers.append(nn.BatchNorm1d(output_channels))
+            layers.append(nn.BatchNorm1d(out_channels))
         layers.append(nn.ReLU())
         if dropout > 0:
             layers.append(nn.Dropout(dropout))
         layers.append(nn.MaxPool1d(kernel_size=2))
 
         size = size // 2
-        in_channels = output_channels
+        in_channel = out_channels
 
     return nn.Sequential(*layers), size
 
@@ -61,11 +59,11 @@ def build_fc_layer(
 class BaseNet(nn.Module):
     def __init__(
         self,
-        feature_info: dict[str, dict[str, Any]],
+        feature_info: dict[data.FeatureName, data.FeatureInfo],
         window_size: int,
         numerical_emb_dim: int,
         categorical_emb_dim: int,
-        cnn_output_channels: list[int],
+        cnn_out_channels: list[int],
         cnn_kernel_sizes: list[int],
         cnn_batchnorm: bool,
         cnn_dropout: float,
@@ -80,31 +78,30 @@ class BaseNet(nn.Module):
         self.embed_layers = nn.ModuleDict()
         emb_output_dim = 0
         for name, info in feature_info.items():
-            if info["dtype"] == np.float32:
-                mean = info["mean"]
-                std = info["var"] ** 0.5
+            if info.dtype == np.float32:
+                mean = info.mean
+                std = info.var**0.5
                 self.normalize_funs[name] = lambda x: (x - mean) / (std + 1e-6)
                 self.embed_layers[name] = nn.Linear(1, numerical_emb_dim)
                 emb_output_dim += numerical_emb_dim
-            elif info["dtype"] == np.int64:
+            elif info.dtype == np.int64:
                 self.normalize_funs[name] = lambda x: x
                 self.embed_layers[name] = nn.Embedding(
-                    num_embeddings=info["cardinality"] + 1,
+                    num_embeddings=info.max + 1,
                     embedding_dim=categorical_emb_dim,
                 )
                 emb_output_dim += categorical_emb_dim
 
-        self.conv_layer, conv_output_size = build_cnn_layer(
+        self.conv_layer, conv_output_size = build_conv_layer(
             window_size=window_size,
-            in_channels=emb_output_dim,
-            output_channels=cnn_output_channels,
+            in_channel=emb_output_dim,
+            out_channels=cnn_out_channels,
             kernel_sizes=cnn_kernel_sizes,
             batchnorm=cnn_batchnorm,
             dropout=cnn_dropout,
         )
-        print(f"conv_output_size = {conv_output_size}")
         self.fc_layer = build_fc_layer(
-            in_dim=cnn_output_channels[-1] * conv_output_size,
+            in_dim=cnn_out_channels[-1] * conv_output_size,
             hidden_dims=fc_hidden_dims,
             batchnorm=fc_batchnorm,
             dropout=fc_dropout,
@@ -124,7 +121,6 @@ class BaseNet(nn.Module):
         # (batch, channel, conv_output_size)
         x = self.conv_layer(x)
         # (batch, channel * conv_output_size)
-        # import pdb; pdb.set_trace()
         x = x.reshape(x.shape[0], -1)
         x = F.relu(x)
         # (batch, output_dim)
@@ -134,11 +130,11 @@ class BaseNet(nn.Module):
 class Net(nn.Module):
     def __init__(
         self,
-        feature_info: dict[str, dict[str, dict[str, Any]]],
+        feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
         window_size: int,
         numerical_emb_dim: int,
         categorical_emb_dim: int,
-        base_cnn_output_channels: list[int],
+        base_cnn_out_channels: list[int],
         base_cnn_kernel_sizes: list[int],
         base_cnn_batchnorm: bool,
         base_cnn_dropout: float,
@@ -159,7 +155,7 @@ class Net(nn.Module):
                 window_size=window_size,
                 numerical_emb_dim=numerical_emb_dim,
                 categorical_emb_dim=categorical_emb_dim,
-                cnn_output_channels=base_cnn_output_channels,
+                cnn_out_channels=base_cnn_out_channels,
                 cnn_kernel_sizes=base_cnn_kernel_sizes,
                 cnn_batchnorm=base_cnn_batchnorm,
                 cnn_dropout=base_cnn_dropout,
@@ -174,7 +170,7 @@ class Net(nn.Module):
             hidden_dims=head_hidden_dims,
             batchnorm=head_batchnorm,
             dropout=head_dropout,
-            output_dim=2,
+            output_dim=4,
         )
 
     def forward(self, features: dict[str, dict[str, torch.Tensor]]) -> torch.Tensor:
@@ -191,10 +187,10 @@ class Model(pl.LightningModule):
     def __init__(
         self,
         net: nn.Module,
-        entropy_coef: float,
-        spread: float,
-        learning_rate: float,
-        weight_decay: float,
+        entropy_coef: float = 0.01,
+        spread: float = 2.0,
+        learning_rate: float = 1e-3,
+        weight_decay: float = 0.0,
     ):
         super().__init__()
         self.net = net
@@ -212,12 +208,12 @@ class Model(pl.LightningModule):
             )
 
     def _to_torch_features(
-        self, features_np: dict[str, dict[str, np.ndarray]]
-    ) -> dict[str, dict[str, torch.Tensor]]:
-        features_torch: dict[str, dict[str, torch.Tensor]] = {}
+        self, features_np: dict[data.Timeframe, dict[data.FeatureName, np.ndarray]]
+    ) -> dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]:
+        features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]] = {}
 
         for timeframe in features_np:
-            features_torch[timeframe]: dict[str, torch.Tensor] = {}
+            features_torch[timeframe] = {}
             for feature_name, value_np in features_np[timeframe].items():
                 if value_np.dtype == np.float32:
                     # shape: (batch, length, feature=1)
@@ -238,75 +234,138 @@ class Model(pl.LightningModule):
 
         return features_torch
 
-    def _to_torch_gain(self, gain: np.ndarray) -> torch.Tensor:
-        return torch.from_numpy(gain)
+    def _to_torch_lift(self, lift: np.ndarray) -> torch.Tensor:
+        return torch.from_numpy(lift)
 
     def _predict_prob(
-        self, features_torch: dict[str, dict[str, torch.Tensor]]
+        self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
     ) -> tuple[torch.Tensor, torch.Tensor]:
         pred = self.net(features_torch)
-        prob_entry = torch.exp(pred[:, 0])
-        prob_exit = torch.exp(pred[:, 1])
-        return prob_entry, prob_exit
-
-    def _calc_loss(
-        self,
-        prob_entry: torch.Tensor,
-        prob_exit: torch.Tensor,
-        gain_torch: torch.Tensor,
-    ) -> torch.Tensor:
-        batch_size = prob_entry.shape[0]
-        gain_entry = (prob_entry * (gain_torch - self.spread)).mean()
-        gain_exit = (-prob_exit * gain_torch).mean()
-        entropy_entry = self._calc_binary_entropy(prob_entry).mean()
-        entropy_exit = self._calc_binary_entropy(prob_exit).mean()
-        loss = (
-            gain_entry + gain_exit + self.entropy_coef * (entropy_entry + entropy_exit)
-        )
-
-        self.log_dict(
-            {
-                "gain_entry": gain_entry,
-                "gain_exit": gain_exit,
-                "entropy_entry": entropy_entry,
-                "entropy_exit": entropy_exit,
-                "loss": loss,
-            },
-            # Accumulate metrics on epoch level
-            on_step=False,
-            on_epoch=True,
-            batch_size=batch_size,
-        )
-
-        return loss
+        prob_long_entry = torch.sigmoid(pred[:, 0])
+        prob_long_exit = torch.sigmoid(pred[:, 1])
+        prob_short_entry = torch.sigmoid(pred[:, 2])
+        prob_short_exit = torch.sigmoid(pred[:, 3])
+        return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
 
     def _calc_binary_entropy(self, prob: torch.Tensor) -> torch.Tensor:
         return -(
             prob * torch.log(prob + 1e-9) + (1 - prob) * torch.log(1 - prob + 1e-9)
         )
 
-    def training_step(
-        self, batch: tuple[dict[str, dict[str, np.ndarray]], np.ndarray], batch_idx: int
+    def _calc_loss(
+        self,
+        prob_long_entry: torch.Tensor,
+        prob_long_exit: torch.Tensor,
+        prob_short_entry: torch.Tensor,
+        prob_short_exit: torch.Tensor,
+        lift_torch: torch.Tensor,
     ) -> torch.Tensor:
-        features_np, gain_np = batch
+        gain_long_entry = (prob_long_entry * (lift_torch - self.spread)).mean()
+        gain_long_exit = (prob_long_exit * -lift_torch).mean()
+        gain_short_entry = (prob_short_entry * -(lift_torch - self.spread)).mean()
+        gain_short_exit = (prob_short_exit * lift_torch).mean()
+        entropy_long_entry = self._calc_binary_entropy(prob_long_entry).mean()
+        entropy_long_exit = self._calc_binary_entropy(prob_long_exit).mean()
+        entropy_short_entry = self._calc_binary_entropy(prob_short_entry).mean()
+        entropy_short_exit = self._calc_binary_entropy(prob_short_exit).mean()
+        gain = gain_long_entry + gain_long_exit + gain_short_entry + gain_short_exit
+        entropy = self.entropy_coef * (
+            entropy_long_entry
+            + entropy_long_exit
+            + entropy_short_entry
+            + entropy_short_exit
+        )
+        loss = -(gain + entropy)
+
+        self.log_dict(
+            {
+                "train/gain_long_entry": gain_long_entry,
+                "train/gain_long_exit": gain_long_exit,
+                "train/gain_short_entry": gain_short_entry,
+                "train/gain_short_exit": gain_short_exit,
+                "train/entropy_long_entry": entropy_long_entry,
+                "train/entropy_long_exit": entropy_long_exit,
+                "train/entropy_short_entry": entropy_short_entry,
+                "train/entropy_short_exit": entropy_short_exit,
+                "train/gain": gain,
+                "train/entropy": entropy,
+                "train/loss": loss,
+            },
+            # Accumulate metrics on epoch level
+            on_step=False,
+            on_epoch=True,
+            batch_size=prob_long_entry.shape[0],
+        )
+
+        return loss
+
+    def training_step(
+        self,
+        batch: tuple[
+            dict[data.Timeframe, dict[data.FeatureName, np.ndarray]], np.ndarray
+        ],
+        batch_idx: int,
+    ) -> torch.Tensor:
+        features_np, lift_np = batch
         features_torch = self._to_torch_features(features_np)
-        gain_torch = self._to_torch_gain(gain_np)
-        prob_entry, prob_exit = self._predict_prob(features_torch)
-        return self._calc_loss(prob_entry, prob_exit, gain_torch)
+        lift_torch = self._to_torch_lift(lift_np)
+        (
+            prob_long_entry,
+            prob_long_exit,
+            prob_short_entry,
+            prob_short_exit,
+        ) = self._predict_prob(features_torch)
+        return self._calc_loss(
+            prob_long_entry,
+            prob_long_exit,
+            prob_short_entry,
+            prob_short_exit,
+            lift_torch,
+        )
 
     def validation_step(
-        self, batch: tuple[dict[str, dict[str, np.ndarray]], np.ndarray], batch_idx: int
+        self,
+        batch: tuple[
+            dict[data.Timeframe, dict[data.FeatureName, np.ndarray]], np.ndarray
+        ],
+        batch_idx: int,
     ) -> None:
-        features_np, gain_np = batch
+        features_np, lift_np = batch
         features_torch = self._to_torch_features(features_np)
-        gain_torch = self._to_torch_gain(gain_np)
-        prob_entry, prob_exit = self._predict_prob(features_torch)
-        _ = self._calc_loss(prob_entry, prob_exit, gain_torch)
+        lift_torch = self._to_torch_lift(lift_np)
+        (
+            prob_long_entry,
+            prob_long_exit,
+            prob_short_entry,
+            prob_short_exit,
+        ) = self._predict_prob(features_torch)
+        _ = self._calc_loss(
+            prob_long_entry,
+            prob_long_exit,
+            prob_short_entry,
+            prob_short_exit,
+            lift_torch,
+        )
 
     def predict_step(
-        self, batch: tuple[dict[str, dict[str, np.ndarray]], None]
-    ) -> torch.Tensor:
-        features_np, gain_np = batch
+        self,
+        batch: tuple[dict[data.Timeframe, dict[data.FeatureName, np.ndarray]], None],
+        batch_idx: int,
+    ) -> tuple[torch.Tensor]:
+        features_np, _ = batch
         features_torch = self._to_torch_features(features_np)
-        prob_entry, prob_exit = self._predict_prob(features_torch)
-        return prob_entry, prob_exit
+        (
+            prob_long_entry,
+            prob_long_exit,
+            prob_short_entry,
+            prob_short_exit,
+        ) = self._predict_prob(features_torch)
+        return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
+
+    def on_train_epoch_end(self) -> None:
+        metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
+        print(f"Training metrics: {metrics}")
+
+    def on_validation_epoch_end(self) -> None:
+        metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
+        print(f"Validation metrics: {metrics}")

@@ -7,7 +7,6 @@ from omegaconf import MISSING
 class NeptuneConfig:
     project: str = "thashimoto/auto-trader"
     project_key: str = "AUT"
-    model_version_id: str = ""
     mode: str = "async"
 
 
@@ -26,8 +25,8 @@ class FeatureConfig:
     sma_window_sizes: list[int] = field(default_factory=lambda: [5, 8, 13])
     sma_window_size_center: int = 5
     sigma_window_sizes: list[int] = field(default_factory=lambda: [9])
-    sma_frac_ndigits: int = 4
-    lag_max: int = 10
+    sma_frac_unit: int = 100
+    hist_len: int = 10
     start_hour: int = 2
     end_hour: int = 22
 
@@ -37,7 +36,7 @@ class FeatureConfig:
 
 
 @dataclass
-class GainConfig:
+class LiftConfig:
     target_alpha: float = 0.1
 
 
@@ -45,7 +44,7 @@ class GainConfig:
 class NetConfig:
     numerical_emb_dim: int = 16
     categorical_emb_dim: int = 16
-    base_cnn_output_channels: list[int] = field(default_factory=lambda: [20, 40, 20])
+    base_cnn_out_channels: list[int] = field(default_factory=lambda: [20, 40, 20])
     base_cnn_kernel_sizes: list[int] = field(default_factory=lambda: [5, 5, 5])
     base_cnn_batchnorm: bool = True
     base_cnn_dropout: float = 0.0
@@ -61,7 +60,7 @@ class NetConfig:
 @dataclass
 class LossConfig:
     entropy_coef: float = 0.01
-    spread: float = 0.02
+    spread: float = 2.0
 
 
 @dataclass
@@ -82,20 +81,29 @@ class TrainConfig:
     neptune: NeptuneConfig = NeptuneConfig()
     data: DataConfig = DataConfig()
     feature: FeatureConfig = FeatureConfig()
-    gain: GainConfig = GainConfig()
+    lift: LiftConfig = LiftConfig()
     net: NetConfig = NetConfig()
     loss: LossConfig = LossConfig()
     optim: OptimConfig = OptimConfig()
 
 
 @dataclass
+class SimulationConfig:
+    timing: str = "open"
+    spread: float = 2.0
+    start_hour: int = 2
+    end_hour: int = 22
+    thresh_loss_cut: float = 0.05
+
+
+@dataclass
 class EvalConfig:
     output_dir: str = "./output"
-    thresh_loss_cut: float = 0.05
-    simulate_timing: str = "open"
-    spread: float = 0.02
+    train_run_id: str = ""
+    params_file: str = ""
     percentile_entry_list: list[float] = field(default_factory=lambda: [75, 90, 95])
     percentile_exit_list: list[float] = field(default_factory=lambda: [75, 90, 95])
 
     neptune: NeptuneConfig = NeptuneConfig()
     data: DataConfig = DataConfig()
+    simulation: SimulationConfig = SimulationConfig()

@@ -4,7 +4,6 @@ import lightning.pytorch as pl
 import numpy as np
 import torch
 from lightning.pytorch.loggers import NeptuneLogger
-from neptune.utils import stringify_unsupported
 from omegaconf import OmegaConf
 
 from auto_trader.common import utils
@@ -18,39 +17,36 @@ def main(config):
         mode=config.neptune.mode,
         tags=["train", "cnn"],
     )
-    logger.experiment["param"] = stringify_unsupported(OmegaConf.to_container(config))
+    logger.experiment["config"] = OmegaConf.to_yaml(config)
 
     # データ読み込み
-    print("Load data")
     df = data.read_cleansed_data(
         config.data.symbol,
         config.data.yyyymm_begin,
         config.data.yyyymm_end,
         config.data.cleansed_data_dir,
     )
-    df_org = data.merge_bid_ask(df)
+    df_base = data.merge_bid_ask(df)
 
     # 学習データを準備
-    print("Create features")
     features = {}
     for timeframe in config.feature.timeframes:
-        df_resampled = data.resample(df_org, timeframe)
+        df_resampled = data.resample(df_base, timeframe)
         features[timeframe] = data.create_features(
             df_resampled,
             base_timing=config.feature.base_timing,
             sma_window_sizes=config.feature.sma_window_sizes,
             sma_window_size_center=config.feature.sma_window_size_center,
             sigma_window_sizes=config.feature.sigma_window_sizes,
-            sma_frac_ndigits=config.feature.sma_frac_ndigits,
+            sma_frac_unit=config.feature.sma_frac_unit,
         )
 
-    print("Calculate gain")
-    gain = data.calc_gain(df_org["close"], config.gain.target_alpha)
+    lift = data.calc_lift(df_base["close"], config.lift.target_alpha)
 
     base_index = data.calc_available_index(
         features,
-        gain,
-        config.feature.lag_max,
+        lift,
+        config.feature.hist_len,
         config.feature.start_hour,
         config.feature.end_hour,
     )
@@ -62,6 +58,8 @@ def main(config):
     logger.experiment["data/size/total"] = total_size
     logger.experiment["data/size/train"] = train_size
     logger.experiment["data/size/valid"] = valid_size
+    logger.experiment["data/first_timestamp"] = str(base_index[0])
+    logger.experiment["data/last_timestamp"] = str(base_index[-1])
 
     idxs_permuted = np.random.permutation(total_size)
     base_index_train = base_index[idxs_permuted[:train_size]]
@@ -69,31 +67,29 @@ def main(config):
     loader_train = data.DataLoader(
         base_index=base_index_train,
         features=features,
-        gain=gain,
-        lag_max=config.feature.lag_max,
+        lift=lift,
+        hist_len=config.feature.hist_len,
         sma_window_size_center=config.feature.sma_window_size_center,
         batch_size=config.batch_size,
         shuffle=True,
-        rel_shuffle=True,
     )
     loader_valid = data.DataLoader(
         base_index=base_index_valid,
         features=features,
-        gain=gain,
-        lag_max=config.feature.lag_max,
+        lift=lift,
+        hist_len=config.feature.hist_len,
         sma_window_size_center=config.feature.sma_window_size_center,
         batch_size=config.batch_size,
     )
 
     feature_info = data.get_feature_info(loader_train)
-    # import pdb; pdb.set_trace()
 
     net = model.Net(
         feature_info=feature_info,
-        window_size=config.feature.lag_max,
+        window_size=config.feature.hist_len,
         numerical_emb_dim=config.net.numerical_emb_dim,
         categorical_emb_dim=config.net.categorical_emb_dim,
-        base_cnn_output_channels=config.net.base_cnn_output_channels,
+        base_cnn_out_channels=config.net.base_cnn_out_channels,
         base_cnn_kernel_sizes=config.net.base_cnn_kernel_sizes,
         base_cnn_batchnorm=config.net.base_cnn_batchnorm,
         base_cnn_dropout=config.net.base_cnn_dropout,
@@ -105,17 +101,17 @@ def main(config):
         head_batchnorm=config.net.head_batchnorm,
         head_dropout=config.net.head_dropout,
     )
-
-    print("Train")
-    trainer = pl.Trainer(
-        max_epochs=config.max_epochs, logger=logger, enable_checkpointing=False
-    )
     model_ = model.Model(
         net,
         entropy_coef=config.loss.entropy_coef,
         spread=config.loss.spread,
         learning_rate=config.optim.learning_rate,
         weight_decay=config.optim.weight_decay,
+    )
+
+    print("Train")
+    trainer = pl.Trainer(
+        max_epochs=config.max_epochs, logger=logger, enable_checkpointing=False
     )
     trainer.fit(
         model=model_,
@@ -125,7 +121,7 @@ def main(config):
 
     print("Save model")
     os.makedirs(config.output_dir, exist_ok=True)
-    params_file = os.path.join(config.output_dir, "model.pt")
+    params_file = os.path.join(config.output_dir, "params.pt")
     torch.save(
         {
             "config": OmegaConf.to_container(config),
@@ -135,19 +131,6 @@ def main(config):
         params_file,
     )
     logger.experiment["params_file"].upload(params_file)
-
-    # model_id = utils.get_neptune_model_id(config.neptune.project_key, "cnn")
-    # model_version = neptune.init_model_version(model=model_id)
-    # model_version["params"].upload(params_file)
-
-    # # メタデータ保存
-    # model_version["config"] = OmegaConf.to_container(config)
-    # model_version["train_run_url"] = logger.experiment.get_url()
-    # # config だけからでは学習データの期間が正確にはわからないため、別途記録する
-    # model_version["train/first_timestamp"] = str(base_index[0])
-    # model_version["train/last_timestamp"] = str(base_index[-1])
-
-    # logger.experiment["model_version_url"] = model_version.get_url()
 
 
 if __name__ == "__main__":
