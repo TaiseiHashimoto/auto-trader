@@ -2,3 +2,4 @@ neptune
 numpy
 hydra-core
 pandas
+lightning
