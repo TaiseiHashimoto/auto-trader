@@ -1,9 +1,9 @@
 .DS_Store
 __pycache__
 .ipynb_checkpoints
-.neptune
-auto-trader-sa.json
 .pytest_cache
-lprof/
-*.ipynb
+.mypy_cache
+.neptune
+.pytest_cache
+.dukascopy-cache
 *.egg-info
