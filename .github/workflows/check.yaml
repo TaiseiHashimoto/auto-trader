@@ -20,6 +20,9 @@ jobs:
           black --check src
           isort --check src
           pflake8 src
+      - name: Type check
+        run: |
+          mypy src
       - name: Test
         run: |
           pytest src
