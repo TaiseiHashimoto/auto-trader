@@ -33,7 +33,7 @@ class Order:
 
     @property
     def gain(self) -> float:
-        assert self.exit_rate is not  None
+        assert self.exit_rate is not None
         rate_diff = self.exit_rate - self.entry_rate
         if self.position_type == PositionType.LONG:
             return rate_diff
@@ -79,14 +79,16 @@ class OrderSimulator:
 
         # 決済する条件: ポジションをもっている and (取引時間外 or モデルが決済を選択 or 損切り)
         if (
-            self.open_position is not None and self.open_position.position_type == PositionType.LONG
+            self.open_position is not None
+            and self.open_position.position_type == PositionType.LONG
             and (
                 not is_open
                 or long_exit
                 or self.open_position.entry_rate - rate >= self.thresh_loss_cut
             )
         ) or (
-            self.open_position is not None and self.open_position.position_type == PositionType.SHORT
+            self.open_position is not None
+            and self.open_position.position_type == PositionType.SHORT
             and (
                 not is_open
                 or short_exit
