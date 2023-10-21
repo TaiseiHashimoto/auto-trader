@@ -22,9 +22,7 @@ from auto_trader.modeling import data, model, order
 from auto_trader.modeling.config import EvalConfig
 
 
-def get_binary_pred(
-    pred: NDArray[np.float32], percentile: float
-) -> NDArray[np.bool_]:
+def get_binary_pred(pred: NDArray[np.float32], percentile: float) -> NDArray[np.bool_]:
     return pred > np.percentile(pred, percentile)
 
 
