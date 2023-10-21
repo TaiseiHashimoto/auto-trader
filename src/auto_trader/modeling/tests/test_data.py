@@ -8,7 +8,7 @@ from pytest import approx
 from auto_trader.modeling import data
 
 
-def test_read_cleansed_data(tmp_path: Path):
+def test_read_cleansed_data(tmp_path: Path) -> None:
     df_202301 = pd.DataFrame({"x": [1, 2, 3]})
     df_202302 = pd.DataFrame({"x": [4, 5]})
     df_202301.to_parquet(tmp_path / "usdjpy-202301.parquet")
@@ -25,7 +25,7 @@ def test_read_cleansed_data(tmp_path: Path):
     pd.testing.assert_frame_equal(df_actual, df_expected)
 
 
-def test_merge_bid_ask():
+def test_merge_bid_ask() -> None:
     index = pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:03:00", freq="1min")
     df = pd.DataFrame(
         {
@@ -53,7 +53,7 @@ def test_merge_bid_ask():
     pd.testing.assert_frame_equal(actual_result, expected_result, check_dtype=False)
 
 
-def test_resample():
+def test_resample() -> None:
     df_base = pd.DataFrame(
         {
             "open": [0, 1, 2, 3, 4, 5, 6, 7],
@@ -76,7 +76,7 @@ def test_resample():
     pd.testing.assert_frame_equal(df_actual, df_expected, check_dtype=False)
 
 
-def test_calc_sma():
+def test_calc_sma() -> None:
     s = pd.Series([0, 4, 2, 3, 6, 4, 6, 9], dtype=np.float32)
     actual_result = data.calc_sma(s, window_size=4)
     expected_result = pd.Series(
@@ -95,7 +95,7 @@ def test_calc_sma():
     pd.testing.assert_series_equal(expected_result, actual_result)
 
 
-def test_calc_sigma():
+def test_calc_sigma() -> None:
     s = pd.Series([0, 4, 2, 3, 6, 4, 6, 9])
     actual_result = data.calc_sigma(s, window_size=4)
     expected_result = pd.Series(
@@ -119,7 +119,7 @@ def test_calc_sigma():
     pd.testing.assert_series_equal(expected_result, actual_result)
 
 
-def test_calc_fraction():
+def test_calc_fraction() -> None:
     values = pd.Series([12345.67, 9876.54])
 
     actual = data.calc_fraction(values, unit=100)
@@ -131,7 +131,7 @@ def test_calc_fraction():
     pd.testing.assert_series_equal(expected, actual)
 
 
-def test_create_features():
+def test_create_features() -> None:
     values = pd.DataFrame(
         {
             "open": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
@@ -176,7 +176,7 @@ def test_create_features():
     pd.testing.assert_frame_equal(actual["abs"], expected["abs"])
 
 
-def test_calc_lift():
+def test_calc_lift() -> None:
     value_base = pd.Series([1, 2, 3, 4, 5], dtype=np.float32)
     actual = data.calc_lift(value_base, alpha=0.1)
     expected = pd.Series(
@@ -194,7 +194,7 @@ def test_calc_lift():
     pd.testing.assert_series_equal(actual, expected)
 
 
-def test_calc_available_index_nan():
+def test_calc_available_index_nan() -> None:
     features = {
         "1min": {
             "rel": pd.DataFrame(
@@ -228,7 +228,7 @@ def test_calc_available_index_nan():
     pd.testing.assert_index_equal(actual, expected)
 
 
-def test_dataloader():
+def test_dataloader() -> None:
     base_index = pd.date_range("2023-1-1 00:02", "2023-1-1 00:05", freq="1min")
     features = {
         "1min": {

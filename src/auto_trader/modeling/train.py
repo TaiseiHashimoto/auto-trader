@@ -11,7 +11,7 @@ from auto_trader.modeling import data, model
 from auto_trader.modeling.config import TrainConfig
 
 
-def main(config):
+def main(config: TrainConfig) -> None:
     logger = NeptuneLogger(
         project=config.neptune.project,
         mode=config.neptune.mode,

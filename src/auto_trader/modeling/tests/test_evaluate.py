@@ -7,7 +7,7 @@ from auto_trader.modeling.config import EvalConfig
 from auto_trader.modeling.tests import test_train
 
 
-def test_main(tmp_path: Path):
+def test_main(tmp_path: Path) -> None:
     test_train.test_main(tmp_path)
 
     config = OmegaConf.merge(

@@ -1,14 +1,16 @@
 import os
-from typing import Generator, Literal, Optional
+from typing import Generator, Literal, Optional, Union, cast
 
 import numpy as np
 import pandas as pd
+from numpy.typing import DTypeLike, NDArray
 
 from auto_trader.common import utils
 
 Timeframe = str
 FeatureType = Literal["rel", "abs"]
 FeatureName = str
+FeatureValue = NDArray[Union[np.float32, np.int64]]
 
 
 def read_cleansed_data(
@@ -34,7 +36,7 @@ def read_cleansed_data(
     return pd.concat(df_data, axis=0)
 
 
-def merge_bid_ask(df) -> pd.DataFrame:
+def merge_bid_ask(df: pd.DataFrame) -> pd.DataFrame:
     # bid と ask の平均値を計算
     return pd.DataFrame(
         {
@@ -67,15 +69,15 @@ def resample(
         return values_resampled.dropna()
 
 
-def calc_sma(s: pd.Series, window_size: int) -> pd.Series:
+def calc_sma(s: "pd.Series[float]", window_size: int) -> "pd.Series[float]":
     return s.rolling(window_size).mean().astype(np.float32)
 
 
-def calc_sigma(s: pd.Series, window_size: int) -> pd.Series:
+def calc_sigma(s: "pd.Series[float]", window_size: int) -> "pd.Series[float]":
     return s.rolling(window_size).std(ddof=0).astype(np.float32)
 
 
-def calc_fraction(values: pd.Series, unit: int):
+def calc_fraction(values: "pd.Series[float]", unit: int) -> "pd.Series[float]":
     return (values % unit).astype(np.float32)
 
 
@@ -104,13 +106,14 @@ def create_features(
         unit=sma_frac_unit,
     )
 
-    features_abs["hour"] = values.index.hour.astype(np.int64)
-    features_abs["dow"] = values.index.day_of_week.astype(np.int64)
+    datetime_index = cast(pd.DatetimeIndex, values.index)
+    features_abs["hour"] = datetime_index.hour.astype(np.int64)
+    features_abs["dow"] = datetime_index.day_of_week.astype(np.int64)
 
     return {"rel": features_rel, "abs": features_abs}
 
 
-def calc_lift(value_base: pd.Series, alpha: float) -> pd.Series:
+def calc_lift(value_base: "pd.Series[float]", alpha: float) -> "pd.Series[float]":
     future_value = (
         value_base.iloc[::-1]
         .ewm(alpha=alpha, adjust=True)
@@ -124,15 +127,17 @@ def calc_lift(value_base: pd.Series, alpha: float) -> pd.Series:
 
 def calc_available_index(
     features: dict[Timeframe, dict[FeatureType, pd.DataFrame]],
-    lift: pd.Series,
+    lift: "pd.Series[float]",
     hist_len: int,
     start_hour: int,
     end_hour: int,
 ) -> pd.DatetimeIndex:
-    def get_first_index(df: pd.DataFrame):
-        notnan_idxs = (df.notna().all(axis=1)).values.nonzero()[0]
+    def get_first_index(df: pd.DataFrame) -> pd.Timestamp:
+        notnan_idxs = cast(
+            NDArray[np.bool_], (df.notna().all(axis=1)).values
+        ).nonzero()[0]
         first_idx = notnan_idxs[0] + hist_len - 1
-        return df.index[first_idx]
+        return cast(pd.Timestamp, df.index[first_idx])
 
     # features は前を見るため最初の方のデータは NaN になる
     first_index = pd.Timestamp("1900-1-1 00:00:00")
@@ -146,7 +151,7 @@ def calc_available_index(
     # lift は後を見るため最後のデータは NaN になる。
     last_index = lift.index[lift.notna()][-1]
 
-    base_index = features["1min"]["rel"].index
+    base_index = cast(pd.DatetimeIndex, features["1min"]["rel"].index)
     available_mask = (
         (base_index >= first_index)
         & (base_index <= last_index)
@@ -155,7 +160,7 @@ def calc_available_index(
         # クリスマスは一部時間がデータに含まれるが、傾向が特殊なので除外
         & ~((base_index.month == 12) & (base_index.day == 25))
     )
-    return base_index[available_mask]
+    return cast(pd.DatetimeIndex, base_index[available_mask])
 
 
 class DataLoader:
@@ -180,7 +185,9 @@ class DataLoader:
     def __iter__(
         self,
     ) -> Generator[
-        tuple[dict[Timeframe, dict[FeatureName, np.ndarray]], np.ndarray], None, None
+        tuple[dict[Timeframe, dict[FeatureName, FeatureValue]], NDArray[np.float32]],
+        None,
+        None,
     ]:
         index = self.base_index
         if self.shuffle:
@@ -191,7 +198,7 @@ class DataLoader:
         # それぞれの freq に対応する idx を予め計算しておく
         index_dict = {}
         for timeframe in timeframes:
-            index_timeframe = index.floor(pd.Timedelta(timeframe))
+            index_timeframe = index.floor(freq=timeframe)
             index_dict[timeframe] = self.features[timeframe]["rel"].index.get_indexer(
                 index_timeframe
             )
@@ -205,7 +212,7 @@ class DataLoader:
                 for timeframe in timeframes
             }
 
-            features = {}
+            features: dict[Timeframe, dict[FeatureName, FeatureValue]] = {}
             for timeframe in timeframes:
                 idx_batch = idx_batch_dict[timeframe]
                 idx_expanded = (idx_batch[:, np.newaxis] - np.arange(self.hist_len))[
@@ -249,7 +256,7 @@ class DataLoader:
 
 
 class FeatureInfo:
-    def __init__(self, dtype: np.dtype):
+    def __init__(self, dtype: DTypeLike):
         self._dtype = dtype
         if dtype == np.float32:
             self._count = 0
@@ -260,7 +267,7 @@ class FeatureInfo:
         else:
             raise ValueError(f"Data type {dtype} is not supported")
 
-    def update(self, values: np.ndarray) -> None:
+    def update(self, values: FeatureValue) -> None:
         if self._dtype == np.float32:
             count_add = values.size
             mean_add = np.mean(values)
@@ -277,7 +284,7 @@ class FeatureInfo:
             self._max = max(self._max, values.max())
 
     @property
-    def dtype(self) -> np.dtype:
+    def dtype(self) -> DTypeLike:
         return self._dtype
 
     @property

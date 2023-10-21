@@ -61,7 +61,7 @@ def test_read_raw_data(tmp_path: Path) -> None:
     )
 
 
-def test_remove_flat_data():
+def test_remove_flat_data() -> None:
     # この年の年末年始は 12/25 金, 1/1 金
     index_org = pd.date_range("2020-12-20 00:00", "2021-1-10 23:59", freq="1min")
     df_org = pd.DataFrame(index=index_org)
@@ -82,7 +82,7 @@ def test_remove_flat_data():
     assert mask_christmas.sum() == 60 * 10
 
 
-def test_main(tmp_path: Path):
+def test_main(tmp_path: Path) -> None:
     config = OmegaConf.create(
         {
             "symbol": "usdjpy",

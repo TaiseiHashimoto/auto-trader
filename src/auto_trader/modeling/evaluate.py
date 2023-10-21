@@ -1,12 +1,13 @@
 import itertools
 import os
-from typing import Literal, Optional
+from typing import Optional, cast
 
 import lightning.pytorch as pl
 import neptune
 import numpy as np
 import pandas as pd
 import torch
+from numpy.typing import NDArray
 from omegaconf import OmegaConf
 from sklearn.metrics import (
     average_precision_score,
@@ -20,10 +21,8 @@ from auto_trader.common import utils
 from auto_trader.modeling import data, model, order
 from auto_trader.modeling.config import EvalConfig
 
-PredName = Literal["long_entry", "long_exit", "short_entry", "short_exit"]
 
-
-def main(config):
+def main(config: EvalConfig) -> None:
     run = neptune.init_run(
         project=config.neptune.project,
         mode=config.neptune.mode,
@@ -117,7 +116,7 @@ def main(config):
     model_ = model.Model(net)
     trainer = pl.Trainer(logger=False)
 
-    preds_torch = trainer.predict(model_, loader)
+    preds_torch = cast(list[torch.Tensor], trainer.predict(model_, loader))
     preds = pd.DataFrame(
         {
             "long_entry": np.concatenate([p[0].numpy() for p in preds_torch]),
@@ -147,7 +146,7 @@ def main(config):
     # run["dump/labels"].upload(labels_file)
 
     # パーセンタイルとリフトを計算
-    preds_binary: dict[PredName, dict[float, np.ndarray]] = {}
+    preds_binary: dict[str, dict[float, NDArray[np.float32]]] = {}
     for label_name in preds.columns:
         if "entry" in label_name:
             percentile_list = config.percentile_entry_list

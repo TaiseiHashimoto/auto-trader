@@ -30,7 +30,7 @@ class FeatureConfig:
     start_hour: int = 2
     end_hour: int = 22
 
-    def __post_init__(self):
+    def __post_init__(self) -> None:
         assert "1min" in self.timeframes
         assert self.sma_window_size_center in self.sma_window_sizes
 

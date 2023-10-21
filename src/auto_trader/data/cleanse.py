@@ -1,5 +1,6 @@
 import glob
 import os
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -14,7 +15,7 @@ def read_raw_data(
     raw_data_dir: str,
     yyyymm: int,
     convert_timezone: bool = True,
-):
+) -> pd.DataFrame:
     """
     Dukascopy から取得した生データを読み込む
     """
@@ -53,15 +54,16 @@ def read_raw_data(
     return df
 
 
-def remove_flat_data(df: pd.DataFrame):
+def remove_flat_data(df: pd.DataFrame) -> pd.DataFrame:
     """
     フラット期間を除去する
     フラット期間: 土日全日・1/1 全日・12/25 10:00~
     """
+    index = cast(pd.DatetimeIndex, df.index)
     mask = (
-        (df.index.dayofweek < 5)
-        & ~((df.index.month == 1) & (df.index.day == 1))
-        & ~((df.index.month == 12) & (df.index.day == 25) & (df.index.hour >= 10))
+        (index.dayofweek < 5)
+        & ~((index.month == 1) & (index.day == 1))
+        & ~((index.month == 12) & (index.day == 25) & (index.hour >= 10))
     )
     return df.loc[mask]
 
@@ -122,7 +124,7 @@ def validate_data(df: pd.DataFrame, symbol: str) -> None:
     assert (extreme_value_mask.sum() == 0).all()
 
 
-def main(config):
+def main(config: CleanseConfig) -> None:
     os.makedirs(config.cleansed_data_dir, exist_ok=True)
 
     if config.recreate_latest:

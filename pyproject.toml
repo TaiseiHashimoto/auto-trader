@@ -11,6 +11,7 @@ dependencies = [
     "fastparquet",
     "torch",
     "lightning",
+    "scikit-learn",
     "tqdm",
 ]
 
@@ -23,6 +24,15 @@ dev = [
     "mypy",
     "pytest",
     "pytest-mock", # to be deleted?
+    "pandas-stubs",
+    "types-Pillow",
+    "types-PyYAML",
+    "types-colorama",
+    "types-protobuf",
+    "types-regex",
+    "types-setuptools",
+    "types-tabulate",
+    "types-tqdm",
 ]
 
 [tool.isort]
@@ -31,3 +41,13 @@ profile = "black"
 [tool.flake8]
 max-line-length = 88
 extend-ignore = ["E203"]
+
+[tool.mypy]
+strict = true
+
+[[tool.mypy.overrides]]
+module = [
+    "neptune",
+    "sklearn.*",
+]
+ignore_missing_imports = true

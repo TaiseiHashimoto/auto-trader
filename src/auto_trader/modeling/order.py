@@ -20,19 +20,20 @@ class Order:
         self.position_type = position_type
         self.entry_time = entry_time
         self.entry_rate = entry_rate
-        self.exit_time = None
-        self.exit_rate = None
+        self.exit_time: Optional[datetime] = None
+        self.exit_rate: Optional[float] = None
 
     def exit(
         self,
         exit_time: datetime,
         exit_rate: float,
-    ):
+    ) -> None:
         self.exit_time = exit_time
         self.exit_rate = exit_rate
 
     @property
-    def gain(self):
+    def gain(self) -> float:
+        assert self.exit_rate is not  None
         rate_diff = self.exit_rate - self.entry_rate
         if self.position_type == PositionType.LONG:
             return rate_diff
@@ -59,8 +60,8 @@ class OrderSimulator:
         self.start_hour = start_hour
         self.end_hour = end_hour
         self.thresh_loss_cut = thresh_loss_cut
-        self.order_history = []
-        self.open_position = None
+        self.order_history: list[Order] = []
+        self.open_position: Optional[Order] = None
 
     def step(
         self,
@@ -70,7 +71,7 @@ class OrderSimulator:
         short_entry: bool,
         long_exit: bool,
         short_exit: bool,
-    ):
+    ) -> None:
         is_open = (self.start_hour <= dt.hour < self.end_hour) and (
             dt.month,
             dt.day,
@@ -78,14 +79,14 @@ class OrderSimulator:
 
         # 決済する条件: ポジションをもっている and (取引時間外 or モデルが決済を選択 or 損切り)
         if (
-            self._has_position(PositionType.LONG)
+            self.open_position is not None and self.open_position.position_type == PositionType.LONG
             and (
                 not is_open
                 or long_exit
                 or self.open_position.entry_rate - rate >= self.thresh_loss_cut
             )
         ) or (
-            self._has_position(PositionType.SHORT)
+            self.open_position is not None and self.open_position.position_type == PositionType.SHORT
             and (
                 not is_open
                 or short_exit
@@ -96,20 +97,13 @@ class OrderSimulator:
             self.order_history.append(self.open_position)
             self.open_position = None
 
-        if is_open:
-            if not self._has_position() and long_entry:
-                self.open_position = Order(PositionType.LONG, dt, rate)
-            if not self._has_position() and short_entry:
-                self.open_position = Order(PositionType.SHORT, dt, rate)
+        # TODO: 例えば long を同時刻に exit -> entry がないように、戦略を扱うクラスが必要
 
-    def _has_position(self, position_type: Optional[PositionType] = None) -> bool:
-        if position_type is None:
-            return self.open_position is not None
-        else:
-            return (
-                self.open_position is not None
-                and self.open_position.position_type == position_type
-            )
+        if is_open and self.open_position is None:
+            if long_entry:
+                self.open_position = Order(PositionType.LONG, dt, rate)
+            if short_entry:
+                self.open_position = Order(PositionType.SHORT, dt, rate)
 
     def export_results(self) -> pd.DataFrame:
         return pd.DataFrame(

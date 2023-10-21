@@ -1,8 +1,11 @@
+from typing import Callable, cast
+
 import lightning.pytorch as pl
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from numpy.typing import NDArray
 
 from auto_trader.modeling import data
 
@@ -18,19 +21,19 @@ def build_conv_layer(
     if len(out_channels) != len(kernel_sizes):
         raise ValueError("Number of channels and kernel sizes must be the same.")
 
-    layers = []
+    layers: list[nn.Module] = []
     size = window_size
-    for out_channels, kernel_size in zip(out_channels, kernel_sizes):
-        layers.append(nn.Conv1d(in_channel, out_channels, kernel_size, padding="same"))
+    for out_channel, kernel_size in zip(out_channels, kernel_sizes):
+        layers.append(nn.Conv1d(in_channel, out_channel, kernel_size, padding="same"))
         if batchnorm:
-            layers.append(nn.BatchNorm1d(out_channels))
+            layers.append(nn.BatchNorm1d(out_channel))
         layers.append(nn.ReLU())
         if dropout > 0:
             layers.append(nn.Dropout(dropout))
         layers.append(nn.MaxPool1d(kernel_size=2))
 
         size = size // 2
-        in_channel = out_channels
+        in_channel = out_channel
 
     return nn.Sequential(*layers), size
 
@@ -41,8 +44,8 @@ def build_fc_layer(
     batchnorm: bool,
     dropout: float,
     output_dim: int,
-):
-    layers = []
+) -> nn.Sequential:
+    layers: list[nn.Module] = []
     for hidden_dim in hidden_dims:
         layers.append(nn.Linear(in_dim, hidden_dim))
         if batchnorm:
@@ -74,7 +77,7 @@ class BaseNet(nn.Module):
     ):
         super().__init__()
 
-        self.normalize_funs: dict[str, callable[[torch.Tensor], torch.Tensor]] = {}
+        self.normalize_funs: dict[str, Callable[[torch.Tensor], torch.Tensor]] = {}
         self.embed_layers = nn.ModuleDict()
         emb_output_dim = 0
         for name, info in feature_info.items():
@@ -124,7 +127,7 @@ class BaseNet(nn.Module):
         x = x.reshape(x.shape[0], -1)
         x = F.relu(x)
         # (batch, output_dim)
-        return self.fc_layer(x)
+        return cast(torch.Tensor, self.fc_layer(x))
 
 
 class Net(nn.Module):
@@ -180,7 +183,7 @@ class Net(nn.Module):
 
         x = torch.cat(base_outputs, dim=1)
         x = F.relu(x)
-        return self.head(x)
+        return cast(torch.Tensor, self.head(x))
 
 
 class Model(pl.LightningModule):
@@ -208,7 +211,8 @@ class Model(pl.LightningModule):
             )
 
     def _to_torch_features(
-        self, features_np: dict[data.Timeframe, dict[data.FeatureName, np.ndarray]]
+        self,
+        features_np: dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
     ) -> dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]:
         features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]] = {}
 
@@ -234,12 +238,12 @@ class Model(pl.LightningModule):
 
         return features_torch
 
-    def _to_torch_lift(self, lift: np.ndarray) -> torch.Tensor:
+    def _to_torch_lift(self, lift: NDArray[np.float32]) -> torch.Tensor:
         return torch.from_numpy(lift)
 
     def _predict_prob(
         self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
-    ) -> tuple[torch.Tensor, torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         pred = self.net(features_torch)
         prob_long_entry = torch.sigmoid(pred[:, 0])
         prob_long_exit = torch.sigmoid(pred[:, 1])
@@ -248,8 +252,9 @@ class Model(pl.LightningModule):
         return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
 
     def _calc_binary_entropy(self, prob: torch.Tensor) -> torch.Tensor:
-        return -(
-            prob * torch.log(prob + 1e-9) + (1 - prob) * torch.log(1 - prob + 1e-9)
+        return cast(
+            torch.Tensor,
+            -(prob * torch.log(prob + 1e-9) + (1 - prob) * torch.log(1 - prob + 1e-9)),
         )
 
     def _calc_loss(
@@ -302,7 +307,8 @@ class Model(pl.LightningModule):
     def training_step(
         self,
         batch: tuple[
-            dict[data.Timeframe, dict[data.FeatureName, np.ndarray]], np.ndarray
+            dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
+            NDArray[np.float32],
         ],
         batch_idx: int,
     ) -> torch.Tensor:
@@ -326,7 +332,8 @@ class Model(pl.LightningModule):
     def validation_step(
         self,
         batch: tuple[
-            dict[data.Timeframe, dict[data.FeatureName, np.ndarray]], np.ndarray
+            dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
+            NDArray[np.float32],
         ],
         batch_idx: int,
     ) -> None:
@@ -349,9 +356,11 @@ class Model(pl.LightningModule):
 
     def predict_step(
         self,
-        batch: tuple[dict[data.Timeframe, dict[data.FeatureName, np.ndarray]], None],
+        batch: tuple[
+            dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]], None
+        ],
         batch_idx: int,
-    ) -> tuple[torch.Tensor]:
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         features_np, _ = batch
         features_torch = self._to_torch_features(features_np)
         (

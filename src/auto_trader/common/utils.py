@@ -27,7 +27,7 @@ def get_pip_scale(symbol: str) -> float:
     return 0.01 if symbol == "usdjpy" else 0.0001
 
 
-def set_random_seed(seed: int):
+def set_random_seed(seed: int) -> None:
     np.random.seed(seed)
     torch.manual_seed(seed)
     random.seed(seed)

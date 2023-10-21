@@ -4,7 +4,7 @@ from omegaconf import MISSING
 
 
 @dataclass
-class RawConfig:
+class CollectConfig:
     symbol: str = "usdjpy"
     raw_data_dir: str = "./raw"
     yyyymm_begin: int = MISSING

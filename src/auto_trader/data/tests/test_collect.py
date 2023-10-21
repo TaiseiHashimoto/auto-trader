@@ -7,7 +7,7 @@ from auto_trader.data import collect
 
 
 @patch("auto_trader.data.collect.execute_command")
-def test_main(execute_command_mock: MagicMock, tmp_path: Path):
+def test_main(execute_command_mock: MagicMock, tmp_path: Path) -> None:
     config = OmegaConf.create(
         {
             "symbol": "usdjpy",

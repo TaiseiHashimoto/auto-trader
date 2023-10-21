@@ -10,17 +10,17 @@ from pathlib import Path
 from omegaconf import OmegaConf
 
 from auto_trader.common import utils
-from auto_trader.data.config import RawConfig
+from auto_trader.data.config import CollectConfig
 
 
-def execute_command(cmd):
+def execute_command(cmd: str) -> None:
     print(f"Execute command `{cmd}`")
     result = subprocess.run(cmd, shell=True, text=True, capture_output=True)
     if result.returncode != 0:
         raise RuntimeError(result.stderr)
 
 
-def main(config):
+def main(config: CollectConfig) -> None:
     # 古いデータは粒度が粗いので使わない
     if config.yyyymm_begin < 201008:
         raise RuntimeError("Trying to get too old data")
@@ -81,7 +81,7 @@ def main(config):
 
 
 if __name__ == "__main__":
-    base_config = OmegaConf.structured(RawConfig)
+    base_config = OmegaConf.structured(CollectConfig)
     cli_config = OmegaConf.from_cli()
     config = OmegaConf.merge(base_config, cli_config)
     print(OmegaConf.to_yaml(config))

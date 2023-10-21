@@ -8,7 +8,7 @@ from auto_trader.modeling import order
 
 
 class TestOrder:
-    def test_gain(self):
+    def test_gain(self) -> None:
         order_long = order.Order(
             position_type=order.PositionType.LONG,
             entry_time=datetime(2023, 1, 1, 10, 0, 0),
@@ -33,7 +33,7 @@ class TestOrder:
 
 
 class TestOrderSimulator:
-    def test_step(self):
+    def test_step(self) -> None:
         index = pd.date_range("2023-01-03 00:00:00", "2023-01-03 23:59:59", freq="1min")
 
         # rate = [719, 718, ..., 1, 0, 0, 1, ..., 718, 719]
@@ -137,14 +137,13 @@ class TestOrderSimulator:
         for i in range(len(index)):
             simulator.step(
                 index[i],
-                order_df["rate"][i],
-                order_df["long_entry"][i],
-                order_df["short_entry"][i],
-                order_df["long_exit"][i],
-                order_df["short_exit"][i],
+                order_df["rate"].iloc[i],
+                order_df["long_entry"].iloc[i],
+                order_df["short_entry"].iloc[i],
+                order_df["long_exit"].iloc[i],
+                order_df["short_exit"].iloc[i],
             )
 
-        expected = pd.DataFrame(expected)
-        actual = simulator.export_results()
-
-        pd.testing.assert_frame_equal(expected, actual)
+        pd.testing.assert_frame_equal(
+            pd.DataFrame(expected), simulator.export_results()
+        )

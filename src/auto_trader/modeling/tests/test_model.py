@@ -3,7 +3,7 @@ import torch.nn as nn
 from auto_trader.modeling import model
 
 
-def test_build_cnn_layer():
+def test_build_cnn_layer() -> None:
     conv_layer, output_size = model.build_conv_layer(
         window_size=10,
         in_channel=2,
@@ -47,7 +47,7 @@ def test_build_cnn_layer():
     assert output_size == (10 // 2 // 2)
 
 
-def test_build_fc_layer():
+def test_build_fc_layer() -> None:
     fc_layer = model.build_fc_layer(
         in_dim=10,
         hidden_dims=[20, 30],

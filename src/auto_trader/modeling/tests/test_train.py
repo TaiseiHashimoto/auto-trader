@@ -10,7 +10,7 @@ from auto_trader.modeling.config import TrainConfig
 
 
 @pytest.mark.skip(reason="called by test_evaluate.test_main")
-def test_main(tmp_path: Path):
+def test_main(tmp_path: Path) -> None:
     config = OmegaConf.merge(
         OmegaConf.structured(TrainConfig),
         OmegaConf.create(

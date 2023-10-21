@@ -15,14 +15,11 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install .[dev]
-      - name: Change directory
-        run: |
-          cd src/auto_trader
       - name: Lint
         run: |
-          black --check .
-          isort --check .
-          pflake8 .
+          black --check src
+          isort --check src
+          pflake8 src
       - name: Test
         run: |
-          pytest
+          pytest src
