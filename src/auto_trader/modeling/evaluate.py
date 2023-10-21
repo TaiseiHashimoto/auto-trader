@@ -22,6 +22,114 @@ from auto_trader.modeling import data, model, order
 from auto_trader.modeling.config import EvalConfig
 
 
+def get_binary_pred(
+    pred: NDArray[np.float32], percentile: float
+) -> NDArray[np.bool_]:
+    return pred > np.percentile(pred, percentile)
+
+
+def calc_metrics(
+    config: EvalConfig,
+    rates: "pd.Series[float]",
+    lift: "pd.Series[float]",
+    preds: pd.DataFrame,
+    run: neptune.Run,
+) -> None:
+    PERCENTILES = [0, 5, 10, 25, 50, 75, 90, 95, 100]
+    for label_name in preds.columns:
+        pred = cast(NDArray[np.float32], preds[label_name].values)
+        run[f"stats/score_percentile/{label_name}"] = {
+            str(p): np.percentile(pred, p) for p in PERCENTILES
+        }
+
+        if "entry" in label_name:
+            percentile_list = config.percentile_entry_list
+            lift_binary = (lift.loc[preds.index] > config.simulation.spread).values
+        elif "exit" in label_name:
+            percentile_list = config.percentile_exit_list
+            lift_binary = (lift.loc[preds.index] < 0).values
+        else:
+            assert False
+
+        run[f"stats/roc_auc/{label_name}"] = roc_auc_score(lift_binary, pred)
+        run[f"stats/pr_auc/{label_name}"] = average_precision_score(lift_binary, pred)
+
+        for percentile in percentile_list:
+            pred_binary = get_binary_pred(pred, percentile)
+            run[f"stats/precision/{label_name}/{percentile}"] = precision_score(
+                lift_binary, pred_binary
+            )
+            run[f"stats/recall/{label_name}/{percentile}"] = recall_score(
+                lift_binary, pred_binary
+            )
+
+            for future_step in [5, 10, 20, 30, 60]:
+                rates_diff = rates.shift(-future_step) - rates
+                run[f"lift/{label_name}/{percentile}/{future_step}"] = rates_diff[
+                    pred_binary
+                ].mean()
+
+
+def run_simulations(
+    config: EvalConfig, rates: "pd.Series[float]", preds: pd.DataFrame, run: neptune.Run
+) -> None:
+    os.makedirs(config.output_dir, exist_ok=True)
+
+    params_list = list(
+        itertools.product(config.percentile_entry_list, config.percentile_exit_list)
+    )
+    for percentile_entry, percentile_exit in tqdm(params_list):
+        pred_binary_long_entry = get_binary_pred(
+            cast(NDArray[np.float32], preds["long_entry"].values), percentile_entry
+        )
+        pred_binary_long_exit = get_binary_pred(
+            cast(NDArray[np.float32], preds["long_exit"].values), percentile_exit
+        )
+        pred_binary_short_entry = get_binary_pred(
+            cast(NDArray[np.float32], preds["short_entry"].values), percentile_entry
+        )
+        pred_binary_short_exit = get_binary_pred(
+            cast(NDArray[np.float32], preds["short_exit"].values), percentile_exit
+        )
+
+        simulator = order.OrderSimulator(
+            config.simulation.start_hour,
+            config.simulation.end_hour,
+            config.simulation.thresh_loss_cut,
+        )
+        for i, timestamp in enumerate(rates.index):
+            simulator.step(
+                timestamp,
+                rates.iloc[i],
+                pred_binary_long_entry[i],
+                pred_binary_short_entry[i],
+                pred_binary_long_exit[i],
+                pred_binary_short_exit[i],
+            )
+
+        profits = (
+            np.array([order.gain for order in simulator.order_history])
+            - config.simulation.spread
+        )
+        durations = np.array([order.duration for order in simulator.order_history])
+
+        param_str = f"{percentile_entry},{percentile_exit}"
+        run[f"simulation/num_order/{param_str}"] = len(profits)
+        if len(profits) > 0:
+            run[f"simulation/profit_per_trade/{param_str}"] = profits.mean()
+            days = (rates.index[-1] - rates.index[0]).days * (5 / 7)
+            run[f"simulation/profit_per_day/{param_str}"] = profits.sum() / days
+            run[f"simulation/duration/min/{param_str}"] = durations.min()
+            run[f"simulation/duration/max/{param_str}"] = durations.max()
+            run[f"simulation/duration/mean/{param_str}"] = durations.mean()
+            run[f"simulation/duration/median/{param_str}"] = np.median(durations)
+
+        results = simulator.export_results()
+        results_path = f"{config.output_dir}/results_{param_str}.csv"
+        results.to_csv(results_path, index=False)
+        run[f"simulation/results/{param_str}"].upload(results_path)
+
+
 def main(config: EvalConfig) -> None:
     run = neptune.init_run(
         project=config.neptune.project,
@@ -77,11 +185,6 @@ def main(config: EvalConfig) -> None:
         train_config.feature.end_hour,
     )
 
-    # # 学習に使われたデータを削除
-    # if train_run is not None:
-    #     train_last_timestamp = train_run["data/last_timestamp"].fetch()
-    #     base_index = base_index[base_index > train_last_timestamp]
-
     print(f"Evaluation period: {base_index[0]} ~ {base_index[-1]}")
     run["data/size"] = len(base_index)
     run["data/first_timestamp"] = str(base_index[0])
@@ -125,117 +228,29 @@ def main(config: EvalConfig) -> None:
             "short_exit": np.concatenate([p[3].numpy() for p in preds_torch]),
         },
         index=base_index,
+        dtype=np.float32,
     )
 
-    # 予測スコアのパーセンタイルを計算
-    PERCENTILES = [0, 5, 10, 25, 50, 75, 90, 95, 100]
-    for label_name in preds.columns:
-        pred = preds.loc[base_index, label_name].values
-        run[f"stats/score_percentile/{label_name}"] = {
-            str(p): np.percentile(pred, p) for p in PERCENTILES
-        }
-
-    os.makedirs(config.output_dir, exist_ok=True)
-
-    # # ラベルとスコアの CSV をアップロード（分析用）
-    # scores_file = f"{config.output_dir}/scores.csv"
-    # labels_file = f"{config.output_dir}/labels.csv"
-    # preds.to_csv(scores_file)
-    # df_y.to_csv(labels_file)
-    # run["dump/scores"].upload(scores_file)
-    # run["dump/labels"].upload(labels_file)
-
-    # パーセンタイルとリフトを計算
-    preds_binary: dict[str, dict[float, NDArray[np.float32]]] = {}
-    for label_name in preds.columns:
-        if "entry" in label_name:
-            percentile_list = config.percentile_entry_list
-            label_binary = lift > config.simulation.spread
-        else:
-            percentile_list = config.percentile_exit_list
-            label_binary = lift < 0
-
-        preds_binary[label_name] = {}
-        for percentile in percentile_list:
-            p = np.percentile(preds.loc[base_index, label_name].values, percentile)
-            pred_binary = preds[label_name] >= p
-            preds_binary[label_name][percentile] = pred_binary.values
-
-            y_true = label_binary.loc[base_index].values
-            y_pred = pred_binary.loc[base_index].values
-            run[f"stats/precision/{label_name}/{percentile}"] = precision_score(
-                y_true, y_pred
-            )
-            run[f"stats/recall/{label_name}/{percentile}"] = recall_score(
-                y_true, y_pred
-            )
-            run[f"stats/roc_auc/{label_name}/{percentile}"] = roc_auc_score(
-                y_true, y_pred
-            )
-            run[f"stats/pr_auc/{label_name}/{percentile}"] = average_precision_score(
-                y_true, y_pred
-            )
-
-            rates = df_base.loc[base_index, config.simulation.timing]
-            for future_step in [5, 10, 20, 30, 60]:
-                rates_diff = rates.shift(-future_step) - rates
-                run[f"lift/{label_name}/{percentile}/{future_step}"] = rates_diff[
-                    pred_binary
-                ].mean()
-
-    # シミュレーション
-    rates = df_base.loc[base_index, config.simulation.timing].values
-    params_list = list(
-        itertools.product(config.percentile_entry_list, config.percentile_exit_list)
+    rates = df_base.loc[base_index, config.simulation.timing]
+    calc_metrics(
+        config=config,
+        rates=rates,
+        lift=lift,
+        preds=preds,
+        run=run,
     )
-    for percentile_entry, percentile_exit in tqdm(params_list):
-        simulator = order.OrderSimulator(
-            config.simulation.start_hour,
-            config.simulation.end_hour,
-            config.simulation.thresh_loss_cut,
-        )
-        for i, timestamp in enumerate(base_index):
-            simulator.step(
-                timestamp,
-                rates[i],
-                preds_binary["long_entry"][percentile_entry][i],
-                preds_binary["short_entry"][percentile_entry][i],
-                preds_binary["long_exit"][percentile_exit][i],
-                preds_binary["short_exit"][percentile_exit][i],
-            )
-
-        profits = (
-            np.array([order.gain for order in simulator.order_history])
-            - config.simulation.spread
-        )
-        durations = np.array(
-            [
-                (order.exit_time - order.entry_time).total_seconds() / 60
-                for order in simulator.order_history
-            ]
-        )
-
-        param_str = f"{percentile_entry},{percentile_exit}"
-        run[f"simulation/num_order/{param_str}"] = len(profits)
-        if len(profits) > 0:
-            run[f"simulation/profit_per_trade/{param_str}"] = profits.mean()
-            days = (base_index[-1] - base_index[0]).days * (5 / 7)
-            run[f"simulation/profit_per_day/{param_str}"] = profits.sum() / days
-            run[f"simulation/duration/min/{param_str}"] = durations.min()
-            run[f"simulation/duration/max/{param_str}"] = durations.max()
-            run[f"simulation/duration/mean/{param_str}"] = durations.mean()
-            run[f"simulation/duration/median/{param_str}"] = np.median(durations)
-
-        results = simulator.export_results()
-        results_path = f"{config.output_dir}/results_{param_str}.csv"
-        results.to_csv(results_path, index=False)
-        run[f"simulation/results/{param_str}"].upload(results_path)
+    run_simulations(
+        config=config,
+        rates=rates,
+        preds=preds,
+        run=run,
+    )
 
 
 if __name__ == "__main__":
     base_config = OmegaConf.structured(EvalConfig)
     cli_config = OmegaConf.from_cli()
-    config = OmegaConf.merge(base_config, cli_config)
+    config = cast(EvalConfig, OmegaConf.merge(base_config, cli_config))
     print(OmegaConf.to_yaml(config))
     assert config.train_run_id != "" or config.params_file != ""
 

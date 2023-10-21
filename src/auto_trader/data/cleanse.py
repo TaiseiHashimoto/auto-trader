@@ -168,7 +168,10 @@ def main(config: CleanseConfig) -> None:
             del raw_data_buffer[yyyymm_prev]
 
             # 当月データを抽出
-            df = df_source.loc[utils.parse_yyyymm(yyyymm).strftime("%Y-%m")]
+            df = cast(
+                pd.DataFrame,
+                df_source.loc[utils.parse_yyyymm(yyyymm).strftime("%Y-%m")],
+            )
             df = remove_flat_data(df)
 
             if config.validate:
@@ -182,7 +185,7 @@ def main(config: CleanseConfig) -> None:
 if __name__ == "__main__":
     base_config = OmegaConf.structured(CleanseConfig)
     cli_config = OmegaConf.from_cli()
-    config = OmegaConf.merge(base_config, cli_config)
+    config = cast(CleanseConfig, OmegaConf.merge(base_config, cli_config))
     print(OmegaConf.to_yaml(config))
 
     main(config)

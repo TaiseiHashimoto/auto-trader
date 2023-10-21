@@ -1,4 +1,5 @@
 import os
+from typing import cast
 
 import lightning.pytorch as pl
 import numpy as np
@@ -136,7 +137,7 @@ def main(config: TrainConfig) -> None:
 if __name__ == "__main__":
     base_config = OmegaConf.structured(TrainConfig)
     cli_config = OmegaConf.from_cli()
-    config = OmegaConf.merge(base_config, cli_config)
+    config = cast(TrainConfig, OmegaConf.merge(base_config, cli_config))
     print(OmegaConf.to_yaml(config))
 
     utils.set_random_seed(config.random_seed)

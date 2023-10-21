@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -11,28 +12,31 @@ from auto_trader.modeling.config import TrainConfig
 
 @pytest.mark.skip(reason="called by test_evaluate.test_main")
 def test_main(tmp_path: Path) -> None:
-    config = OmegaConf.merge(
-        OmegaConf.structured(TrainConfig),
-        OmegaConf.create(
-            {
-                "output_dir": str(tmp_path / "output"),
-                "max_epochs": 1,
-                "neptune": {"mode": "debug"},
-                "data": {
-                    "symbol": "usdjpy",
-                    "cleansed_data_dir": str(tmp_path / "cleansed"),
-                    "yyyymm_begin": 202301,
-                    "yyyymm_end": 202301,
-                },
-                "net": {
-                    "numerical_emb_dim": 1,
-                    "categorical_emb_dim": 1,
-                    "base_cnn_out_channels": [10],
-                    "base_cnn_kernel_sizes": [5],
-                    "base_fc_hidden_dims": [4],
-                    "head_hidden_dims": [2],
-                },
-            }
+    config = cast(
+        TrainConfig,
+        OmegaConf.merge(
+            OmegaConf.structured(TrainConfig),
+            OmegaConf.create(
+                {
+                    "output_dir": str(tmp_path / "output"),
+                    "max_epochs": 1,
+                    "neptune": {"mode": "debug"},
+                    "data": {
+                        "symbol": "usdjpy",
+                        "cleansed_data_dir": str(tmp_path / "cleansed"),
+                        "yyyymm_begin": 202301,
+                        "yyyymm_end": 202301,
+                    },
+                    "net": {
+                        "numerical_emb_dim": 1,
+                        "categorical_emb_dim": 1,
+                        "base_cnn_out_channels": [10],
+                        "base_cnn_kernel_sizes": [5],
+                        "base_fc_hidden_dims": [4],
+                        "head_hidden_dims": [2],
+                    },
+                }
+            ),
         ),
     )
 

@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -18,7 +19,7 @@ def test_read_cleansed_data(tmp_path: Path) -> None:
         symbol="usdjpy",
         yyyymm_begin=202301,
         yyyymm_end=202302,
-        cleansed_data_dir=tmp_path,
+        cleansed_data_dir=str(tmp_path),
     )
 
     df_expected = pd.concat([df_202301, df_202302], axis=0)
@@ -77,7 +78,7 @@ def test_resample() -> None:
 
 
 def test_calc_sma() -> None:
-    s = pd.Series([0, 4, 2, 3, 6, 4, 6, 9], dtype=np.float32)
+    s = pd.Series([0.0, 4.0, 2.0, 3.0, 6.0, 4.0, 6.0, 9.0], dtype=np.float32)
     actual_result = data.calc_sma(s, window_size=4)
     expected_result = pd.Series(
         [
@@ -96,7 +97,7 @@ def test_calc_sma() -> None:
 
 
 def test_calc_sigma() -> None:
-    s = pd.Series([0, 4, 2, 3, 6, 4, 6, 9])
+    s = pd.Series([0.0, 4.0, 2.0, 3.0, 6.0, 4.0, 6.0, 9.0], dtype=np.float32)
     actual_result = data.calc_sigma(s, window_size=4)
     expected_result = pd.Series(
         [
@@ -177,7 +178,7 @@ def test_create_features() -> None:
 
 
 def test_calc_lift() -> None:
-    value_base = pd.Series([1, 2, 3, 4, 5], dtype=np.float32)
+    value_base = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
     actual = data.calc_lift(value_base, alpha=0.1)
     expected = pd.Series(
         [
@@ -195,28 +196,39 @@ def test_calc_lift() -> None:
 
 
 def test_calc_available_index_nan() -> None:
-    features = {
-        "1min": {
-            "rel": pd.DataFrame(
-                {"x": [0] * 20},
-                index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:19", freq="1min"),
-            ),
-            "abs": pd.DataFrame(
-                {"y": [0] * 20},
-                index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:19", freq="1min"),
-            ),
+    features = cast(
+        dict[data.Timeframe, dict[data.FeatureType, pd.DataFrame]],
+        {
+            "1min": {
+                "rel": pd.DataFrame(
+                    {"x": [0] * 20},
+                    index=pd.date_range(
+                        "2023-1-1 00:00", "2023-1-1 00:19", freq="1min"
+                    ),
+                ),
+                "abs": pd.DataFrame(
+                    {"y": [0] * 20},
+                    index=pd.date_range(
+                        "2023-1-1 00:00", "2023-1-1 00:19", freq="1min"
+                    ),
+                ),
+            },
+            "5min": {
+                "rel": pd.DataFrame(
+                    {"x": [0] * 4},
+                    index=pd.date_range(
+                        "2023-1-1 00:00", "2023-1-1 00:19", freq="5min"
+                    ),
+                ),
+                "abs": pd.DataFrame(
+                    {"y": [np.nan] + [0] * 3},
+                    index=pd.date_range(
+                        "2023-1-1 00:00", "2023-1-1 00:19", freq="5min"
+                    ),
+                ),
+            },
         },
-        "5min": {
-            "rel": pd.DataFrame(
-                {"x": [0] * 4},
-                index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:19", freq="5min"),
-            ),
-            "abs": pd.DataFrame(
-                {"y": [np.nan] + [0] * 3},
-                index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:19", freq="5min"),
-            ),
-        },
-    }
+    )
     lift = pd.Series(
         [0] * 19 + [np.nan],
         index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:19", freq="1min"),
@@ -230,44 +242,57 @@ def test_calc_available_index_nan() -> None:
 
 def test_dataloader() -> None:
     base_index = pd.date_range("2023-1-1 00:02", "2023-1-1 00:05", freq="1min")
-    features = {
-        "1min": {
-            "rel": pd.DataFrame(
-                {
-                    "sma5": np.array([0.0, 1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32),
-                    "x": np.array(
-                        [-0.0, -1.0, -2.0, -3.0, -4.0, -5.0], dtype=np.float32
+    features = cast(
+        dict[data.Timeframe, dict[data.FeatureType, pd.DataFrame]],
+        {
+            "1min": {
+                "rel": pd.DataFrame(
+                    {
+                        "sma5": np.array(
+                            [0.0, 1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32
+                        ),
+                        "x": np.array(
+                            [-0.0, -1.0, -2.0, -3.0, -4.0, -5.0], dtype=np.float32
+                        ),
+                    },
+                    index=pd.date_range(
+                        "2023-1-1 00:00", "2023-1-1 00:05", freq="1min"
                     ),
-                },
-                index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:05", freq="1min"),
-            ),
-            "abs": pd.DataFrame(
-                {
-                    "sigma": np.array(
-                        [10.0, 11.0, 12.0, 13.0, 14.0, 15.0], dtype=np.float32
+                ),
+                "abs": pd.DataFrame(
+                    {
+                        "sigma": np.array(
+                            [10.0, 11.0, 12.0, 13.0, 14.0, 15.0], dtype=np.float32
+                        ),
+                        "minute": np.array([0, 1, 2, 3, 4, 5], dtype=np.int64),
+                    },
+                    index=pd.date_range(
+                        "2023-1-1 00:00", "2023-1-1 00:05", freq="1min"
                     ),
-                    "minute": np.array([0, 1, 2, 3, 4, 5], dtype=np.int64),
-                },
-                index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:05", freq="1min"),
-            ),
+                ),
+            },
+            "2min": {
+                "rel": pd.DataFrame(
+                    {
+                        "sma5": np.array([0.5, 1.5, 2.5], dtype=np.float32),
+                        "x": np.array([-0.5, -1.5, -2.5], dtype=np.float32),
+                    },
+                    index=pd.date_range(
+                        "2023-1-1 00:00", "2023-1-1 00:05", freq="2min"
+                    ),
+                ),
+                "abs": pd.DataFrame(
+                    {
+                        "sigma": np.array([10.5, 11.5, 12.5], dtype=np.float32),
+                        "minute": np.array([0, 2, 4], dtype=np.int64),
+                    },
+                    index=pd.date_range(
+                        "2023-1-1 00:00", "2023-1-1 00:05", freq="2min"
+                    ),
+                ),
+            },
         },
-        "2min": {
-            "rel": pd.DataFrame(
-                {
-                    "sma5": np.array([0.5, 1.5, 2.5], dtype=np.float32),
-                    "x": np.array([-0.5, -1.5, -2.5], dtype=np.float32),
-                },
-                index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:05", freq="2min"),
-            ),
-            "abs": pd.DataFrame(
-                {
-                    "sigma": np.array([10.5, 11.5, 12.5], dtype=np.float32),
-                    "minute": np.array([0, 2, 4], dtype=np.int64),
-                },
-                index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:05", freq="2min"),
-            ),
-        },
-    }
+    )
     lift = pd.Series(
         [100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
         index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:05", freq="1min"),

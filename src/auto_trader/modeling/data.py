@@ -168,7 +168,7 @@ class DataLoader:
         self,
         base_index: pd.DatetimeIndex,
         features: dict[str, dict[FeatureType, pd.DataFrame]],
-        lift: Optional[pd.DataFrame],
+        lift: Optional["pd.Series[float]"],
         hist_len: int,
         sma_window_size_center: int,
         batch_size: int,
@@ -201,7 +201,7 @@ class DataLoader:
             index_timeframe = index.floor(freq=timeframe)
             index_dict[timeframe] = self.features[timeframe]["rel"].index.get_indexer(
                 index_timeframe
-            )
+            )  # type: ignore
 
         row_count = 0
         while row_count < len(index):
@@ -225,7 +225,7 @@ class DataLoader:
 
                 features[timeframe] = {}
                 for feature_type in self.features[timeframe]:
-                    for feature_name in self.features[timeframe][feature_type]:
+                    for feature_name in self.features[timeframe][feature_type].columns:
                         value = (
                             self.features[timeframe][feature_type][feature_name]
                             .values[idx_expanded.flatten()]

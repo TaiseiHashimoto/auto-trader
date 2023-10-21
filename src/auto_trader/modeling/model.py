@@ -147,7 +147,7 @@ class Net(nn.Module):
         base_fc_output_dim: int,
         head_hidden_dims: list[int],
         head_batchnorm: bool,
-        head_dropout: int,
+        head_dropout: float,
     ):
         super().__init__()
 

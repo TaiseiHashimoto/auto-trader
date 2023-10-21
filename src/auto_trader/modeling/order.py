@@ -40,6 +40,11 @@ class Order:
         elif self.position_type == PositionType.SHORT:
             return -rate_diff
 
+    @property
+    def duration(self) -> int:
+        assert self.exit_time is not None
+        return int((self.exit_time - self.entry_time).total_seconds()) // 60
+
     def __repr__(self) -> str:
         gain = None
         if self.exit_rate is not None:
@@ -68,8 +73,8 @@ class OrderSimulator:
         dt: datetime,
         rate: float,
         long_entry: bool,
-        short_entry: bool,
         long_exit: bool,
+        short_entry: bool,
         short_exit: bool,
     ) -> None:
         is_open = (self.start_hour <= dt.hour < self.end_hour) and (

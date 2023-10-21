@@ -1,4 +1,5 @@
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 import pandas as pd
@@ -6,6 +7,7 @@ from omegaconf import OmegaConf
 
 from auto_trader.common import utils
 from auto_trader.data import cleanse
+from auto_trader.data.config import CleanseConfig
 
 
 def test_read_raw_data(tmp_path: Path) -> None:
@@ -37,7 +39,7 @@ def test_read_raw_data(tmp_path: Path) -> None:
 
     df_actual = cleanse.read_raw_data(
         symbol="usdjpy",
-        raw_data_dir=tmp_path,
+        raw_data_dir=str(tmp_path),
         yyyymm=202301,
         convert_timezone=True,
     )
@@ -66,7 +68,7 @@ def test_remove_flat_data() -> None:
     index_org = pd.date_range("2020-12-20 00:00", "2021-1-10 23:59", freq="1min")
     df_org = pd.DataFrame(index=index_org)
     df_actual = cleanse.remove_flat_data(df_org)
-    index_actual = df_actual.index
+    index_actual = cast(pd.DatetimeIndex, df_actual.index)
 
     # 月~金のみを含む
     assert set(index_actual.dayofweek) == {0, 1, 2, 3, 4}
@@ -83,16 +85,22 @@ def test_remove_flat_data() -> None:
 
 
 def test_main(tmp_path: Path) -> None:
-    config = OmegaConf.create(
-        {
-            "symbol": "usdjpy",
-            "raw_data_dir": str(tmp_path / "raw"),
-            "cleansed_data_dir": str(tmp_path / "cleansed"),
-            "yyyymm_begin": 202302,
-            "yyyymm_end": 202302,
-            "recreate_latest": True,
-            "validate": False,
-        }
+    config = cast(
+        CleanseConfig,
+        OmegaConf.merge(
+            OmegaConf.structured(CleanseConfig),
+            OmegaConf.create(
+                {
+                    "symbol": "usdjpy",
+                    "raw_data_dir": str(tmp_path / "raw"),
+                    "cleansed_data_dir": str(tmp_path / "cleansed"),
+                    "yyyymm_begin": 202302,
+                    "yyyymm_end": 202302,
+                    "recreate_latest": True,
+                    "validate": False,
+                }
+            ),
+        ),
     )
 
     timestamp_202301 = (
@@ -159,23 +167,24 @@ def test_main(tmp_path: Path) -> None:
     df_actual = pd.read_parquet(tmp_path / "cleansed" / "usdjpy-202302.parquet")
 
     df_expected = cleanse.remove_flat_data(
-        (
+        cast(
+            pd.DataFrame,
             pd.concat(
                 [
                     cleanse.read_raw_data(
                         symbol="usdjpy",
                         raw_data_dir=str(tmp_path / "raw"),
                         yyyymm=202301,
-                    ),
+                    ).loc["2023-02"],
                     cleanse.read_raw_data(
                         symbol="usdjpy",
                         raw_data_dir=str(tmp_path / "raw"),
                         yyyymm=202302,
-                    ),
+                    ).loc["2023-02"],
                 ]
             )
-            / utils.get_pip_scale("usdjpy")
-        ).loc["2023-02"]
+            / utils.get_pip_scale("usdjpy"),
+        )
     )
     pd.testing.assert_frame_equal(
         df_actual, df_expected, check_names=False, check_freq=False
