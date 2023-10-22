@@ -264,9 +264,10 @@ class Model(pl.LightningModule):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         pred = self.net(features_torch)
         prob_long_entry = torch.sigmoid(pred[:, 0])
-        prob_long_exit = torch.sigmoid(pred[:, 1])
+        # prob_exit = 1 - prob_hold, prob_hold > prob_entry
+        prob_long_exit = 1 - (torch.sigmoid(pred[:, 0] + F.softplus(pred[:, 1])))
         prob_short_entry = torch.sigmoid(pred[:, 2])
-        prob_short_exit = torch.sigmoid(pred[:, 3])
+        prob_short_exit = 1 - (torch.sigmoid(pred[:, 2] + F.softplus(pred[:, 3])))
         return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
 
     def _calc_binary_entropy(self, prob: torch.Tensor) -> torch.Tensor:
@@ -333,19 +334,7 @@ class Model(pl.LightningModule):
         features_np, lift_np = batch
         features_torch = self._to_torch_features(features_np)
         lift_torch = self._to_torch_lift(lift_np)
-        (
-            prob_long_entry,
-            prob_long_exit,
-            prob_short_entry,
-            prob_short_exit,
-        ) = self._predict_prob(features_torch)
-        return self._calc_loss(
-            prob_long_entry,
-            prob_long_exit,
-            prob_short_entry,
-            prob_short_exit,
-            lift_torch,
-        )
+        return self._calc_loss(*self._predict_prob(features_torch), lift_torch)
 
     def validation_step(
         self,
@@ -358,19 +347,8 @@ class Model(pl.LightningModule):
         features_np, lift_np = batch
         features_torch = self._to_torch_features(features_np)
         lift_torch = self._to_torch_lift(lift_np)
-        (
-            prob_long_entry,
-            prob_long_exit,
-            prob_short_entry,
-            prob_short_exit,
-        ) = self._predict_prob(features_torch)
-        _ = self._calc_loss(
-            prob_long_entry,
-            prob_long_exit,
-            prob_short_entry,
-            prob_short_exit,
-            lift_torch,
-        )
+        # ロギング目的
+        _ = self._calc_loss(*self._predict_prob(features_torch), lift_torch)
 
     def predict_step(
         self,
@@ -381,13 +359,7 @@ class Model(pl.LightningModule):
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         features_np, _ = batch
         features_torch = self._to_torch_features(features_np)
-        (
-            prob_long_entry,
-            prob_long_exit,
-            prob_short_entry,
-            prob_short_exit,
-        ) = self._predict_prob(features_torch)
-        return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
+        return self._predict_prob(features_torch)
 
     def on_train_epoch_end(self) -> None:
         metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
