@@ -21,7 +21,7 @@ def test_get_config() -> None:
         child: DummyConfigChild = field(default_factory=DummyConfigChild)
 
     config = utils.get_config(DummyConfig, ["child.val=1"])
-    assert type(config) == DummyConfig
+    assert type(config) is DummyConfig
 
     with pytest.raises(MissingMandatoryValue):
         config = utils.get_config(DummyConfig, [])
