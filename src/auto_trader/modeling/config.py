@@ -9,6 +9,10 @@ class NeptuneConfig:
     project_key: str = "AUT"
     mode: str = "async"
 
+    def __post_init__(self) -> None:
+        if self.mode not in ["async", "debug"]:
+            raise ValueError(f"Unknown mode {self.mode}")
+
 
 @dataclass
 class DataConfig:
@@ -16,6 +20,10 @@ class DataConfig:
     cleansed_data_dir: str = "./cleansed"
     yyyymm_begin: int = MISSING
     yyyymm_end: int = MISSING
+
+    def __post_init__(self) -> None:
+        if self.symbol != MISSING and self.symbol not in ["usdjpy", "eurusd"]:
+            raise ValueError(f"Unknown symbol {self.symbol}")
 
 
 @dataclass
@@ -31,8 +39,14 @@ class FeatureConfig:
     end_hour: int = 22
 
     def __post_init__(self) -> None:
-        assert "1min" in self.timeframes
-        assert self.sma_window_size_center in self.sma_window_sizes
+        if "1min" not in self.timeframes:
+            raise ValueError(f"timeframes {self.timeframes} must include '1min'")
+
+        if self.sma_window_size_center not in self.sma_window_sizes:
+            raise ValueError(
+                f"sma_window_sizes {self.sma_window_sizes} "
+                f"must include sma_window_size_center {self.sma_window_size_center}"
+            )
 
 
 @dataclass
@@ -44,6 +58,7 @@ class LiftConfig:
 class NetConfig:
     numerical_emb_dim: int = 16
     categorical_emb_dim: int = 16
+    periodic_activation_sigma: float = 1.0
     base_cnn_out_channels: list[int] = field(default_factory=lambda: [20, 40, 20])
     base_cnn_kernel_sizes: list[int] = field(default_factory=lambda: [5, 5, 5])
     base_cnn_batchnorm: bool = True
@@ -55,6 +70,18 @@ class NetConfig:
     head_hidden_dims: list[int] = field(default_factory=lambda: [64])
     head_batchnorm: bool = False
     head_dropout: float = 0.0
+
+    def __post_init__(self) -> None:
+        if self.numerical_emb_dim % 2 != 0:
+            raise ValueError(
+                f"numerical_emb_dim must be a even number: {self.numerical_emb_dim}"
+            )
+
+        if len(self.base_cnn_out_channels) != len(self.base_cnn_kernel_sizes):
+            raise ValueError(
+                f"Number of CNN channels and kernel sizes does not match: "
+                f"{self.base_cnn_out_channels} != {self.base_cnn_kernel_sizes}"
+            )
 
 
 @dataclass
@@ -78,13 +105,13 @@ class TrainConfig:
     valid_ratio: float = 0.1
     random_seed: int = 123
 
-    neptune: NeptuneConfig = NeptuneConfig()
-    data: DataConfig = DataConfig()
-    feature: FeatureConfig = FeatureConfig()
-    lift: LiftConfig = LiftConfig()
-    net: NetConfig = NetConfig()
-    loss: LossConfig = LossConfig()
-    optim: OptimConfig = OptimConfig()
+    neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
+    data: DataConfig = field(default_factory=DataConfig)
+    feature: FeatureConfig = field(default_factory=FeatureConfig)
+    lift: LiftConfig = field(default_factory=LiftConfig)
+    net: NetConfig = field(default_factory=NetConfig)
+    loss: LossConfig = field(default_factory=LossConfig)
+    optim: OptimConfig = field(default_factory=OptimConfig)
 
 
 @dataclass
@@ -104,6 +131,10 @@ class EvalConfig:
     percentile_entry_list: list[float] = field(default_factory=lambda: [75, 90, 95])
     percentile_exit_list: list[float] = field(default_factory=lambda: [75, 90, 95])
 
-    neptune: NeptuneConfig = NeptuneConfig()
-    data: DataConfig = DataConfig()
-    simulation: SimulationConfig = SimulationConfig()
+    neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
+    data: DataConfig = field(default_factory=DataConfig)
+    simulation: SimulationConfig = field(default_factory=SimulationConfig)
+
+    def __post_init__(self) -> None:
+        if self.train_run_id == "" and self.params_file == "":
+            raise ValueError("Either train_run_id or params_file must be specified")

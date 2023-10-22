@@ -1,29 +1,22 @@
 from pathlib import Path
-from typing import cast
 from unittest.mock import MagicMock, patch
 
-from omegaconf import OmegaConf
-
+from auto_trader.common import utils
 from auto_trader.data import collect
 from auto_trader.data.config import CollectConfig
 
 
 @patch("auto_trader.data.collect.execute_command")
 def test_main(execute_command_mock: MagicMock, tmp_path: Path) -> None:
-    config = cast(
+    config = utils.get_config(
         CollectConfig,
-        OmegaConf.merge(
-            OmegaConf.structured(CollectConfig),
-            OmegaConf.create(
-                {
-                    "symbol": "usdjpy",
-                    "raw_data_dir": str(tmp_path),
-                    "yyyymm_begin": 202301,
-                    "yyyymm_end": 202302,
-                    "recreate_latest": True,
-                }
-            ),
-        ),
+        [
+            "symbol=usdjpy",
+            "raw_data_dir=" + str(tmp_path),
+            "yyyymm_begin=202301",
+            "yyyymm_end=202302",
+            "recreate_latest=True",
+        ],
     )
     # 202301 は bid が存在するので ask だけ作成される
     (tmp_path / "usdjpy-bid-20230101-20230131.csv").touch()

@@ -1,4 +1,5 @@
 import os
+from dataclasses import asdict
 from typing import cast
 
 import lightning.pytorch as pl
@@ -90,6 +91,7 @@ def main(config: TrainConfig) -> None:
         window_size=config.feature.hist_len,
         numerical_emb_dim=config.net.numerical_emb_dim,
         categorical_emb_dim=config.net.categorical_emb_dim,
+        periodic_activation_sigma=config.net.periodic_activation_sigma,
         base_cnn_out_channels=config.net.base_cnn_out_channels,
         base_cnn_kernel_sizes=config.net.base_cnn_kernel_sizes,
         base_cnn_batchnorm=config.net.base_cnn_batchnorm,
@@ -125,7 +127,7 @@ def main(config: TrainConfig) -> None:
     params_file = os.path.join(config.output_dir, "params.pt")
     torch.save(
         {
-            "config": OmegaConf.to_container(config),
+            "config": asdict(config),
             "feature_info": feature_info,
             "net_state": net.state_dict(),
         },
@@ -135,9 +137,7 @@ def main(config: TrainConfig) -> None:
 
 
 if __name__ == "__main__":
-    base_config = OmegaConf.structured(TrainConfig)
-    cli_config = OmegaConf.from_cli()
-    config = cast(TrainConfig, OmegaConf.merge(base_config, cli_config))
+    config = cast(TrainConfig, utils.get_config(TrainConfig))
     print(OmegaConf.to_yaml(config))
 
     utils.set_random_seed(config.random_seed)

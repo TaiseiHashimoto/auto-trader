@@ -10,6 +10,19 @@ from numpy.typing import NDArray
 from auto_trader.modeling import data
 
 
+class PeriodicActivation(nn.Module):
+    def __init__(self, num_coefs: int, sigma: float) -> None:
+        super().__init__()
+        self.params = nn.Parameter(torch.randn(num_coefs) * sigma)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        assert x.shape[-1] == 1
+        # (...batch, num_coefs)
+        x = x * self.params
+        # (...batch, num_coefs*2)
+        return torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
+
+
 def build_conv_layer(
     window_size: int,
     in_channel: int,
@@ -66,6 +79,7 @@ class BaseNet(nn.Module):
         window_size: int,
         numerical_emb_dim: int,
         categorical_emb_dim: int,
+        periodic_activation_sigma: float,
         cnn_out_channels: list[int],
         cnn_kernel_sizes: list[int],
         cnn_batchnorm: bool,
@@ -85,7 +99,9 @@ class BaseNet(nn.Module):
                 mean = info.mean
                 std = info.var**0.5
                 self.normalize_funs[name] = lambda x: (x - mean) / (std + 1e-6)
-                self.embed_layers[name] = nn.Linear(1, numerical_emb_dim)
+                self.embed_layers[name] = PeriodicActivation(
+                    numerical_emb_dim // 2, periodic_activation_sigma
+                )
                 emb_output_dim += numerical_emb_dim
             elif info.dtype == np.int64:
                 self.normalize_funs[name] = lambda x: x
@@ -137,6 +153,7 @@ class Net(nn.Module):
         window_size: int,
         numerical_emb_dim: int,
         categorical_emb_dim: int,
+        periodic_activation_sigma: float,
         base_cnn_out_channels: list[int],
         base_cnn_kernel_sizes: list[int],
         base_cnn_batchnorm: bool,
@@ -158,6 +175,7 @@ class Net(nn.Module):
                 window_size=window_size,
                 numerical_emb_dim=numerical_emb_dim,
                 categorical_emb_dim=categorical_emb_dim,
+                periodic_activation_sigma=periodic_activation_sigma,
                 cnn_out_channels=base_cnn_out_channels,
                 cnn_kernel_sizes=base_cnn_kernel_sizes,
                 cnn_batchnorm=base_cnn_batchnorm,

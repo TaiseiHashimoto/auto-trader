@@ -19,7 +19,7 @@ from tqdm import tqdm
 
 from auto_trader.common import utils
 from auto_trader.modeling import data, model, order
-from auto_trader.modeling.config import EvalConfig
+from auto_trader.modeling.config import EvalConfig, TrainConfig
 
 
 def get_binary_pred(pred: NDArray[np.float32], percentile: float) -> NDArray[np.bool_]:
@@ -149,7 +149,7 @@ def main(config: EvalConfig) -> None:
         params_file = config.params_file
 
     params = torch.load(params_file)
-    train_config = OmegaConf.create(params["config"])
+    train_config = cast(TrainConfig, OmegaConf.create(params["config"]))
     feature_info = params["feature_info"]
     net_state = params["net_state"]
 
@@ -201,6 +201,7 @@ def main(config: EvalConfig) -> None:
         window_size=train_config.feature.hist_len,
         numerical_emb_dim=train_config.net.numerical_emb_dim,
         categorical_emb_dim=train_config.net.categorical_emb_dim,
+        periodic_activation_sigma=train_config.net.periodic_activation_sigma,
         base_cnn_out_channels=train_config.net.base_cnn_out_channels,
         base_cnn_kernel_sizes=train_config.net.base_cnn_kernel_sizes,
         base_cnn_batchnorm=train_config.net.base_cnn_batchnorm,
@@ -246,11 +247,8 @@ def main(config: EvalConfig) -> None:
 
 
 if __name__ == "__main__":
-    base_config = OmegaConf.structured(EvalConfig)
-    cli_config = OmegaConf.from_cli()
-    config = cast(EvalConfig, OmegaConf.merge(base_config, cli_config))
+    config = cast(EvalConfig, utils.get_config(EvalConfig))
     print(OmegaConf.to_yaml(config))
-    assert config.train_run_id != "" or config.params_file != ""
 
     utils.validate_neptune_settings(config.neptune.mode)
 

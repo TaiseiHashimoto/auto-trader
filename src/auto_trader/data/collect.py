@@ -82,9 +82,7 @@ def main(config: CollectConfig) -> None:
 
 
 if __name__ == "__main__":
-    base_config = OmegaConf.structured(CollectConfig)
-    cli_config = OmegaConf.from_cli()
-    config = cast(CollectConfig, OmegaConf.merge(base_config, cli_config))
+    config = cast(CollectConfig, utils.get_config(CollectConfig))
     print(OmegaConf.to_yaml(config))
 
     main(config)

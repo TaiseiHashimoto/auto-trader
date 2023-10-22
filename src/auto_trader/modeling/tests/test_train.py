@@ -1,43 +1,34 @@
 from pathlib import Path
-from typing import cast
 
 import numpy as np
 import pandas as pd
 import pytest
-from omegaconf import OmegaConf
 
+from auto_trader.common import utils
 from auto_trader.modeling import train
 from auto_trader.modeling.config import TrainConfig
 
 
 @pytest.mark.skip(reason="called by test_evaluate.test_main")
 def test_main(tmp_path: Path) -> None:
-    config = cast(
+    config = utils.get_config(
         TrainConfig,
-        OmegaConf.merge(
-            OmegaConf.structured(TrainConfig),
-            OmegaConf.create(
-                {
-                    "output_dir": str(tmp_path / "output"),
-                    "max_epochs": 1,
-                    "neptune": {"mode": "debug"},
-                    "data": {
-                        "symbol": "usdjpy",
-                        "cleansed_data_dir": str(tmp_path / "cleansed"),
-                        "yyyymm_begin": 202301,
-                        "yyyymm_end": 202301,
-                    },
-                    "net": {
-                        "numerical_emb_dim": 1,
-                        "categorical_emb_dim": 1,
-                        "base_cnn_out_channels": [10],
-                        "base_cnn_kernel_sizes": [5],
-                        "base_fc_hidden_dims": [4],
-                        "head_hidden_dims": [2],
-                    },
-                }
-            ),
-        ),
+        [
+            "output_dir=" + str(tmp_path / "output"),
+            "max_epochs=1",
+            "neptune.mode=debug",
+            "data.symbol=usdjpy",
+            "data.cleansed_data_dir=" + str(tmp_path / "cleansed"),
+            "data.yyyymm_begin=202301",
+            "data.yyyymm_end=202301",
+            "net.numerical_emb_dim=2",
+            "net.categorical_emb_dim=1",
+            "net.base_cnn_out_channels=[10]",
+            "net.base_cnn_kernel_sizes=[5]",
+            "net.base_fc_hidden_dims=[4]",
+            "net.head_hidden_dims=[2]",
+            "feature.timeframes=[1min]",
+        ],
     )
 
     index = pd.date_range("2023-1-1 00:00", "2023-1-10 23:59", freq="1min")

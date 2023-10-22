@@ -3,7 +3,6 @@ from typing import cast
 
 import numpy as np
 import pandas as pd
-from omegaconf import OmegaConf
 
 from auto_trader.common import utils
 from auto_trader.data import cleanse
@@ -85,22 +84,17 @@ def test_remove_flat_data() -> None:
 
 
 def test_main(tmp_path: Path) -> None:
-    config = cast(
+    config = utils.get_config(
         CleanseConfig,
-        OmegaConf.merge(
-            OmegaConf.structured(CleanseConfig),
-            OmegaConf.create(
-                {
-                    "symbol": "usdjpy",
-                    "raw_data_dir": str(tmp_path / "raw"),
-                    "cleansed_data_dir": str(tmp_path / "cleansed"),
-                    "yyyymm_begin": 202302,
-                    "yyyymm_end": 202302,
-                    "recreate_latest": True,
-                    "validate": False,
-                }
-            ),
-        ),
+        [
+            "symbol=usdjpy",
+            "raw_data_dir=" + str(tmp_path / "raw"),
+            "cleansed_data_dir=" + str(tmp_path / "cleansed"),
+            "yyyymm_begin=202302",
+            "yyyymm_end=202302",
+            "recreate_latest=True",
+            "validate=False",
+        ],
     )
 
     timestamp_202301 = (

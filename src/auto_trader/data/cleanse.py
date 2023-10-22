@@ -80,16 +80,18 @@ def validate_data(df: pd.DataFrame, symbol: str) -> None:
     # フラット期間が一定割合以下
     flat_idxs = np.nonzero(np.all(df.iloc[1:].values == df.iloc[:-1].values, axis=1))[0]
     flat_ratio = len(flat_idxs) / len(df)
-    assert (
-        flat_ratio <= FLAT_RATIO_TOLERANCE
-    ), f"flat_ratio = {flat_ratio} > {FLAT_RATIO_TOLERANCE}"
+    if flat_ratio > FLAT_RATIO_TOLERANCE:
+        raise ValueError(
+            f"flat_ratio is too high: {flat_ratio} > {FLAT_RATIO_TOLERANCE}"
+        )
 
     # 4値同一が一定割合以下
     no_move_mask = (df["bid_high"] == df["bid_low"]) | (df["ask_high"] == df["ask_low"])
     no_move_ratio = no_move_mask.mean()
-    assert (
-        no_move_ratio <= NO_MOVE_RATIO_TOLERANCE
-    ), f"no_move_ratio = {no_move_ratio} > {NO_MOVE_RATIO_TOLERANCE}"
+    if no_move_ratio > NO_MOVE_RATIO_TOLERANCE:
+        raise ValueError(
+            f"no_move_ratio is too high: {no_move_ratio} > {NO_MOVE_RATIO_TOLERANCE}"
+        )
 
     # bid > ask が一定割合以下
     bid_higher_mask = (
@@ -99,9 +101,11 @@ def validate_data(df: pd.DataFrame, symbol: str) -> None:
         | (df["bid_close"] > df["ask_close"])
     )
     bid_higher_ratio = bid_higher_mask.mean()
-    assert (
-        bid_higher_ratio <= BID_HIGHER_RATIO_TOLERANCE
-    ), f"bid_higer_ratio = {bid_higher_ratio} > {BID_HIGHER_RATIO_TOLERANCE}"
+    if bid_higher_ratio > BID_HIGHER_RATIO_TOLERANCE:
+        raise ValueError(
+            f"bid_higer_ratio is too high: "
+            f"{bid_higher_ratio} > {BID_HIGHER_RATIO_TOLERANCE}"
+        )
 
     # low < open, close < high の順になっている
     invalid_order_mask = (
@@ -114,14 +118,20 @@ def validate_data(df: pd.DataFrame, symbol: str) -> None:
         | (df["ask_open"] > df["ask_high"])
         | (df["ask_close"] > df["ask_high"])
     )
-    assert invalid_order_mask.sum() == 0
+    if invalid_order_mask.any():
+        raise ValueError(
+            "Order of prices (low <= open, close <= high) is not satisfied"
+        )
 
     if symbol == "usdjpy":
         extreme_value_mask = (df < 5000) | (df > 20000)
     elif symbol == "eurusd":
         extreme_value_mask = (df < 8000) | (df > 16000)
 
-    assert (extreme_value_mask.sum() == 0).all()
+    if extreme_value_mask.any(axis=None):
+        raise ValueError(
+            f"Found extreme values: min={df.min(axis=None)}, max={df.max(axis=None)}"
+        )
 
 
 def main(config: CleanseConfig) -> None:
@@ -183,9 +193,7 @@ def main(config: CleanseConfig) -> None:
 
 
 if __name__ == "__main__":
-    base_config = OmegaConf.structured(CleanseConfig)
-    cli_config = OmegaConf.from_cli()
-    config = cast(CleanseConfig, OmegaConf.merge(base_config, cli_config))
+    config = cast(CleanseConfig, utils.get_config(CleanseConfig))
     print(OmegaConf.to_yaml(config))
 
     main(config)
