@@ -5,6 +5,7 @@ from typing import cast
 import lightning.pytorch as pl
 import numpy as np
 import torch
+from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import NeptuneLogger
 from omegaconf import OmegaConf
 
@@ -113,8 +114,25 @@ def main(config: TrainConfig) -> None:
     )
 
     print("Train")
+    early_stopping_callback = EarlyStopping(
+        monitor="valid/loss",
+        mode="min",
+        patience=config.early_stopping_patience,
+        check_finite=True,
+        verbose=True,
+    )
+    checkpoint_callback = ModelCheckpoint(
+        monitor="valid/loss",
+        mode="min",
+        dirpath=config.output_dir,
+        save_top_k=1,
+        enable_version_counter=False,
+        verbose=True,
+    )
     trainer = pl.Trainer(
-        max_epochs=config.max_epochs, logger=logger, enable_checkpointing=False
+        max_epochs=config.max_epochs,
+        logger=logger,
+        callbacks=[early_stopping_callback, checkpoint_callback],
     )
     trainer.fit(
         model=model_,
@@ -123,6 +141,15 @@ def main(config: TrainConfig) -> None:
     )
 
     print("Save model")
+    # best epoch のパラメータを復元
+    model.Model.load_from_checkpoint(
+        checkpoint_path=checkpoint_callback.best_model_path,
+        net=net,
+        entropy_coef=config.loss.entropy_coef,
+        spread=config.loss.spread,
+        learning_rate=config.optim.learning_rate,
+        weight_decay=config.optim.weight_decay,
+    )
     os.makedirs(config.output_dir, exist_ok=True)
     params_file = os.path.join(config.output_dir, "params.pt")
     torch.save(

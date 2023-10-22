@@ -18,7 +18,7 @@ class PeriodicActivation(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert x.shape[-1] == 1
         # (...batch, num_coefs)
-        x = x * self.params
+        x = x * self.params * 2 * np.pi
         # (...batch, num_coefs*2)
         return torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
 
@@ -283,6 +283,7 @@ class Model(pl.LightningModule):
         prob_short_entry: torch.Tensor,
         prob_short_exit: torch.Tensor,
         lift_torch: torch.Tensor,
+        log_prefix: str,
     ) -> torch.Tensor:
         gain_long_entry = (prob_long_entry * (lift_torch - self.spread)).mean()
         gain_long_exit = (prob_long_exit * -lift_torch).mean()
@@ -303,17 +304,17 @@ class Model(pl.LightningModule):
 
         self.log_dict(
             {
-                "train/gain_long_entry": gain_long_entry,
-                "train/gain_long_exit": gain_long_exit,
-                "train/gain_short_entry": gain_short_entry,
-                "train/gain_short_exit": gain_short_exit,
-                "train/entropy_long_entry": entropy_long_entry,
-                "train/entropy_long_exit": entropy_long_exit,
-                "train/entropy_short_entry": entropy_short_entry,
-                "train/entropy_short_exit": entropy_short_exit,
-                "train/gain": gain,
-                "train/entropy": entropy,
-                "train/loss": loss,
+                f"{log_prefix}/gain_long_entry": gain_long_entry,
+                f"{log_prefix}/gain_long_exit": gain_long_exit,
+                f"{log_prefix}/gain_short_entry": gain_short_entry,
+                f"{log_prefix}/gain_short_exit": gain_short_exit,
+                f"{log_prefix}/entropy_long_entry": entropy_long_entry,
+                f"{log_prefix}/entropy_long_exit": entropy_long_exit,
+                f"{log_prefix}/entropy_short_entry": entropy_short_entry,
+                f"{log_prefix}/entropy_short_exit": entropy_short_exit,
+                f"{log_prefix}/gain": gain,
+                f"{log_prefix}/entropy": entropy,
+                f"{log_prefix}/loss": loss,
             },
             # Accumulate metrics on epoch level
             on_step=False,
@@ -334,7 +335,9 @@ class Model(pl.LightningModule):
         features_np, lift_np = batch
         features_torch = self._to_torch_features(features_np)
         lift_torch = self._to_torch_lift(lift_np)
-        return self._calc_loss(*self._predict_prob(features_torch), lift_torch)
+        return self._calc_loss(
+            *self._predict_prob(features_torch), lift_torch, log_prefix="train"
+        )
 
     def validation_step(
         self,
@@ -348,7 +351,9 @@ class Model(pl.LightningModule):
         features_torch = self._to_torch_features(features_np)
         lift_torch = self._to_torch_lift(lift_np)
         # ロギング目的
-        _ = self._calc_loss(*self._predict_prob(features_torch), lift_torch)
+        _ = self._calc_loss(
+            *self._predict_prob(features_torch), lift_torch, log_prefix="valid"
+        )
 
     def predict_step(
         self,
@@ -362,8 +367,9 @@ class Model(pl.LightningModule):
         return self._predict_prob(features_torch)
 
     def on_train_epoch_end(self) -> None:
-        metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
-        print(f"Training metrics: {metrics}")
+        # metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
+        # print(f"Training metrics: {metrics}")
+        print(self.net.state_dict()["base_nets.1min.embed_layers.open.params"])
 
     def on_validation_epoch_end(self) -> None:
         metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
