@@ -6,7 +6,6 @@ from omegaconf import MISSING
 @dataclass
 class NeptuneConfig:
     project: str = "thashimoto/auto-trader"
-    project_key: str = "AUT"
     mode: str = "async"
 
     def __post_init__(self) -> None:
