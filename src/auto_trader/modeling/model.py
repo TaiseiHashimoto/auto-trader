@@ -306,6 +306,10 @@ class Model(pl.LightningModule):
 
         self.log_dict(
             {
+                f"{log_prefix}/prob_long_entry": prob_long_entry.mean(),
+                f"{log_prefix}/prob_long_exit": prob_long_exit.mean(),
+                f"{log_prefix}/prob_short_entry": prob_short_entry.mean(),
+                f"{log_prefix}/prob_short_exit": prob_short_exit.mean(),
                 f"{log_prefix}/gain_long_entry": gain_long_entry,
                 f"{log_prefix}/gain_long_exit": gain_long_exit,
                 f"{log_prefix}/gain_short_entry": gain_short_entry,
