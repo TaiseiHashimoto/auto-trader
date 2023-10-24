@@ -20,7 +20,7 @@ def main(config: TrainConfig) -> None:
         project=config.neptune.project,
         mode=config.neptune.mode,
         tags=["train", "cnn"],
-        prefix=None,
+        prefix="",
     )
     logger.experiment["config"] = OmegaConf.to_yaml(config)
 
