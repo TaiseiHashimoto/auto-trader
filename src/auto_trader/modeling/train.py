@@ -5,6 +5,7 @@ from typing import cast
 import lightning.pytorch as pl
 import numpy as np
 import torch
+import yaml
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
 from lightning.pytorch.loggers import NeptuneLogger
 from omegaconf import OmegaConf
@@ -19,10 +20,11 @@ def main(config: TrainConfig) -> None:
         project=config.neptune.project,
         mode=config.neptune.mode,
         tags=["train", "cnn"],
+        prefix=None,
     )
     logger.experiment["config"] = OmegaConf.to_yaml(config)
 
-    # データ読み込み
+    print("Read data")
     df = data.read_cleansed_data(
         config.data.symbol,
         config.data.yyyymm_begin,
@@ -31,7 +33,7 @@ def main(config: TrainConfig) -> None:
     )
     df_base = data.merge_bid_ask(df)
 
-    # 学習データを準備
+    print("Create features")
     features = {}
     for timeframe in config.feature.timeframes:
         df_resampled = data.resample(df_base, timeframe)
@@ -85,7 +87,11 @@ def main(config: TrainConfig) -> None:
         batch_size=config.batch_size,
     )
 
-    feature_info = data.get_feature_info(loader_train)
+    feature_info, lift_info = data.get_feature_info(loader_train)
+    logger.experiment["data/feature_info"] = yaml.dump(
+        {t: {n: str(feature_info[t][n]) for n in feature_info[t]} for t in feature_info}
+    )
+    logger.experiment["data/lift_info"] = str(lift_info)
 
     net = model.Net(
         feature_info=feature_info,
@@ -111,6 +117,7 @@ def main(config: TrainConfig) -> None:
         spread=config.loss.spread,
         learning_rate=config.optim.learning_rate,
         weight_decay=config.optim.weight_decay,
+        log_stdout=config.neptune.mode == "debug",
     )
 
     print("Train")

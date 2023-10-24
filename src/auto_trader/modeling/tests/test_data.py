@@ -357,7 +357,7 @@ def test_dataloader() -> None:
         np.testing.assert_allclose(actual_lift, expected_lift)
 
     # get_feature_info のテスト
-    feature_info = data.get_feature_info(loader)
+    feature_info, lift_info = data.get_feature_info(loader)
 
     for timeframe in ["1min", "2min"]:
         for feature_name in ["sma5", "x", "sigma"]:
@@ -374,3 +374,6 @@ def test_dataloader() -> None:
             assert feature_info[timeframe][feature_name].max == np.max(
                 values
             ), f"{timeframe} {feature_name}"
+
+    assert lift_info.mean == approx(np.mean(expected_lift_list))
+    assert lift_info.var == approx(np.var(expected_lift_list))

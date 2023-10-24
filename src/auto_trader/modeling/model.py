@@ -212,6 +212,7 @@ class Model(pl.LightningModule):
         spread: float = 2.0,
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
+        log_stdout: bool = False,
     ):
         super().__init__()
         self.net = net
@@ -219,6 +220,7 @@ class Model(pl.LightningModule):
         self.spread = spread
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
+        self.log_stdout = log_stdout
 
     def configure_optimizers(self) -> torch.optim.Optimizer:
         if self.weight_decay == 0:
@@ -242,12 +244,12 @@ class Model(pl.LightningModule):
                     features_torch[timeframe][feature_name] = torch.unsqueeze(
                         torch.from_numpy(features_np[timeframe][feature_name]),
                         dim=2,
-                    )
+                    ).to(self.device)
                 elif value_np.dtype == np.int64:
                     # shape: (batch, length)
                     features_torch[timeframe][feature_name] = torch.from_numpy(
                         features_np[timeframe][feature_name]
-                    )
+                    ).to(self.device)
                 else:
                     raise ValueError(
                         f"Data type of {timeframe} {feature_name} is not supported: "
@@ -257,7 +259,7 @@ class Model(pl.LightningModule):
         return features_torch
 
     def _to_torch_lift(self, lift: NDArray[np.float32]) -> torch.Tensor:
-        return torch.from_numpy(lift)
+        return torch.from_numpy(lift).to(self.device)
 
     def _predict_prob(
         self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
@@ -287,7 +289,7 @@ class Model(pl.LightningModule):
     ) -> torch.Tensor:
         gain_long_entry = (prob_long_entry * (lift_torch - self.spread)).mean()
         gain_long_exit = (prob_long_exit * -lift_torch).mean()
-        gain_short_entry = (prob_short_entry * -(lift_torch - self.spread)).mean()
+        gain_short_entry = (prob_short_entry * (-lift_torch - self.spread)).mean()
         gain_short_exit = (prob_short_exit * lift_torch).mean()
         entropy_long_entry = self._calc_binary_entropy(prob_long_entry).mean()
         entropy_long_exit = self._calc_binary_entropy(prob_long_exit).mean()
@@ -367,10 +369,11 @@ class Model(pl.LightningModule):
         return self._predict_prob(features_torch)
 
     def on_train_epoch_end(self) -> None:
-        # metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
-        # print(f"Training metrics: {metrics}")
-        print(self.net.state_dict()["base_nets.1min.embed_layers.open.params"])
+        if self.log_stdout:
+            metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
+            print(f"Training metrics: {metrics}")
 
     def on_validation_epoch_end(self) -> None:
-        metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
-        print(f"Validation metrics: {metrics}")
+        if self.log_stdout:
+            metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
+            print(f"Validation metrics: {metrics}")

@@ -302,12 +302,19 @@ class FeatureInfo:
         assert self.dtype == np.int64
         return self._max
 
+    def __str__(self) -> str:
+        if self._dtype == np.float32:
+            return f"{self._mean:.6f} +- {self._var ** 0.5:.6f}"
+        else:
+            return f"<= {self._max}"
+
 
 def get_feature_info(
     loader: DataLoader, batch_num: int = 100
-) -> dict[Timeframe, dict[FeatureName, FeatureInfo]]:
+) -> tuple[dict[Timeframe, dict[FeatureName, FeatureInfo]], FeatureInfo]:
     feature_info: dict[Timeframe, dict[FeatureName, FeatureInfo]] = {}
-    for batch_idx, (features, _) in enumerate(loader):
+    lift_info = FeatureInfo(np.float32)
+    for batch_idx, (features, lift) in enumerate(loader):
         if batch_idx == batch_num:
             break
 
@@ -322,4 +329,6 @@ def get_feature_info(
 
                 feature_info[timeframe][feature_name].update(values)
 
-    return feature_info
+        lift_info.update(lift)
+
+    return feature_info, lift_info
