@@ -45,14 +45,7 @@ def log_metrics(
 ) -> None:
     for label_name in preds.columns:
         pred = cast(NDArray[np.float32], preds[label_name].values)
-        run[f"stats/score_percentile/{label_name}"] = calc_stats(pred)
-
-        if "entry" in label_name:
-            percentile_list = config.percentile_entry_list
-        elif "exit" in label_name:
-            percentile_list = config.percentile_exit_list
-        else:
-            assert False
+        run[f"stats/prob/{label_name}"] = calc_stats(pred)
 
         if label_name == "long_entry":
             label = (lift.loc[preds.index] > config.simulation.spread).values
@@ -67,6 +60,13 @@ def log_metrics(
 
         run[f"stats/roc_auc/{label_name}"] = roc_auc_score(label, pred)
         run[f"stats/pr_auc/{label_name}"] = average_precision_score(label, pred)
+
+        if "entry" in label_name:
+            percentile_list = config.percentile_entry_list
+        elif "exit" in label_name:
+            percentile_list = config.percentile_exit_list
+        else:
+            assert False
 
         for percentile in percentile_list:
             pred_binary = get_binary_pred(pred, percentile)
