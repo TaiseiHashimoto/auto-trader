@@ -280,9 +280,10 @@ class Model(pl.LightningModule):
         return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
 
     def _calc_binary_entropy(self, prob: torch.Tensor) -> torch.Tensor:
+        prob = torch.clamp(prob, 1e-9, 1 - 1e-9)
         return cast(
             torch.Tensor,
-            -(prob * torch.log(prob + 1e-9) + (1 - prob) * torch.log(1 - prob + 1e-9)),
+            -(prob * torch.log(prob) + (1 - prob) * torch.log(1 - prob)),
         )
 
     def _calc_loss(
