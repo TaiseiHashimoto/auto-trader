@@ -266,12 +266,17 @@ class Model(pl.LightningModule):
     def _predict_prob(
         self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
     ) -> Predictions:
+        # (long_entry, long_exit, short_entry, short_exit) は
+        # (1, 0, 0, 1), (0, 0, 0, 1), (0, 1, 0, 0),  (0, 1, 1, 0) のいずれか。
+        # 各ケースの確率を p0, p1, p2, p3 とすると、
+        # (prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit)
+        # = (p0, p2 + p3, p3, p0 + p1)
         pred = self.net(features_torch)
-        prob_long_entry = torch.sigmoid(pred[:, 0])
-        # prob_exit < 1 - prob_entry であることに注意
-        prob_long_exit = (1 - prob_long_entry) * F.sigmoid(pred[:, 1])
-        prob_short_entry = torch.sigmoid(pred[:, 2])
-        prob_short_exit = (1 - prob_short_entry) * F.sigmoid(pred[:, 3])
+        pred_norm = torch.softmax(pred, dim=1)
+        prob_long_entry = pred_norm[:, 0]
+        prob_long_exit = pred_norm[:, 2] + pred_norm[:, 3]
+        prob_short_entry = pred_norm[:, 3]
+        prob_short_exit = pred_norm[:, 0] + pred_norm[:, 1]
         return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
 
     def _calc_binary_entropy(self, prob: torch.Tensor) -> torch.Tensor:

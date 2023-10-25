@@ -70,7 +70,6 @@ class TestOrderSimulator:
             }
         )
 
-        order_df.loc["2023-01-03 02:01:00", "short_exit"] = True
         order_df.loc["2023-01-03 02:01:00", "short_entry"] = True
         order_df.loc["2023-01-03 02:59:00", "short_exit"] = True
         expected.append(
@@ -136,7 +135,7 @@ class TestOrderSimulator:
 
         for i in range(len(index)):
             simulator.step(
-                index[i],
+                index[i].to_pydatetime(),
                 order_df["rate"].iloc[i],
                 order_df["long_entry"].iloc[i],
                 order_df["long_exit"].iloc[i],

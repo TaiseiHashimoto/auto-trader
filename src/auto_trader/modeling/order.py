@@ -99,10 +99,6 @@ class OrderSimulator:
             self.order_history.append(self.open_position)
             self.open_position = None
 
-        # TODO: 以下のような戦略が必要
-        # - n 回連続で long 選択の場合に実際に long する
-        # - long と short の判断が噛み合うときだけ long / short する
-
         if is_open and self.open_position is None:
             if long_entry:
                 self.open_position = Order(PositionType.LONG, dt, rate)

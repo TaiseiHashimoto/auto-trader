@@ -107,6 +107,7 @@ def run_simulations(
             config.simulation.thresh_loss_cut,
         )
         for i, timestamp in enumerate(rates.index):
+            # TODO: 戦略 (e.g. n 回連続で long 選択の場合に実際に long する) を導入
             simulator.step(
                 timestamp,
                 rates.iloc[i],
