@@ -6,7 +6,6 @@ import os
 import subprocess
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import cast
 
 from omegaconf import OmegaConf
 
@@ -82,7 +81,7 @@ def main(config: CollectConfig) -> None:
 
 
 if __name__ == "__main__":
-    config = cast(CollectConfig, utils.get_config(CollectConfig))
+    config = utils.get_config(CollectConfig)
     print(OmegaConf.to_yaml(config))
 
     main(config)

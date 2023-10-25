@@ -39,7 +39,6 @@ def calc_stats(values: NDArray[np.float32]) -> dict[str, float]:
 
 def log_metrics(
     config: EvalConfig,
-    rates: "pd.Series[float]",
     lift: "pd.Series[float]",
     preds: pd.DataFrame,
     run: neptune.Run,
@@ -255,7 +254,6 @@ def main(config: EvalConfig) -> None:
     rates = df_base.loc[base_index, config.simulation.timing]
     log_metrics(
         config=config,
-        rates=rates,
         lift=lift,
         preds=preds,
         run=run,
@@ -269,7 +267,7 @@ def main(config: EvalConfig) -> None:
 
 
 if __name__ == "__main__":
-    config = cast(EvalConfig, utils.get_config(EvalConfig))
+    config = utils.get_config(EvalConfig)
     print(OmegaConf.to_yaml(config))
 
     utils.validate_neptune_settings(config.neptune.mode)

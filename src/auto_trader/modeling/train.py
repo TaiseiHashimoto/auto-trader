@@ -1,6 +1,5 @@
 import os
 from dataclasses import asdict
-from typing import cast
 
 import lightning.pytorch as pl
 import numpy as np
@@ -171,7 +170,7 @@ def main(config: TrainConfig) -> None:
 
 
 if __name__ == "__main__":
-    config = cast(TrainConfig, utils.get_config(TrainConfig))
+    config = utils.get_config(TrainConfig)
     print(OmegaConf.to_yaml(config))
 
     utils.set_random_seed(config.random_seed)

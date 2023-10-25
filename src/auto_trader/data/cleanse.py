@@ -193,7 +193,7 @@ def main(config: CleanseConfig) -> None:
 
 
 if __name__ == "__main__":
-    config = cast(CleanseConfig, utils.get_config(CleanseConfig))
+    config = utils.get_config(CleanseConfig)
     print(OmegaConf.to_yaml(config))
 
     main(config)

@@ -2,21 +2,24 @@ import os
 import random
 import sys
 from datetime import date
-from typing import Any, Optional
+from typing import Optional, TypeVar, cast
 
 import numpy as np
 import torch
-from omegaconf import OmegaConf, SCMode
+from omegaconf import DictConfig, OmegaConf, SCMode
+
+T = TypeVar("T")
 
 
-def get_config(base_class: type[Any], list_config: Optional[list[str]] = None) -> Any:
+def get_config(base_class: type[T], list_config: Optional[list[str]] = None) -> T:
     if list_config is None:
         list_config = sys.argv[1:]
 
-    dict_config = OmegaConf.structured(base_class)
+    dict_config = cast(DictConfig, OmegaConf.structured(base_class))
     dict_config.merge_with_dotlist(list_config)
-    return OmegaConf.to_container(
-        dict_config, structured_config_mode=SCMode.INSTANTIATE
+    return cast(
+        T,
+        OmegaConf.to_container(dict_config, structured_config_mode=SCMode.INSTANTIATE),
     )
 
 
