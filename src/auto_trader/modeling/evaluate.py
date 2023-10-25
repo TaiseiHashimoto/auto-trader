@@ -27,7 +27,7 @@ def get_binary_pred(pred: NDArray[np.float32], percentile: float) -> NDArray[np.
 
 
 def calc_stats(values: NDArray[np.float32]) -> dict[str, float]:
-    PERCENTILES = [0, 5, 10, 25, 50, 75, 90, 95, 100]
+    PERCENTILES = np.arange(21) * 5
     return {
         "mean": cast(float, np.mean(values)),
         **{
