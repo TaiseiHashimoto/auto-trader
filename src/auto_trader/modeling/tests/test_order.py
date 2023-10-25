@@ -31,18 +31,6 @@ class TestOrder:
         )
         assert order_short.gain == approx(-0.4)
 
-    def test_duration(self) -> None:
-        order_long = order.Order(
-            position_type=order.PositionType.LONG,
-            entry_time=datetime(2023, 1, 1, 10, 0, 0),
-            entry_rate=100.1,
-        )
-        order_long.exit(
-            exit_time=datetime(2023, 1, 1, 10, 5, 0),
-            exit_rate=100.5,
-        )
-        assert order_long.duration == 5
-
 
 class TestOrderSimulator:
     def test_step(self) -> None:

@@ -26,46 +26,57 @@ def get_binary_pred(pred: NDArray[np.float32], percentile: float) -> NDArray[np.
     return pred > np.percentile(pred, percentile)
 
 
-def calc_metrics(
+def calc_stats(values: NDArray[np.float32]) -> dict[str, float]:
+    PERCENTILES = [0, 5, 10, 25, 50, 75, 90, 95, 100]
+    return {
+        "mean": cast(float, np.mean(values)),
+        **{
+            f"percentile_{p}": cast(float, np.percentile(values, p))
+            for p in PERCENTILES
+        },
+    }
+
+
+def log_metrics(
     config: EvalConfig,
     rates: "pd.Series[float]",
     lift: "pd.Series[float]",
     preds: pd.DataFrame,
     run: neptune.Run,
 ) -> None:
-    PERCENTILES = [0, 5, 10, 25, 50, 75, 90, 95, 100]
     for label_name in preds.columns:
         pred = cast(NDArray[np.float32], preds[label_name].values)
-        run[f"stats/score_percentile/{label_name}"] = {
-            str(p): np.percentile(pred, p) for p in PERCENTILES
-        }
+        run[f"stats/score_percentile/{label_name}"] = calc_stats(pred)
 
         if "entry" in label_name:
             percentile_list = config.percentile_entry_list
-            lift_binary = (lift.loc[preds.index] > config.simulation.spread).values
         elif "exit" in label_name:
             percentile_list = config.percentile_exit_list
-            lift_binary = (lift.loc[preds.index] < 0).values
         else:
             assert False
 
-        run[f"stats/roc_auc/{label_name}"] = roc_auc_score(lift_binary, pred)
-        run[f"stats/pr_auc/{label_name}"] = average_precision_score(lift_binary, pred)
+        if label_name == "long_entry":
+            label = (lift.loc[preds.index] > config.simulation.spread).values
+        elif label_name == "long_exit":
+            label = (lift.loc[preds.index] < 0).values
+        elif label_name == "short_entry":
+            label = (lift.loc[preds.index] < -config.simulation.spread).values
+        elif label_name == "short_exit":
+            label = (lift.loc[preds.index] > 0).values
+        else:
+            assert False
+
+        run[f"stats/roc_auc/{label_name}"] = roc_auc_score(label, pred)
+        run[f"stats/pr_auc/{label_name}"] = average_precision_score(label, pred)
 
         for percentile in percentile_list:
             pred_binary = get_binary_pred(pred, percentile)
             run[f"stats/precision/{label_name}/{percentile}"] = precision_score(
-                lift_binary, pred_binary
+                label, pred_binary
             )
             run[f"stats/recall/{label_name}/{percentile}"] = recall_score(
-                lift_binary, pred_binary
+                label, pred_binary
             )
-
-            for future_step in [5, 10, 20, 30, 60]:
-                rates_diff = rates.shift(-future_step) - rates
-                run[f"lift/{label_name}/{percentile}/{future_step}"] = rates_diff[
-                    pred_binary
-                ].mean()
 
 
 def run_simulations(
@@ -100,32 +111,41 @@ def run_simulations(
                 timestamp,
                 rates.iloc[i],
                 pred_binary_long_entry[i],
-                pred_binary_short_entry[i],
                 pred_binary_long_exit[i],
+                pred_binary_short_entry[i],
                 pred_binary_short_exit[i],
             )
 
-        profits = (
-            np.array([order.gain for order in simulator.order_history])
-            - config.simulation.spread
-        )
-        durations = np.array([order.duration for order in simulator.order_history])
-
-        param_str = f"{percentile_entry},{percentile_exit}"
-        run[f"simulation/num_order/{param_str}"] = len(profits)
-        if len(profits) > 0:
-            run[f"simulation/profit_per_trade/{param_str}"] = profits.mean()
-            days = (rates.index[-1] - rates.index[0]).days * (5 / 7)
-            run[f"simulation/profit_per_day/{param_str}"] = profits.sum() / days
-            run[f"simulation/duration/min/{param_str}"] = durations.min()
-            run[f"simulation/duration/max/{param_str}"] = durations.max()
-            run[f"simulation/duration/mean/{param_str}"] = durations.mean()
-            run[f"simulation/duration/median/{param_str}"] = np.median(durations)
+        PARAM_STR = f"{percentile_entry},{percentile_exit}"
 
         results = simulator.export_results()
-        results_path = f"{config.output_dir}/results_{param_str}.csv"
+        results_path = f"{config.output_dir}/results_{PARAM_STR}.csv"
         results.to_csv(results_path, index=False)
-        run[f"simulation/results/{param_str}"].upload(results_path)
+        run[f"simulation/{PARAM_STR}/results"].upload(results_path)
+
+        if len(results) > 0:
+            profit = pd.Series(
+                cast(NDArray[np.float32], results["gain"].values)
+                - config.simulation.spread,
+                index=results["entry_time"],
+            )
+            profit_per_day = profit.resample("1d").sum()
+            num_order_per_day = profit.resample("1d").count()
+            run[f"simulation/{PARAM_STR}/num_order_per_day"] = calc_stats(
+                cast(NDArray[np.float32], num_order_per_day.values)
+            )
+            run[f"simulation/{PARAM_STR}/profit_per_trade"] = calc_stats(
+                cast(NDArray[np.float32], profit.values)
+            )
+            run[f"simulation/{PARAM_STR}/profit_per_day"] = calc_stats(
+                cast(NDArray[np.float32], profit_per_day.values)
+            )
+            duration = (
+                results["exit_time"] - results["entry_time"]
+            ).dt.total_seconds() / 60
+            run[f"simulation/{PARAM_STR}/duration"] = calc_stats(
+                cast(NDArray[np.float32], duration.values)
+            )
 
 
 def main(config: EvalConfig) -> None:
@@ -141,6 +161,7 @@ def main(config: EvalConfig) -> None:
     if config.params_file == "":
         params_file = os.path.join(config.output_dir, "params.pt")
         train_run = neptune.init_run(
+            project=config.neptune.project,
             with_id=config.train_run_id,
             mode=config.neptune.mode,
         )
@@ -218,7 +239,7 @@ def main(config: EvalConfig) -> None:
     model_ = model.Model(net)
     trainer = pl.Trainer(logger=False)
 
-    preds_torch = cast(list[torch.Tensor], trainer.predict(model_, loader))
+    preds_torch = cast(list[model.Predictions], trainer.predict(model_, loader))
     preds = pd.DataFrame(
         {
             "long_entry": np.concatenate([p[0].numpy() for p in preds_torch]),
@@ -231,7 +252,7 @@ def main(config: EvalConfig) -> None:
     )
 
     rates = df_base.loc[base_index, config.simulation.timing]
-    calc_metrics(
+    log_metrics(
         config=config,
         rates=rates,
         lift=lift,

@@ -9,6 +9,8 @@ from numpy.typing import NDArray
 
 from auto_trader.modeling import data
 
+Predictions = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
+
 
 class PeriodicActivation(nn.Module):
     def __init__(self, num_coefs: int, sigma: float) -> None:
@@ -263,13 +265,13 @@ class Model(pl.LightningModule):
 
     def _predict_prob(
         self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Predictions:
         pred = self.net(features_torch)
         prob_long_entry = torch.sigmoid(pred[:, 0])
-        # prob_exit = 1 - prob_hold, prob_hold > prob_entry
-        prob_long_exit = 1 - (torch.sigmoid(pred[:, 0] + F.softplus(pred[:, 1])))
+        # prob_exit < 1 - prob_entry であることに注意
+        prob_long_exit = (1 - prob_long_entry) * F.sigmoid(pred[:, 1])
         prob_short_entry = torch.sigmoid(pred[:, 2])
-        prob_short_exit = 1 - (torch.sigmoid(pred[:, 2] + F.softplus(pred[:, 3])))
+        prob_short_exit = (1 - prob_short_entry) * F.sigmoid(pred[:, 3])
         return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
 
     def _calc_binary_entropy(self, prob: torch.Tensor) -> torch.Tensor:
@@ -296,13 +298,13 @@ class Model(pl.LightningModule):
         entropy_short_entry = self._calc_binary_entropy(prob_short_entry).mean()
         entropy_short_exit = self._calc_binary_entropy(prob_short_exit).mean()
         gain = gain_long_entry + gain_long_exit + gain_short_entry + gain_short_exit
-        entropy = self.entropy_coef * (
+        entropy = (
             entropy_long_entry
             + entropy_long_exit
             + entropy_short_entry
             + entropy_short_exit
         )
-        loss = -(gain + entropy)
+        loss = -(gain + self.entropy_coef * entropy)
 
         self.log_dict(
             {
@@ -367,7 +369,7 @@ class Model(pl.LightningModule):
             dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]], None
         ],
         batch_idx: int,
-    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    ) -> Predictions:
         features_np, _ = batch
         features_torch = self._to_torch_features(features_np)
         return self._predict_prob(features_torch)

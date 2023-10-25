@@ -127,8 +127,8 @@ class EvalConfig:
     output_dir: str = "./output"
     train_run_id: str = ""
     params_file: str = ""
-    percentile_entry_list: list[float] = field(default_factory=lambda: [75, 90, 95])
-    percentile_exit_list: list[float] = field(default_factory=lambda: [75, 90, 95])
+    percentile_entry_list: list[float] = field(default_factory=lambda: [90, 95])
+    percentile_exit_list: list[float] = field(default_factory=lambda: [90, 95])
 
     neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
     data: DataConfig = field(default_factory=DataConfig)

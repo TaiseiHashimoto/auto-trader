@@ -40,11 +40,6 @@ class Order:
         elif self.position_type == PositionType.SHORT:
             return -rate_diff
 
-    @property
-    def duration(self) -> int:
-        assert self.exit_time is not None
-        return int((self.exit_time - self.entry_time).total_seconds()) // 60
-
     def __repr__(self) -> str:
         gain = None
         if self.exit_rate is not None:
@@ -104,12 +99,14 @@ class OrderSimulator:
             self.order_history.append(self.open_position)
             self.open_position = None
 
-        # TODO: 例えば long を同時刻に exit -> entry がないように、戦略を扱うクラスが必要
+        # TODO: 以下のような戦略が必要
+        # - n 回連続で long 選択の場合に実際に long する
+        # - long と short の判断が噛み合うときだけ long / short する
 
         if is_open and self.open_position is None:
             if long_entry:
                 self.open_position = Order(PositionType.LONG, dt, rate)
-            if short_entry:
+            elif short_entry:
                 self.open_position = Order(PositionType.SHORT, dt, rate)
 
     def export_results(self) -> pd.DataFrame:
