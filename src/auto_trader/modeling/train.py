@@ -50,9 +50,9 @@ def main(config: TrainConfig) -> None:
     base_index = data.calc_available_index(
         features,
         lift,
-        config.feature.hist_len,
-        config.feature.start_hour,
-        config.feature.end_hour,
+        hist_len=config.feature.hist_len,
+        start_hour=config.feature.start_hour,
+        end_hour=config.feature.end_hour,
     )
     print(f"Train period: {base_index[0]} ~ {base_index[-1]}")
 

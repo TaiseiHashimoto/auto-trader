@@ -1,6 +1,6 @@
 import itertools
 import os
-from typing import Optional, cast
+from typing import cast
 
 import lightning.pytorch as pl
 import neptune
@@ -157,14 +157,14 @@ def main(config: EvalConfig) -> None:
     run["config"] = OmegaConf.to_yaml(config)
 
     print("Fetch params")
-    train_run: Optional[neptune.Run] = None
     if config.params_file == "":
-        params_file = os.path.join(config.output_dir, "params.pt")
         train_run = neptune.init_run(
             project=config.neptune.project,
             with_id=config.train_run_id,
             mode=config.neptune.mode,
         )
+        os.makedirs(config.output_dir, exist_ok=True)
+        params_file = os.path.join(config.output_dir, "params.pt")
         train_run["params_file"].download(params_file)
     else:
         params_file = config.params_file
@@ -199,9 +199,10 @@ def main(config: EvalConfig) -> None:
     base_index = data.calc_available_index(
         features,
         lift,
-        train_config.feature.hist_len,
-        train_config.feature.start_hour,
-        train_config.feature.end_hour,
+        hist_len=train_config.feature.hist_len,
+        # 取引時間は OrderSimulator で扱う
+        start_hour=0,
+        end_hour=24,
     )
 
     print(f"Evaluation period: {base_index[0]} ~ {base_index[-1]}")

@@ -106,9 +106,10 @@ class BaseNet(nn.Module):
                 )
                 emb_output_dim += numerical_emb_dim
             elif info.dtype == np.int64:
-                self.normalize_funs[name] = lambda x: x
+                # max + 1 を OOV token とする
+                self.normalize_funs[name] = lambda x: torch.clamp(x, max=info.max + 1)
                 self.embed_layers[name] = nn.Embedding(
-                    num_embeddings=info.max + 1,
+                    num_embeddings=info.max + 2,
                     embedding_dim=categorical_emb_dim,
                 )
                 emb_output_dim += categorical_emb_dim
