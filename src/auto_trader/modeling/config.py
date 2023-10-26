@@ -119,7 +119,7 @@ class SimulationConfig:
     spread: float = 2.0
     start_hour: int = 2
     end_hour: int = 22
-    thresh_loss_cut: float = 0.05
+    thresh_loss_cut: float = 5.0
 
 
 @dataclass
