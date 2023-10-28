@@ -61,7 +61,7 @@ def main(config: TrainConfig) -> None:
     idxs_train, idxs_valid = data.split_block_idxs(
         len(base_index),
         block_size=config.valid_block_size,
-        first_ratio=1 - config.valid_ratio,
+        valid_ratio=config.valid_ratio,
     )
     base_index_train = base_index[idxs_train]
     base_index_valid = base_index[idxs_valid]

@@ -102,7 +102,7 @@ class TrainConfig:
     max_epochs: int = 20
     early_stopping_patience: int = 3
     batch_size: int = 1000
-    valid_block_size: int = 30
+    valid_block_size: int = 60 * 4
     valid_ratio: float = 0.1
     random_seed: int = 123
 

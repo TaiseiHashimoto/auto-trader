@@ -305,44 +305,44 @@ def test_calc_available_index_nan() -> None:
 
 
 def test_split_block_idxs() -> None:
-    idxs_first, idxs_second = data.split_block_idxs(
+    idxs_train, idxs_valid = data.split_block_idxs(
         size=10,
         block_size=2,
-        first_ratio=0.8,
+        valid_ratio=0.2,
     )
-    assert len(idxs_first) == 8
-    assert len(idxs_second) == 2
-    assert set(idxs_first) | set(idxs_second) == set(range(10))
-    assert abs(idxs_second[0] - idxs_second[1]) == 1
-    assert (0 in idxs_first and 1 in idxs_first) or (
-        0 in idxs_second and 1 in idxs_second
+    assert len(idxs_train) == 8
+    assert len(idxs_valid) == 2
+    assert set(idxs_train) | set(idxs_valid) == set(range(10))
+    assert abs(idxs_valid[0] - idxs_valid[1]) == 1
+    assert (0 in idxs_train and 1 in idxs_train) or (
+        0 in idxs_valid and 1 in idxs_valid
     )
-    assert (2 in idxs_first and 3 in idxs_first) or (
-        2 in idxs_second and 3 in idxs_second
+    assert (2 in idxs_train and 3 in idxs_train) or (
+        2 in idxs_valid and 3 in idxs_valid
     )
-    assert (4 in idxs_first and 5 in idxs_first) or (
-        4 in idxs_second and 5 in idxs_second
+    assert (4 in idxs_train and 5 in idxs_train) or (
+        4 in idxs_valid and 5 in idxs_valid
     )
-    assert (6 in idxs_first and 7 in idxs_first) or (
-        6 in idxs_second and 7 in idxs_second
+    assert (6 in idxs_train and 7 in idxs_train) or (
+        6 in idxs_valid and 7 in idxs_valid
     )
-    assert (8 in idxs_first and 9 in idxs_first) or (
-        8 in idxs_second and 9 in idxs_second
+    assert (8 in idxs_train and 9 in idxs_train) or (
+        8 in idxs_valid and 9 in idxs_valid
     )
 
-    idxs_first, idxs_second = data.split_block_idxs(
+    idxs_train, idxs_valid = data.split_block_idxs(
         size=7,
         block_size=3,
-        first_ratio=0.5,
+        valid_ratio=0.5,
     )
-    assert set(idxs_first) | set(idxs_second) == set(range(7))
-    assert (0 in idxs_first and 1 in idxs_first and 2 in idxs_first) or (
-        0 in idxs_second and 1 in idxs_second and 2 in idxs_second
+    assert set(idxs_train) | set(idxs_valid) == set(range(7))
+    assert (0 in idxs_train and 1 in idxs_train and 2 in idxs_train) or (
+        0 in idxs_valid and 1 in idxs_valid and 2 in idxs_valid
     )
-    assert (3 in idxs_first and 4 in idxs_first and 5 in idxs_first) or (
-        3 in idxs_second and 4 in idxs_second and 5 in idxs_second
+    assert (3 in idxs_train and 4 in idxs_train and 5 in idxs_train) or (
+        3 in idxs_valid and 4 in idxs_valid and 5 in idxs_valid
     )
-    assert (6 in idxs_first) or (6 in idxs_second)
+    assert (6 in idxs_train) or (6 in idxs_valid)
 
 
 def test_dataloader() -> None:

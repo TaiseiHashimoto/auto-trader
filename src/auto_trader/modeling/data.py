@@ -227,20 +227,21 @@ def calc_available_index(
 
 
 def split_block_idxs(
-    size: int, block_size: int, first_ratio: float
+    size: int, block_size: int, valid_ratio: float
 ) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
-    block_idxs = []
-    for i in range((size + block_size - 1) // block_size):
-        block_idxs.append(list(range(block_size * i, min(block_size * (i + 1), size))))
+    block_start_idxs = np.arange(0, size, block_size)
+    block_start_idxs_valid = np.random.choice(
+        block_start_idxs, size=int(len(block_start_idxs) * valid_ratio), replace=False
+    )
+    idxs_valid = []
+    for idx in block_start_idxs_valid:
+        idxs_valid.extend(range(idx, min(idx + block_size, size)))
 
-    random.shuffle(block_idxs)
-    first_size = int(len(block_idxs) * first_ratio)
-    block_idxs_first = block_idxs[:first_size]
-    block_idxs_second = block_idxs[first_size:]
-
-    idxs_first = np.random.permutation(sum(block_idxs_first, [])).astype(np.int64)
-    idxs_second = np.random.permutation(sum(block_idxs_second, [])).astype(np.int64)
-    return idxs_first, idxs_second
+    idxs_valid = np.random.permutation(idxs_valid).astype(np.int64)
+    idxs_train = np.random.permutation(
+        list(set(range(size)) - set(idxs_valid))
+    ).astype(np.int64)
+    return idxs_train, idxs_valid
 
 
 class DataLoader:
