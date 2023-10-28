@@ -202,8 +202,6 @@ def main(config: EvalConfig) -> None:
 
     base_index = data.calc_available_index(
         features=features,
-        gain_long=gain_long,
-        gain_short=gain_short,
         hist_len=train_config.feature.hist_len,
         # 取引時間は OrderSimulator で絞る
         start_hour=0,

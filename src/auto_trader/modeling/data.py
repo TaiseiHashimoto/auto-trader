@@ -183,8 +183,6 @@ def calc_gains(
 
 def calc_available_index(
     features: dict[Timeframe, dict[FeatureType, pd.DataFrame]],
-    gain_long: "pd.Series[float]",
-    gain_short: "pd.Series[float]",
     hist_len: int,
     start_hour: int,
     end_hour: int,
@@ -205,22 +203,15 @@ def calc_available_index(
             get_first_index(features[timeframe]["abs"]),
         )
 
-    # gain は後を見るため最後のデータは NaN になる。
-    last_index = max(
-        gain_long.index[gain_long.notna()][-1],
-        gain_short.index[gain_short.notna()][-1],
-    )
-
     base_index = cast(pd.DatetimeIndex, features["1min"]["rel"].index)
     available_mask = (
         (base_index >= first_index)
-        & (base_index <= last_index)
         & (base_index.hour >= start_hour)
         & (base_index.hour < end_hour)
         # クリスマスは一部時間がデータに含まれるが、傾向が特殊なので除外
         & ~((base_index.month == 12) & (base_index.day == 25))
     )
-    return cast(pd.DatetimeIndex, base_index[available_mask])
+    return base_index[available_mask]
 
 
 def split_block_idxs(

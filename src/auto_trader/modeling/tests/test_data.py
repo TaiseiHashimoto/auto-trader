@@ -287,20 +287,13 @@ def test_calc_available_index_nan() -> None:
             },
         },
     )
-    gain_long = pd.Series(
-        [0] * 19 + [np.nan],
-        index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:19", freq="1min"),
-    )
-    gain_short = -gain_long
     actual = data.calc_available_index(
         features=features,
-        gain_long=gain_long,
-        gain_short=gain_short,
         hist_len=2,
         start_hour=0,
         end_hour=24,
     )
-    expected = pd.date_range("2023-1-1 00:10", "2023-1-1 00:18", freq="1min")
+    expected = pd.date_range("2023-1-1 00:10", "2023-1-1 00:19", freq="1min")
     pd.testing.assert_index_equal(actual, expected)
 
 

@@ -50,8 +50,6 @@ def main(config: TrainConfig) -> None:
 
     base_index = data.calc_available_index(
         features=features,
-        gain_long=gain_long,
-        gain_short=gain_short,
         hist_len=config.feature.hist_len,
         start_hour=config.feature.start_hour,
         end_hour=config.feature.end_hour,
