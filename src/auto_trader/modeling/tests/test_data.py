@@ -304,6 +304,25 @@ def test_calc_available_index_nan() -> None:
     pd.testing.assert_index_equal(actual, expected)
 
 
+def test_split_block_idxs() -> None:
+    idxs_first, idxs_second = data.split_block_idxs(
+        size=10,
+        block_size=2,
+        first_ratio=0.8,
+    )
+    assert len(idxs_first) == 8
+    assert len(idxs_second) == 2
+    assert set(idxs_first) | set(idxs_second) == set(range(10))
+    assert abs(idxs_second[0] - idxs_second[1]) == 1
+
+    idxs_first, idxs_second = data.split_block_idxs(
+        size=7,
+        block_size=3,
+        first_ratio=0.5,
+    )
+    assert set(idxs_first) | set(idxs_second) == set(range(7))
+
+
 def test_dataloader() -> None:
     base_index = pd.date_range("2023-1-1 00:02", "2023-1-1 00:05", freq="1min")
     features = cast(

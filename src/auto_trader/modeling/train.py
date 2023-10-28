@@ -2,7 +2,6 @@ import os
 from dataclasses import asdict
 
 import lightning.pytorch as pl
-import numpy as np
 import torch
 import yaml
 from lightning.pytorch.callbacks import EarlyStopping, ModelCheckpoint
@@ -59,18 +58,19 @@ def main(config: TrainConfig) -> None:
     )
     print(f"Train period: {base_index[0]} ~ {base_index[-1]}")
 
-    total_size = len(base_index)
-    valid_size = int(total_size * config.valid_ratio)
-    train_size = total_size - valid_size
-    logger.experiment["data/size/total"] = total_size
-    logger.experiment["data/size/train"] = train_size
-    logger.experiment["data/size/valid"] = valid_size
+    idxs_train, idxs_valid = data.split_block_idxs(
+        len(base_index),
+        block_size=config.valid_block_size,
+        first_ratio=1 - config.valid_ratio,
+    )
+    base_index_train = base_index[idxs_train]
+    base_index_valid = base_index[idxs_valid]
+    logger.experiment["data/size/total"] = len(base_index)
+    logger.experiment["data/size/train"] = len(base_index_train)
+    logger.experiment["data/size/valid"] = len(base_index_valid)
     logger.experiment["data/first_timestamp"] = str(base_index[0])
     logger.experiment["data/last_timestamp"] = str(base_index[-1])
 
-    idxs_permuted = np.random.permutation(total_size)
-    base_index_train = base_index[idxs_permuted[:train_size]]
-    base_index_valid = base_index[idxs_permuted[train_size:]]
     loader_train = data.DataLoader(
         base_index=base_index_train,
         features=features,

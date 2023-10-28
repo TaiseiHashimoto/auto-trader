@@ -1,5 +1,6 @@
 import heapq
 import os
+import random
 from typing import Generator, Literal, Optional, Union, cast
 
 import numpy as np
@@ -220,6 +221,23 @@ def calc_available_index(
         & ~((base_index.month == 12) & (base_index.day == 25))
     )
     return cast(pd.DatetimeIndex, base_index[available_mask])
+
+
+def split_block_idxs(
+    size: int, block_size: int, first_ratio: float
+) -> tuple[NDArray[np.int64], NDArray[np.int64]]:
+    block_idxs = []
+    for i in range((size + block_size - 1) // block_size):
+        block_idxs.append(list(range(block_size * i, min(block_size * (i + 1), size))))
+
+    random.shuffle(block_idxs)
+    first_size = int(len(block_idxs) * first_ratio)
+    block_idxs_first = block_idxs[:first_size]
+    block_idxs_second = block_idxs[first_size:]
+
+    idxs_first = np.random.permutation(sum(block_idxs_first, [])).astype(np.int64)
+    idxs_second = np.random.permutation(sum(block_idxs_second, [])).astype(np.int64)
+    return idxs_first, idxs_second
 
 
 class DataLoader:
