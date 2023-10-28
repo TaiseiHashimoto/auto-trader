@@ -314,6 +314,21 @@ def test_split_block_idxs() -> None:
     assert len(idxs_second) == 2
     assert set(idxs_first) | set(idxs_second) == set(range(10))
     assert abs(idxs_second[0] - idxs_second[1]) == 1
+    assert (0 in idxs_first and 1 in idxs_first) or (
+        0 in idxs_second and 1 in idxs_second
+    )
+    assert (2 in idxs_first and 3 in idxs_first) or (
+        2 in idxs_second and 3 in idxs_second
+    )
+    assert (4 in idxs_first and 5 in idxs_first) or (
+        4 in idxs_second and 5 in idxs_second
+    )
+    assert (6 in idxs_first and 7 in idxs_first) or (
+        6 in idxs_second and 7 in idxs_second
+    )
+    assert (8 in idxs_first and 9 in idxs_first) or (
+        8 in idxs_second and 9 in idxs_second
+    )
 
     idxs_first, idxs_second = data.split_block_idxs(
         size=7,
@@ -321,6 +336,13 @@ def test_split_block_idxs() -> None:
         first_ratio=0.5,
     )
     assert set(idxs_first) | set(idxs_second) == set(range(7))
+    assert (0 in idxs_first and 1 in idxs_first and 2 in idxs_first) or (
+        0 in idxs_second and 1 in idxs_second and 2 in idxs_second
+    )
+    assert (3 in idxs_first and 4 in idxs_first and 5 in idxs_first) or (
+        3 in idxs_second and 4 in idxs_second and 5 in idxs_second
+    )
+    assert (6 in idxs_first) or (6 in idxs_second)
 
 
 def test_dataloader() -> None:
