@@ -64,17 +64,36 @@ def test_resample() -> None:
         },
         index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="1min"),
     )
-    df_actual = data.resample(df_base, timeframe="2min")
-    df_expected = pd.DataFrame(
-        {
-            "open": [np.nan, 0, 2, 4],
-            "high": [np.nan, 10, 30, 50],
-            "low": [np.nan, -10, -30, -50],
-            "close": [np.nan, -1, -3, -5],
-        },
-        index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="2min"),
+    pd.testing.assert_frame_equal(
+        data.resample(df_base, timeframe="1min"),
+        pd.DataFrame(
+            {
+                "open": [np.nan, 0, 1, 2, 3, 4, 5, 6],
+                "high": [np.nan, 0, 10, 20, 30, 40, 50, 60],
+                "low": [np.nan, 0, -10, -20, -30, -40, -50, -60],
+                "close": [np.nan, 0, -1, -2, -3, -4, -5, -6],
+            },
+            index=pd.date_range(
+                "2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="1min"
+            ),
+        ),
+        check_dtype=False,
     )
-    pd.testing.assert_frame_equal(df_actual, df_expected, check_dtype=False)
+    pd.testing.assert_frame_equal(
+        data.resample(df_base, timeframe="2min"),
+        pd.DataFrame(
+            {
+                "open": [np.nan, 0, 2, 4],
+                "high": [np.nan, 10, 30, 50],
+                "low": [np.nan, -10, -30, -50],
+                "close": [np.nan, -1, -3, -5],
+            },
+            index=pd.date_range(
+                "2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="2min"
+            ),
+        ),
+        check_dtype=False,
+    )
 
 
 def test_calc_sma() -> None:
