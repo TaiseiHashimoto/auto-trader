@@ -68,7 +68,10 @@ def resample(
             }
         )
         # 削除していた flat 期間が NaN になるので削除
-        return values_resampled.dropna()
+        values_resampled = values_resampled.dropna()
+        # 未来の値を見ないようにシフト
+        values_resampled = values_resampled.shift(1)
+        return values_resampled
 
 
 def calc_sma(s: "pd.Series[float]", window_size: int) -> "pd.Series[float]":

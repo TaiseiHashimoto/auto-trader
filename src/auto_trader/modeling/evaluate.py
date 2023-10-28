@@ -167,6 +167,7 @@ def main(config: EvalConfig) -> None:
         os.makedirs(config.output_dir, exist_ok=True)
         params_file = os.path.join(config.output_dir, "params.pt")
         train_run["params_file"].download(params_file)
+        train_run.stop()
     else:
         params_file = config.params_file
 

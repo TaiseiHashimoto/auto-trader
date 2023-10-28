@@ -67,10 +67,10 @@ def test_resample() -> None:
     df_actual = data.resample(df_base, timeframe="2min")
     df_expected = pd.DataFrame(
         {
-            "open": [0, 2, 4, 6],
-            "high": [10, 30, 50, 70],
-            "low": [-10, -30, -50, -70],
-            "close": [-1, -3, -5, -7],
+            "open": [np.nan, 0, 2, 4],
+            "high": [np.nan, 10, 30, 50],
+            "low": [np.nan, -10, -30, -50],
+            "close": [np.nan, -1, -3, -5],
         },
         index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="2min"),
     )

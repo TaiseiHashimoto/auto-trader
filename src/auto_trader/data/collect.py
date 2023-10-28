@@ -21,10 +21,6 @@ def execute_command(cmd: str) -> None:
 
 
 def main(config: CollectConfig) -> None:
-    # 古いデータは粒度が粗いので使わない
-    if config.yyyymm_begin < 201008:
-        raise RuntimeError("Trying to get too old data")
-
     os.makedirs(config.raw_data_dir, exist_ok=True)
 
     PRICE_TYPES = ["bid", "ask"]
