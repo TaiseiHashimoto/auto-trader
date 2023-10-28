@@ -45,11 +45,14 @@ def main(config: TrainConfig) -> None:
             sma_frac_unit=config.feature.sma_frac_unit,
         )
 
-    lift = data.calc_lift(df_base["close"], config.lift.target_alpha)
+    gain_long, gain_short = data.calc_gains(
+        df_base["close"], config.gain.alpha, config.gain.thresh_losscut
+    )
 
     base_index = data.calc_available_index(
-        features,
-        lift,
+        features=features,
+        gain_long=gain_long,
+        gain_short=gain_short,
         hist_len=config.feature.hist_len,
         start_hour=config.feature.start_hour,
         end_hour=config.feature.end_hour,
@@ -71,7 +74,8 @@ def main(config: TrainConfig) -> None:
     loader_train = data.DataLoader(
         base_index=base_index_train,
         features=features,
-        lift=lift,
+        gain_long=gain_long,
+        gain_short=gain_short,
         hist_len=config.feature.hist_len,
         sma_window_size_center=config.feature.sma_window_size_center,
         batch_size=config.batch_size,
@@ -80,17 +84,21 @@ def main(config: TrainConfig) -> None:
     loader_valid = data.DataLoader(
         base_index=base_index_valid,
         features=features,
-        lift=lift,
+        gain_long=gain_long,
+        gain_short=gain_short,
         hist_len=config.feature.hist_len,
         sma_window_size_center=config.feature.sma_window_size_center,
         batch_size=config.batch_size,
     )
 
-    feature_info, lift_info = data.get_feature_info(loader_train)
+    feature_info, (gain_long_info, gain_short_info) = data.get_feature_info(
+        loader_train
+    )
     logger.experiment["data/feature_info"] = yaml.dump(
         {t: {n: str(feature_info[t][n]) for n in feature_info[t]} for t in feature_info}
     )
-    logger.experiment["data/lift_info"] = str(lift_info)
+    logger.experiment["data/gain_long_info"] = str(gain_long_info)
+    logger.experiment["data/gain_short_info"] = str(gain_short_info)
 
     net = model.Net(
         feature_info=feature_info,

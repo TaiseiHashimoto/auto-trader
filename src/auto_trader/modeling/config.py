@@ -49,8 +49,9 @@ class FeatureConfig:
 
 
 @dataclass
-class LiftConfig:
-    target_alpha: float = 0.1
+class GainConfig:
+    alpha: float = 0.1
+    thresh_losscut: float = 5.0
 
 
 @dataclass
@@ -107,7 +108,7 @@ class TrainConfig:
     neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
     data: DataConfig = field(default_factory=DataConfig)
     feature: FeatureConfig = field(default_factory=FeatureConfig)
-    lift: LiftConfig = field(default_factory=LiftConfig)
+    gain: GainConfig = field(default_factory=GainConfig)
     net: NetConfig = field(default_factory=NetConfig)
     loss: LossConfig = field(default_factory=LossConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
@@ -119,7 +120,7 @@ class SimulationConfig:
     spread: float = 2.0
     start_hour: int = 2
     end_hour: int = 22
-    thresh_loss_cut: float = 5.0
+    thresh_losscut: float = 5.0
 
 
 @dataclass

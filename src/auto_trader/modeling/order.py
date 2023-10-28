@@ -55,11 +55,11 @@ class OrderSimulator:
         self,
         start_hour: int,
         end_hour: int,
-        thresh_loss_cut: float,
+        thresh_losscut: float,
     ):
         self.start_hour = start_hour
         self.end_hour = end_hour
-        self.thresh_loss_cut = thresh_loss_cut
+        self.thresh_losscut = thresh_losscut
         self.order_history: list[Order] = []
         self.open_position: Optional[Order] = None
 
@@ -84,7 +84,7 @@ class OrderSimulator:
             and (
                 not is_open
                 or long_exit
-                or self.open_position.entry_rate - rate >= self.thresh_loss_cut
+                or self.open_position.entry_rate - rate >= self.thresh_losscut
             )
         ) or (
             self.open_position is not None
@@ -92,7 +92,7 @@ class OrderSimulator:
             and (
                 not is_open
                 or short_exit
-                or rate - self.open_position.entry_rate >= self.thresh_loss_cut
+                or rate - self.open_position.entry_rate >= self.thresh_losscut
             )
         ):
             self.open_position.exit(dt, rate)

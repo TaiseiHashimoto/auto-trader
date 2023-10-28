@@ -51,7 +51,7 @@ class TestOrderSimulator:
             index=index,
         )
 
-        simulator = order.OrderSimulator(start_hour=2, end_hour=22, thresh_loss_cut=5.0)
+        simulator = order.OrderSimulator(start_hour=2, end_hour=22, thresh_losscut=5.0)
         expected = []
 
         order_df.loc["2023-01-03 01:59:00", "long_entry"] = True  # 無効

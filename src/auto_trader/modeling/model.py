@@ -261,8 +261,8 @@ class Model(pl.LightningModule):
 
         return features_torch
 
-    def _to_torch_lift(self, lift: NDArray[np.float32]) -> torch.Tensor:
-        return torch.from_numpy(lift).to(self.device)
+    def _to_torch_gain(self, gain: NDArray[np.float32]) -> torch.Tensor:
+        return torch.from_numpy(gain).to(self.device)
 
     def _predict_prob(
         self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
@@ -292,13 +292,14 @@ class Model(pl.LightningModule):
         prob_long_exit: torch.Tensor,
         prob_short_entry: torch.Tensor,
         prob_short_exit: torch.Tensor,
-        lift_torch: torch.Tensor,
+        gain_long_torch: torch.Tensor,
+        gain_short_torch: torch.Tensor,
         log_prefix: str,
     ) -> torch.Tensor:
-        gain_long_entry = (prob_long_entry * (lift_torch - self.spread)).mean()
-        gain_long_exit = (prob_long_exit * -lift_torch).mean()
-        gain_short_entry = (prob_short_entry * (-lift_torch - self.spread)).mean()
-        gain_short_exit = (prob_short_exit * lift_torch).mean()
+        gain_long_entry = (prob_long_entry * (gain_long_torch - self.spread)).mean()
+        gain_long_exit = (prob_long_exit * -gain_long_torch).mean()
+        gain_short_entry = (prob_short_entry * (gain_short_torch - self.spread)).mean()
+        gain_short_exit = (prob_short_exit * -gain_short_torch).mean()
         entropy_long_entry = self._calc_binary_entropy(prob_long_entry).mean()
         entropy_long_exit = self._calc_binary_entropy(prob_long_exit).mean()
         entropy_short_entry = self._calc_binary_entropy(prob_short_entry).mean()
@@ -342,15 +343,19 @@ class Model(pl.LightningModule):
         self,
         batch: tuple[
             dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
-            NDArray[np.float32],
+            tuple[NDArray[np.float32], NDArray[np.float32]],
         ],
         batch_idx: int,
     ) -> torch.Tensor:
-        features_np, lift_np = batch
+        features_np, (gain_long_np, gain_short_np) = batch
         features_torch = self._to_torch_features(features_np)
-        lift_torch = self._to_torch_lift(lift_np)
+        gain_long_torch = self._to_torch_gain(gain_long_np)
+        gain_short_torch = self._to_torch_gain(gain_short_np)
         return self._calc_loss(
-            *self._predict_prob(features_torch), lift_torch, log_prefix="train"
+            *self._predict_prob(features_torch),
+            gain_long_torch,
+            gain_short_torch,
+            log_prefix="train",
         )
 
     def validation_step(
@@ -361,12 +366,16 @@ class Model(pl.LightningModule):
         ],
         batch_idx: int,
     ) -> None:
-        features_np, lift_np = batch
+        features_np, (gain_long_np, gain_short_np) = batch
         features_torch = self._to_torch_features(features_np)
-        lift_torch = self._to_torch_lift(lift_np)
+        gain_long_torch = self._to_torch_gain(gain_long_np)
+        gain_short_torch = self._to_torch_gain(gain_short_np)
         # ロギング目的
         _ = self._calc_loss(
-            *self._predict_prob(features_torch), lift_torch, log_prefix="valid"
+            *self._predict_prob(features_torch),
+            gain_long_torch,
+            gain_short_torch,
+            log_prefix="valid",
         )
 
     def predict_step(

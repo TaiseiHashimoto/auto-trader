@@ -39,7 +39,8 @@ def calc_stats(values: NDArray[np.float32]) -> dict[str, float]:
 
 def log_metrics(
     config: EvalConfig,
-    lift: "pd.Series[float]",
+    gain_long: "pd.Series[float]",
+    gain_short: "pd.Series[float]",
     preds: pd.DataFrame,
     run: neptune.Run,
 ) -> None:
@@ -48,13 +49,13 @@ def log_metrics(
         run[f"stats/prob/{label_name}"] = calc_stats(pred)
 
         if label_name == "long_entry":
-            label = (lift.loc[preds.index] > config.simulation.spread).values
+            label = (gain_long.loc[preds.index] > config.simulation.spread).values
         elif label_name == "long_exit":
-            label = (lift.loc[preds.index] < 0).values
+            label = (gain_long.loc[preds.index] < 0).values
         elif label_name == "short_entry":
-            label = (lift.loc[preds.index] < -config.simulation.spread).values
+            label = (gain_short.loc[preds.index] > config.simulation.spread).values
         elif label_name == "short_exit":
-            label = (lift.loc[preds.index] > 0).values
+            label = (gain_short.loc[preds.index] < 0).values
         else:
             assert False
 
@@ -103,7 +104,7 @@ def run_simulations(
         simulator = order.OrderSimulator(
             config.simulation.start_hour,
             config.simulation.end_hour,
-            config.simulation.thresh_loss_cut,
+            config.simulation.thresh_losscut,
         )
         for i, timestamp in enumerate(rates.index):
             # TODO: 戦略 (e.g. n 回連続で long 選択の場合に実際に long する) を導入
@@ -194,13 +195,16 @@ def main(config: EvalConfig) -> None:
             sma_frac_unit=train_config.feature.sma_frac_unit,
         )
 
-    lift = data.calc_lift(df_base["close"], train_config.lift.target_alpha)
+    gain_long, gain_short = data.calc_gains(
+        df_base["close"], train_config.gain.alpha, train_config.gain.thresh_losscut
+    )
 
     base_index = data.calc_available_index(
-        features,
-        lift,
+        features=features,
+        gain_long=gain_long,
+        gain_short=gain_short,
         hist_len=train_config.feature.hist_len,
-        # 取引時間は OrderSimulator で扱う
+        # 取引時間は OrderSimulator で絞る
         start_hour=0,
         end_hour=24,
     )
@@ -213,7 +217,8 @@ def main(config: EvalConfig) -> None:
     loader = data.DataLoader(
         base_index=base_index,
         features=features,
-        lift=lift,
+        gain_long=gain_long,
+        gain_short=gain_short,
         hist_len=train_config.feature.hist_len,
         sma_window_size_center=train_config.feature.sma_window_size_center,
         batch_size=train_config.batch_size,
@@ -255,7 +260,8 @@ def main(config: EvalConfig) -> None:
     rates = df_base.loc[base_index, config.simulation.timing]
     log_metrics(
         config=config,
-        lift=lift,
+        gain_long=gain_long,
+        gain_short=gain_short,
         preds=preds,
         run=run,
     )

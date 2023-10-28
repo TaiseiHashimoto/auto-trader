@@ -1,3 +1,4 @@
+import heapq
 import os
 from typing import Generator, Literal, Optional, Union, cast
 
@@ -116,7 +117,7 @@ def create_features(
 def calc_lift(value_base: "pd.Series[float]", alpha: float) -> "pd.Series[float]":
     future_value = (
         value_base.iloc[::-1]
-        .ewm(alpha=alpha, adjust=True)
+        .ewm(alpha=alpha, adjust=False)
         .mean()
         .iloc[::-1]
         .shift(-1)
@@ -125,9 +126,64 @@ def calc_lift(value_base: "pd.Series[float]", alpha: float) -> "pd.Series[float]
     return future_value - value_base
 
 
+def calc_losscut_idxs(
+    value_base: NDArray[np.float32], thresh_losscut: float
+) -> NDArray[np.int64]:
+    buffer: list[tuple[float, int]] = []
+    losscut_idxs = np.full(len(value_base), len(value_base) - 1, dtype=np.int64)
+
+    for idx, val in enumerate(value_base):
+        while len(buffer) > 0:
+            neg_val_buf, idx_buf = buffer[0]
+            profit = val + neg_val_buf
+            if profit > -thresh_losscut:
+                break
+            losscut_idxs[idx_buf] = idx
+            heapq.heappop(buffer)
+
+        heapq.heappush(buffer, (-val, idx))
+
+    return losscut_idxs
+
+
+def calc_gains(
+    value_base: "pd.Series[float]", alpha: float, thresh_losscut: float
+) -> tuple["pd.Series[float]", "pd.Series[float]"]:
+    lift_raw = calc_lift(value_base, alpha)
+    losscut_idxs_long = calc_losscut_idxs(
+        cast(NDArray[np.float32], value_base.values), thresh_losscut
+    )
+    losscut_idxs_short = calc_losscut_idxs(
+        -cast(NDArray[np.float32], value_base.values), thresh_losscut
+    )
+
+    # 損切りを考慮すると、
+    # if losscut_idxs[i] < T
+    #   gain[i] = lift[i] - (1 - alpha)^(losscut_idxs[i] - i) * lift[losscut_idxs[i]]
+    # else
+    #   gain[i] = lift[i]
+
+    gain_long = pd.Series(
+        lift_raw.values
+        - lift_raw.fillna(0.0).values[losscut_idxs_long]
+        * (1 - alpha) ** (losscut_idxs_long - np.arange(len(value_base))),
+        index=value_base.index,
+        dtype=np.float32,
+    )
+    gain_short = -pd.Series(
+        lift_raw.values
+        - lift_raw.fillna(0.0).values[losscut_idxs_short]
+        * (1 - alpha) ** (losscut_idxs_short - np.arange(len(value_base))),
+        index=value_base.index,
+        dtype=np.float32,
+    )
+    return gain_long, gain_short
+
+
 def calc_available_index(
     features: dict[Timeframe, dict[FeatureType, pd.DataFrame]],
-    lift: "pd.Series[float]",
+    gain_long: "pd.Series[float]",
+    gain_short: "pd.Series[float]",
     hist_len: int,
     start_hour: int,
     end_hour: int,
@@ -148,8 +204,11 @@ def calc_available_index(
             get_first_index(features[timeframe]["abs"]),
         )
 
-    # lift は後を見るため最後のデータは NaN になる。
-    last_index = lift.index[lift.notna()][-1]
+    # gain は後を見るため最後のデータは NaN になる。
+    last_index = max(
+        gain_long.index[gain_long.notna()][-1],
+        gain_short.index[gain_short.notna()][-1],
+    )
 
     base_index = cast(pd.DatetimeIndex, features["1min"]["rel"].index)
     available_mask = (
@@ -168,7 +227,8 @@ class DataLoader:
         self,
         base_index: pd.DatetimeIndex,
         features: dict[str, dict[FeatureType, pd.DataFrame]],
-        lift: Optional["pd.Series[float]"],
+        gain_long: Optional["pd.Series[float]"],
+        gain_short: Optional["pd.Series[float]"],
         hist_len: int,
         sma_window_size_center: int,
         batch_size: int,
@@ -176,7 +236,8 @@ class DataLoader:
     ) -> None:
         self.base_index = base_index
         self.features = features
-        self.lift = lift
+        self.gain_long = gain_long
+        self.gain_short = gain_short
         self.hist_len = hist_len
         self.sma_window_size_center = sma_window_size_center
         self.batch_size = batch_size
@@ -185,7 +246,10 @@ class DataLoader:
     def __iter__(
         self,
     ) -> Generator[
-        tuple[dict[Timeframe, dict[FeatureName, FeatureValue]], NDArray[np.float32]],
+        tuple[
+            dict[Timeframe, dict[FeatureName, FeatureValue]],
+            tuple[NDArray[np.float32], NDArray[np.float32]],
+        ],
         None,
         None,
     ]:
@@ -237,10 +301,12 @@ class DataLoader:
                         assert feature_name not in features[timeframe]
                         features[timeframe][feature_name] = value
 
-            if self.lift is None:
-                lift = np.zeros(len(idx_batch_dict["1min"]), dtype=np.float32)
+            if self.gain_long is not None and self.gain_short is not None:
+                gain_long = self.gain_long.values[idx_batch_dict["1min"]]
+                gain_short = self.gain_short.values[idx_batch_dict["1min"]]
             else:
-                lift = self.lift.values[idx_batch_dict["1min"]]
+                gain_long = np.zeros(len(idx_batch_dict["1min"]), dtype=np.float32)
+                gain_short = np.zeros(len(idx_batch_dict["1min"]), dtype=np.float32)
 
             for timeframe in timeframes:
                 for feature_name in features[timeframe]:
@@ -248,9 +314,10 @@ class DataLoader:
                         features[timeframe][feature_name]
                     ).any(), f"NaN found in {timeframe} {feature_name}"
 
-            assert not np.isnan(lift).any()
+            assert not np.isnan(gain_long).any()
+            assert not np.isnan(gain_short).any()
 
-            yield features, lift
+            yield features, (gain_long, gain_short)
 
             row_count += len(idx_batch_dict["1min"])
 
@@ -311,10 +378,13 @@ class FeatureInfo:
 
 def get_feature_info(
     loader: DataLoader, batch_num: int = 100
-) -> tuple[dict[Timeframe, dict[FeatureName, FeatureInfo]], FeatureInfo]:
+) -> tuple[
+    dict[Timeframe, dict[FeatureName, FeatureInfo]], tuple[FeatureInfo, FeatureInfo]
+]:
     feature_info: dict[Timeframe, dict[FeatureName, FeatureInfo]] = {}
-    lift_info = FeatureInfo(np.float32)
-    for batch_idx, (features, lift) in enumerate(loader):
+    gain_long_info = FeatureInfo(np.float32)
+    gain_short_info = FeatureInfo(np.float32)
+    for batch_idx, (features, gains) in enumerate(loader):
         if batch_idx == batch_num:
             break
 
@@ -329,6 +399,7 @@ def get_feature_info(
 
                 feature_info[timeframe][feature_name].update(values)
 
-        lift_info.update(lift)
+        gain_long_info.update(gains[0])
+        gain_short_info.update(gains[1])
 
-    return feature_info, lift_info
+    return feature_info, (gain_long_info, gain_short_info)
