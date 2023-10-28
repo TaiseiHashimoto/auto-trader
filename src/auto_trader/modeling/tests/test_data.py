@@ -178,16 +178,16 @@ def test_create_features() -> None:
 
 
 def test_calc_lift() -> None:
-    value_base = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+    value_close = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
     pd.testing.assert_series_equal(
-        data.calc_lift(value_base, alpha=0.1),
+        data.calc_lift(value_close, alpha=0.1),
         pd.Series(
             [
+                np.nan,
                 (2 * 0.1 + 3 * 0.1 * 0.9 + 4 * 0.1 * 0.9**2 + 5 * 0.9**3) - 1,
                 (3 * 0.1 + 4 * 0.1 * 0.9 + 5 * 0.9**2) - 2,
-                (4 * 0.1 + 5 * 0.9) - 3,
-                5 - 4,
-                np.nan - 5,
+                (4 * 0.1 + 5 * 0.9**1) - 3,
+                5 * 0.9**0 - 4,
             ],
             dtype=np.float32,
         ),
@@ -195,7 +195,7 @@ def test_calc_lift() -> None:
 
 
 def test_calc_losscut_idxs() -> None:
-    value_base = np.array(
+    value_close = np.array(
         [
             100.0,
             101.0,
@@ -213,27 +213,27 @@ def test_calc_losscut_idxs() -> None:
         ]
     )
     np.testing.assert_array_equal(
-        data.calc_losscut_idxs(value_base, thresh_losscut=2.0),
+        data.calc_losscut_idxs(value_close, thresh_losscut=2.0),
         np.array([8, 7, 6, 5, 6, 7, 8, 9, 12, 12, 12, 12, 12]),
     )
     np.testing.assert_array_equal(
-        data.calc_losscut_idxs(-value_base, thresh_losscut=2.0),
+        data.calc_losscut_idxs(-value_close, thresh_losscut=2.0),
         np.array([2, 3, 12, 12, 12, 12, 12, 12, 12, 11, 12, 12, 12]),
     )
 
 
 def test_calc_gains() -> None:
-    value_base = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
-    gain_long, gain_short = data.calc_gains(value_base, alpha=0.1, thresh_losscut=2.0)
+    value_close = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+    gain_long, gain_short = data.calc_gains(value_close, alpha=0.1, thresh_losscut=2.0)
     pd.testing.assert_series_equal(
         gain_long,
         pd.Series(
             [
+                np.nan,
                 (2 * 0.1 + 3 * 0.1 * 0.9 + 4 * 0.1 * 0.9**2 + 5 * 0.9**3) - 1,
                 (3 * 0.1 + 4 * 0.1 * 0.9 + 5 * 0.9**2) - 2,
-                (4 * 0.1 + 5 * 0.9) - 3,
-                5 - 4,
-                np.nan - 5,
+                (4 * 0.1 + 5 * 0.9**1) - 3,
+                5 * 0.9**0 - 4,
             ],
             dtype=np.float32,
         ),
@@ -242,11 +242,11 @@ def test_calc_gains() -> None:
         gain_short,
         -pd.Series(
             [
-                (2 * 0.1 + 3 * 0.9) - 1,
-                (3 * 0.1 + 4 * 0.9) - 2,
+                np.nan,
+                (2 * 0.1 + 3 * 0.1 * 0.9 + 4 * 0.9**2) - 1,
+                (3 * 0.1 + 4 * 0.1 * 0.9 + 5 * 0.9**2) - 2,
                 (4 * 0.1 + 5 * 0.9) - 3,
                 5 - 4,
-                np.nan - 5,
             ],
             dtype=np.float32,
         ),

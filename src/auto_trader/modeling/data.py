@@ -1,6 +1,5 @@
 import heapq
 import os
-import random
 from typing import Generator, Literal, Optional, Union, cast
 
 import numpy as np
@@ -57,7 +56,7 @@ def resample(
     timeframe: str,
 ) -> pd.DataFrame:
     if timeframe == "1min":
-        return values_base
+        values_resampled = values_base
     else:
         values_resampled = pd.DataFrame(
             {
@@ -69,9 +68,9 @@ def resample(
         )
         # 削除していた flat 期間が NaN になるので削除
         values_resampled = values_resampled.dropna()
-        # 未来の値を見ないようにシフト
-        values_resampled = values_resampled.shift(1)
-        return values_resampled
+
+    # 未来の値を見ないようにシフト
+    return values_resampled.shift(1)
 
 
 def calc_sma(s: "pd.Series[float]", window_size: int) -> "pd.Series[float]":
@@ -118,25 +117,24 @@ def create_features(
     return {"rel": features_rel, "abs": features_abs}
 
 
-def calc_lift(value_base: "pd.Series[float]", alpha: float) -> "pd.Series[float]":
+def calc_lift(value_close: "pd.Series[float]", alpha: float) -> "pd.Series[float]":
     future_value = (
-        value_base.iloc[::-1]
+        value_close.iloc[::-1]
         .ewm(alpha=alpha, adjust=False)
         .mean()
         .iloc[::-1]
-        .shift(-1)
         .astype(np.float32)
     )
-    return future_value - value_base
+    return future_value - value_close.shift(1)
 
 
 def calc_losscut_idxs(
-    value_base: NDArray[np.float32], thresh_losscut: float
+    value_close: NDArray[np.float32], thresh_losscut: float
 ) -> NDArray[np.int64]:
     buffer: list[tuple[float, int]] = []
-    losscut_idxs = np.full(len(value_base), len(value_base) - 1, dtype=np.int64)
+    losscut_idxs = np.full(len(value_close), len(value_close) - 1, dtype=np.int64)
 
-    for idx, val in enumerate(value_base):
+    for idx, val in enumerate(value_close):
         while len(buffer) > 0:
             neg_val_buf, idx_buf = buffer[0]
             profit = val + neg_val_buf
@@ -151,34 +149,33 @@ def calc_losscut_idxs(
 
 
 def calc_gains(
-    value_base: "pd.Series[float]", alpha: float, thresh_losscut: float
+    value_close: "pd.Series[float]", alpha: float, thresh_losscut: float
 ) -> tuple["pd.Series[float]", "pd.Series[float]"]:
-    lift_raw = calc_lift(value_base, alpha)
+    lift_raw = calc_lift(value_close, alpha)
     losscut_idxs_long = calc_losscut_idxs(
-        cast(NDArray[np.float32], value_base.values), thresh_losscut
+        cast(NDArray[np.float32], value_close.values), thresh_losscut
     )
     losscut_idxs_short = calc_losscut_idxs(
-        -cast(NDArray[np.float32], value_base.values), thresh_losscut
+        -cast(NDArray[np.float32], value_close.values), thresh_losscut
     )
 
     # 損切りを考慮すると、
-    # if losscut_idxs[i] < T
-    #   gain[i] = lift[i] - (1 - alpha)^(losscut_idxs[i] - i) * lift[losscut_idxs[i]]
-    # else
-    #   gain[i] = lift[i]
-
+    # gain[i] = (
+    #     lift[i]
+    #     - (1 - alpha)^(losscut_idxs[i] + 1 - i) * lift[losscut_idxs[i] + 1]
+    # )
     gain_long = pd.Series(
         lift_raw.values
-        - lift_raw.fillna(0.0).values[losscut_idxs_long]
-        * (1 - alpha) ** (losscut_idxs_long - np.arange(len(value_base))),
-        index=value_base.index,
+        - lift_raw.shift(-1).fillna(0.0).values[losscut_idxs_long]
+        * (1 - alpha) ** (losscut_idxs_long + 1 - np.arange(len(value_close))),
+        index=value_close.index,
         dtype=np.float32,
     )
     gain_short = -pd.Series(
         lift_raw.values
-        - lift_raw.fillna(0.0).values[losscut_idxs_short]
-        * (1 - alpha) ** (losscut_idxs_short - np.arange(len(value_base))),
-        index=value_base.index,
+        - lift_raw.shift(-1).fillna(0.0).values[losscut_idxs_short]
+        * (1 - alpha) ** (losscut_idxs_short + 1 - np.arange(len(value_close))),
+        index=value_close.index,
         dtype=np.float32,
     )
     return gain_long, gain_short
@@ -233,13 +230,13 @@ def split_block_idxs(
     block_start_idxs_valid = np.random.choice(
         block_start_idxs, size=int(len(block_start_idxs) * valid_ratio), replace=False
     )
-    idxs_valid = []
+    idxs_valid_content: list[int] = []
     for idx in block_start_idxs_valid:
-        idxs_valid.extend(range(idx, min(idx + block_size, size)))
+        idxs_valid_content.extend(range(idx, min(idx + block_size, size)))
 
-    idxs_valid = np.random.permutation(idxs_valid).astype(np.int64)
+    idxs_valid = np.random.permutation(idxs_valid_content).astype(np.int64)
     idxs_train = np.random.permutation(
-        list(set(range(size)) - set(idxs_valid))
+        list(set(range(size)) - set(idxs_valid_content))
     ).astype(np.int64)
     return idxs_train, idxs_valid
 
