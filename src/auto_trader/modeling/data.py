@@ -151,7 +151,7 @@ def calc_losscut_idxs(
 def calc_gains(
     value_close: "pd.Series[float]", alpha: float, thresh_losscut: float
 ) -> tuple["pd.Series[float]", "pd.Series[float]"]:
-    lift_raw = calc_lift(value_close, alpha)
+    lift = calc_lift(value_close, alpha)
     losscut_idxs_long = calc_losscut_idxs(
         cast(NDArray[np.float32], value_close.values), thresh_losscut
     )
@@ -162,19 +162,33 @@ def calc_gains(
     # 損切りを考慮すると、
     # gain[i] = (
     #     lift[i]
-    #     - (1 - alpha)^(losscut_idxs[i] + 1 - i) * lift[losscut_idxs[i] + 1]
+    #     - (1 - alpha)^(losscut_idxs[i-1] + 1 - i) * lift[losscut_idxs[i-1] + 1]
     # )
     gain_long = pd.Series(
-        lift_raw.values
-        - lift_raw.shift(-1).fillna(0.0).values[losscut_idxs_long]
-        * (1 - alpha) ** (losscut_idxs_long + 1 - np.arange(len(value_close))),
+        cast(NDArray[np.float32], lift.values)
+        - cast(
+            NDArray[np.float32],
+            (
+                lift.shift(-1).fillna(0.0).iloc[losscut_idxs_long]
+                * (1 - alpha) ** (losscut_idxs_long - np.arange(len(value_close)))
+            )
+            .shift(1)
+            .values,
+        ),
         index=value_close.index,
         dtype=np.float32,
     )
     gain_short = -pd.Series(
-        lift_raw.values
-        - lift_raw.shift(-1).fillna(0.0).values[losscut_idxs_short]
-        * (1 - alpha) ** (losscut_idxs_short + 1 - np.arange(len(value_close))),
+        cast(NDArray[np.float32], lift.values)
+        - cast(
+            NDArray[np.float32],
+            (
+                lift.shift(-1).fillna(0.0).iloc[losscut_idxs_short]
+                * (1 - alpha) ** (losscut_idxs_short - np.arange(len(value_close)))
+            )
+            .shift(1)
+            .values,
+        ),
         index=value_close.index,
         dtype=np.float32,
     )
