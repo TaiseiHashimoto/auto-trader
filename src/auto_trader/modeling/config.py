@@ -107,7 +107,7 @@ class NetConfig:
 
 @dataclass
 class LossConfig:
-    entropy_coef: float = 0.01
+    entropy_coef: float = 1.0
     spread: float = 2.0
 
 
