@@ -68,6 +68,15 @@ class ConvExtractor(nn.Module):
         return x
 
 
+def get_positional_encoding(hist_len: int, emb_dim: int) -> torch.Tensor:
+    pe = torch.zeros(hist_len, emb_dim)
+    position = torch.arange(0, hist_len, dtype=torch.float).unsqueeze(dim=1)
+    div_term = torch.exp(torch.arange(0, emb_dim, 2).float() * (-np.log(10000.0) / emb_dim))
+    pe[:, 0::2] = torch.sin(position * div_term)
+    pe[:, 1::2] = torch.cos(position * div_term)
+    return pe.unsqueeze(dim=0)
+
+
 class AttentionExtractor(nn.Module):
     def __init__(
         self,
@@ -104,9 +113,9 @@ class AttentionExtractor(nn.Module):
                 )
             )
 
-        self.positional_encoding = nn.Parameter(
-            torch.randn(hist_len, emb_dim) * pe_sigma
-        )
+        self.positional_encoding: torch.Tensor
+        self.register_buffer("positional_encoding", get_positional_encoding(hist_len, emb_dim))
+
         self.dropout = nn.Dropout(dropout)
         self.layer_norm = nn.LayerNorm(emb_dim)
 
