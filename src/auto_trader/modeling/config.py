@@ -59,14 +59,26 @@ class NetConfig:
     numerical_emb_dim: int = 16
     categorical_emb_dim: int = 16
     periodic_activation_sigma: float = 1.0
-    base_cnn_out_channels: list[int] = field(default_factory=lambda: [20, 40, 20])
-    base_cnn_kernel_sizes: list[int] = field(default_factory=lambda: [5, 5, 5])
-    base_cnn_batchnorm: bool = True
-    base_cnn_dropout: float = 0.0
+    emb_output_dim: int = 64
+
+    base_net_type: str = "attention"
+
+    base_attention_num_layers: int = 3
+    base_attention_num_heads: int = 1
+    base_attention_feedforward_dim: int = 128
+    base_attention_dropout: float = 0.1
+    base_attention_pe_sigma: float = 0.5
+
+    base_conv_out_channels: list[int] = field(default_factory=lambda: [20, 40, 20])
+    base_conv_kernel_sizes: list[int] = field(default_factory=lambda: [5, 5, 5])
+    base_conv_batchnorm: bool = True
+    base_conv_dropout: float = 0.0
+
     base_fc_hidden_dims: list[int] = field(default_factory=lambda: [128, 128])
     base_fc_batchnorm: bool = False
     base_fc_dropout: float = 0.0
     base_fc_output_dim: int = 128
+
     head_hidden_dims: list[int] = field(default_factory=lambda: [64])
     head_batchnorm: bool = False
     head_dropout: float = 0.0
@@ -77,10 +89,19 @@ class NetConfig:
                 f"numerical_emb_dim must be a even number: {self.numerical_emb_dim}"
             )
 
-        if len(self.base_cnn_out_channels) != len(self.base_cnn_kernel_sizes):
+        if self.base_net_type not in ["attention", "conv"]:
+            raise ValueError(f"Unknown base_type {self.base_net_type}")
+
+        if self.emb_output_dim % self.base_attention_num_heads != 0:
             raise ValueError(
-                f"Number of CNN channels and kernel sizes does not match: "
-                f"{self.base_cnn_out_channels} != {self.base_cnn_kernel_sizes}"
+                f"emb_dim ({self.emb_output_dim}) must be divisible by "
+                f"num_heads ({self.base_attention_num_heads})"
+            )
+
+        if len(self.base_conv_out_channels) != len(self.base_conv_kernel_sizes):
+            raise ValueError(
+                f"Number of conv channels and kernel sizes does not match: "
+                f"{self.base_conv_out_channels} != {self.base_conv_kernel_sizes}"
             )
 
 

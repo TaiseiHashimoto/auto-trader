@@ -153,7 +153,7 @@ def main(config: EvalConfig) -> None:
     run = neptune.init_run(
         project=config.neptune.project,
         mode=config.neptune.mode,
-        tags=["eval", "cnn"],
+        tags=["eval"],
     )
     run["config"] = OmegaConf.to_yaml(config)
 
@@ -175,6 +175,7 @@ def main(config: EvalConfig) -> None:
     train_config = cast(TrainConfig, OmegaConf.create(params["config"]))
     feature_info = params["feature_info"]
     net_state = params["net_state"]
+    run["sys/tags"].add(train_config.net.base_net_type)
 
     df = data.read_cleansed_data(
         config.data.symbol,
@@ -224,14 +225,21 @@ def main(config: EvalConfig) -> None:
     )
     net = model.Net(
         feature_info=feature_info,
-        window_size=train_config.feature.hist_len,
+        hist_len=train_config.feature.hist_len,
         numerical_emb_dim=train_config.net.numerical_emb_dim,
         categorical_emb_dim=train_config.net.categorical_emb_dim,
         periodic_activation_sigma=train_config.net.periodic_activation_sigma,
-        base_cnn_out_channels=train_config.net.base_cnn_out_channels,
-        base_cnn_kernel_sizes=train_config.net.base_cnn_kernel_sizes,
-        base_cnn_batchnorm=train_config.net.base_cnn_batchnorm,
-        base_cnn_dropout=train_config.net.base_cnn_dropout,
+        emb_output_dim=train_config.net.emb_output_dim,
+        base_net_type=train_config.net.base_net_type,
+        base_attention_num_layers=train_config.net.base_attention_num_layers,
+        base_attention_num_heads=train_config.net.base_attention_num_heads,
+        base_attention_feedforward_dim=train_config.net.base_attention_feedforward_dim,
+        base_attention_pe_sigma=train_config.net.base_attention_pe_sigma,
+        base_attention_dropout=train_config.net.base_attention_dropout,
+        base_conv_out_channels=train_config.net.base_conv_out_channels,
+        base_conv_kernel_sizes=train_config.net.base_conv_kernel_sizes,
+        base_conv_batchnorm=train_config.net.base_conv_batchnorm,
+        base_conv_dropout=train_config.net.base_conv_dropout,
         base_fc_hidden_dims=train_config.net.base_fc_hidden_dims,
         base_fc_batchnorm=train_config.net.base_fc_batchnorm,
         base_fc_dropout=train_config.net.base_fc_dropout,

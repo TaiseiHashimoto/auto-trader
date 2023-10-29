@@ -303,9 +303,8 @@ class DataLoader:
             features: dict[Timeframe, dict[FeatureName, FeatureValue]] = {}
             for timeframe in timeframes:
                 idx_batch = idx_batch_dict[timeframe]
-                idx_expanded = (idx_batch[:, np.newaxis] - np.arange(self.hist_len))[
-                    :, ::-1
-                ]
+                # 時刻の昇順に展開
+                idx_expanded = idx_batch[:, np.newaxis] - np.arange(self.hist_len)[::-1]
 
                 sma = self.features[timeframe]["rel"][
                     f"sma{self.sma_window_size_center}"

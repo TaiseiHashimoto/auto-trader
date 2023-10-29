@@ -17,7 +17,7 @@ def main(config: TrainConfig) -> None:
     logger = NeptuneLogger(
         project=config.neptune.project,
         mode=config.neptune.mode,
-        tags=["train", "cnn"],
+        tags=["train", config.net.base_net_type],
         prefix="",
     )
     logger.experiment["config"] = OmegaConf.to_yaml(config)
@@ -100,14 +100,21 @@ def main(config: TrainConfig) -> None:
 
     net = model.Net(
         feature_info=feature_info,
-        window_size=config.feature.hist_len,
+        hist_len=config.feature.hist_len,
         numerical_emb_dim=config.net.numerical_emb_dim,
         categorical_emb_dim=config.net.categorical_emb_dim,
         periodic_activation_sigma=config.net.periodic_activation_sigma,
-        base_cnn_out_channels=config.net.base_cnn_out_channels,
-        base_cnn_kernel_sizes=config.net.base_cnn_kernel_sizes,
-        base_cnn_batchnorm=config.net.base_cnn_batchnorm,
-        base_cnn_dropout=config.net.base_cnn_dropout,
+        emb_output_dim=config.net.emb_output_dim,
+        base_net_type=config.net.base_net_type,
+        base_attention_num_layers=config.net.base_attention_num_layers,
+        base_attention_num_heads=config.net.base_attention_num_heads,
+        base_attention_feedforward_dim=config.net.base_attention_feedforward_dim,
+        base_attention_pe_sigma=config.net.base_attention_pe_sigma,
+        base_attention_dropout=config.net.base_attention_dropout,
+        base_conv_out_channels=config.net.base_conv_out_channels,
+        base_conv_kernel_sizes=config.net.base_conv_kernel_sizes,
+        base_conv_batchnorm=config.net.base_conv_batchnorm,
+        base_conv_dropout=config.net.base_conv_dropout,
         base_fc_hidden_dims=config.net.base_fc_hidden_dims,
         base_fc_batchnorm=config.net.base_fc_batchnorm,
         base_fc_dropout=config.net.base_fc_dropout,

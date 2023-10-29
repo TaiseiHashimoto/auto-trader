@@ -25,36 +25,122 @@ class PeriodicActivation(nn.Module):
         return torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
 
 
-def build_conv_layer(
-    window_size: int,
-    in_channel: int,
-    out_channels: list[int],
-    kernel_sizes: list[int],
-    batchnorm: bool,
-    dropout: float,
-) -> tuple[nn.Sequential, int]:
-    if len(out_channels) != len(kernel_sizes):
-        raise ValueError("Number of channels and kernel sizes must be the same.")
+class ConvExtractor(nn.Module):
+    def __init__(
+        self,
+        hist_len: int,
+        input_channel: int,
+        out_channels: list[int],
+        kernel_sizes: list[int],
+        batchnorm: bool,
+        dropout: float,
+    ):
+        super().__init__()
 
-    layers: list[nn.Module] = []
-    size = window_size
-    for out_channel, kernel_size in zip(out_channels, kernel_sizes):
-        layers.append(nn.Conv1d(in_channel, out_channel, kernel_size, padding="same"))
-        if batchnorm:
-            layers.append(nn.BatchNorm1d(out_channel))
-        layers.append(nn.ReLU())
-        if dropout > 0:
-            layers.append(nn.Dropout(dropout))
-        layers.append(nn.MaxPool1d(kernel_size=2))
+        assert len(out_channels) == len(kernel_sizes)
 
-        size = size // 2
-        in_channel = out_channel
+        self.layers = nn.Sequential()
+        size = hist_len
+        for out_channel, kernel_size in zip(out_channels, kernel_sizes):
+            self.layers.append(
+                nn.Conv1d(input_channel, out_channel, kernel_size, padding="same")
+            )
+            if batchnorm:
+                self.layers.append(nn.BatchNorm1d(out_channel))
+            self.layers.append(nn.ReLU())
+            if dropout > 0:
+                self.layers.append(nn.Dropout(dropout))
+            self.layers.append(nn.MaxPool1d(kernel_size=2))
 
-    return nn.Sequential(*layers), size
+            size = size // 2
+            input_channel = out_channel
+
+        self._output_dim = out_channel * size
+
+    def get_output_dim(self) -> int:
+        return self._output_dim
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # (batch, length, channel) -> (batch, channel, length)
+        x = x.permute(0, 2, 1)
+        x = self.layers(x)
+        x = x.reshape(x.shape[0], -1)
+        return x
+
+
+class AttentionExtractor(nn.Module):
+    def __init__(
+        self,
+        hist_len: int,
+        emb_dim: int,
+        num_layers: int,
+        num_heads: int,
+        feedforward_dim: int,
+        pe_sigma: float,
+        dropout: float,
+    ):
+        super().__init__()
+
+        assert emb_dim % num_heads == 0
+
+        self.attention_layers = nn.ModuleList()
+        self.linear_layers = nn.ModuleList()
+        self.feedforward_layers = nn.ModuleList()
+        for _ in range(num_layers):
+            self.attention_layers.append(
+                nn.MultiheadAttention(
+                    embed_dim=emb_dim,
+                    num_heads=num_heads,
+                    batch_first=True,
+                ),
+            )
+            self.linear_layers.append(nn.Linear(emb_dim, emb_dim))
+            self.feedforward_layers.append(
+                nn.Sequential(
+                    nn.Linear(emb_dim, feedforward_dim),
+                    nn.Dropout(dropout),
+                    nn.ReLU(),
+                    nn.Linear(feedforward_dim, emb_dim),
+                )
+            )
+
+        self.positional_encoding = nn.Parameter(
+            torch.randn(hist_len, emb_dim) * pe_sigma
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.layer_norm = nn.LayerNorm(emb_dim)
+
+        self._output_dim = emb_dim
+
+    def get_output_dim(self) -> int:
+        return self._output_dim
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # (batch, length, embed)
+        x = x + self.positional_encoding
+
+        for i in range(len(self.attention_layers)):
+            if i < len(self.attention_layers) - 1:
+                q, k, v = x, x, x
+            else:
+                # query last time only
+                q = x[:, -1, :].unsqueeze(dim=1)
+                k, v = x, x
+
+            # (batch, length or 1, embed)
+            x_ = self.attention_layers[i](q, k, v, need_weights=False)[0]
+            x_ = self.linear_layers[i](x_)
+            x = self.layer_norm(q + self.dropout(x_))
+
+            x_ = self.feedforward_layers[i](x)
+            x = self.layer_norm(x + self.dropout(x_))
+
+        # (batch, embed)
+        return x.squeeze(dim=1)
 
 
 def build_fc_layer(
-    in_dim: int,
+    input_dim: int,
     hidden_dims: list[int],
     batchnorm: bool,
     dropout: float,
@@ -62,13 +148,13 @@ def build_fc_layer(
 ) -> nn.Sequential:
     layers: list[nn.Module] = []
     for hidden_dim in hidden_dims:
-        layers.append(nn.Linear(in_dim, hidden_dim))
+        layers.append(nn.Linear(input_dim, hidden_dim))
         if batchnorm:
             layers.append(nn.BatchNorm1d(hidden_dim))
         layers.append(nn.ReLU())
         if dropout > 0:
             layers.append(nn.Dropout(dropout))
-        in_dim = hidden_dim
+        input_dim = hidden_dim
 
     layers.append(nn.Linear(hidden_dim, output_dim))
     return nn.Sequential(*layers)
@@ -78,14 +164,21 @@ class BaseNet(nn.Module):
     def __init__(
         self,
         feature_info: dict[data.FeatureName, data.FeatureInfo],
-        window_size: int,
+        hist_len: int,
         numerical_emb_dim: int,
         categorical_emb_dim: int,
         periodic_activation_sigma: float,
-        cnn_out_channels: list[int],
-        cnn_kernel_sizes: list[int],
-        cnn_batchnorm: bool,
-        cnn_dropout: float,
+        emb_output_dim: int,
+        net_type: str,
+        attention_num_layers: int,
+        attention_num_heads: int,
+        attention_feedforward_dim: int,
+        attention_pe_sigma: float,
+        attention_dropout: float,
+        conv_out_channels: list[int],
+        conv_kernel_sizes: list[int],
+        conv_batchnorm: bool,
+        conv_dropout: float,
         fc_hidden_dims: list[int],
         fc_batchnorm: bool,
         fc_dropout: float,
@@ -95,7 +188,7 @@ class BaseNet(nn.Module):
 
         self.normalize_funs: dict[str, Callable[[torch.Tensor], torch.Tensor]] = {}
         self.embed_layers = nn.ModuleDict()
-        emb_output_dim = 0
+        emb_total_dim = 0
         for name, info in feature_info.items():
             if info.dtype == np.float32:
                 mean = info.mean
@@ -104,7 +197,7 @@ class BaseNet(nn.Module):
                 self.embed_layers[name] = PeriodicActivation(
                     numerical_emb_dim // 2, periodic_activation_sigma
                 )
-                emb_output_dim += numerical_emb_dim
+                emb_total_dim += numerical_emb_dim
             elif info.dtype == np.int64:
                 # max + 1 を OOV token とする
                 self.normalize_funs[name] = lambda x: torch.clamp(x, max=info.max + 1)
@@ -112,18 +205,35 @@ class BaseNet(nn.Module):
                     num_embeddings=info.max + 2,
                     embedding_dim=categorical_emb_dim,
                 )
-                emb_output_dim += categorical_emb_dim
+                emb_total_dim += categorical_emb_dim
 
-        self.conv_layer, conv_output_size = build_conv_layer(
-            window_size=window_size,
-            in_channel=emb_output_dim,
-            out_channels=cnn_out_channels,
-            kernel_sizes=cnn_kernel_sizes,
-            batchnorm=cnn_batchnorm,
-            dropout=cnn_dropout,
-        )
+        self.fc_embed = nn.Linear(emb_total_dim, emb_output_dim)
+
+        self.extractor: nn.Module
+        if net_type == "attention":
+            self.extractor = AttentionExtractor(
+                hist_len=hist_len,
+                emb_dim=emb_output_dim,
+                num_layers=attention_num_layers,
+                num_heads=attention_num_heads,
+                feedforward_dim=attention_feedforward_dim,
+                pe_sigma=attention_pe_sigma,
+                dropout=attention_dropout,
+            )
+        elif net_type == "conv":
+            self.extractor = ConvExtractor(
+                hist_len=hist_len,
+                input_channel=emb_output_dim,
+                out_channels=conv_out_channels,
+                kernel_sizes=conv_kernel_sizes,
+                batchnorm=conv_batchnorm,
+                dropout=conv_dropout,
+            )
+        else:
+            assert False
+
         self.fc_layer = build_fc_layer(
-            in_dim=cnn_out_channels[-1] * conv_output_size,
+            input_dim=self.extractor.get_output_dim(),
             hidden_dims=fc_hidden_dims,
             batchnorm=fc_batchnorm,
             dropout=fc_dropout,
@@ -136,31 +246,34 @@ class BaseNet(nn.Module):
             value_norm = self.normalize_funs[name](value)
             embedded_tensors.append(self.embed_layers[name](value_norm))
 
-        # (batch, length, channel)
-        x = torch.cat(embedded_tensors, dim=2)
-        # (batch, channel, length)
-        x = x.permute(0, 2, 1)
-        # (batch, channel, conv_output_size)
-        x = self.conv_layer(x)
-        # (batch, channel * conv_output_size)
-        x = x.reshape(x.shape[0], -1)
-        x = F.relu(x)
+        # (batch, length, emb_output_dim)
+        x = self.fc_embed(torch.cat(embedded_tensors, dim=2))
+        # (batch, extractor_output_dim)
+        x = self.extractor(x)
         # (batch, output_dim)
-        return cast(torch.Tensor, self.fc_layer(x))
+        x = self.fc_layer(F.relu(x))
+        return cast(torch.Tensor, x)
 
 
 class Net(nn.Module):
     def __init__(
         self,
         feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
-        window_size: int,
+        hist_len: int,
         numerical_emb_dim: int,
         categorical_emb_dim: int,
         periodic_activation_sigma: float,
-        base_cnn_out_channels: list[int],
-        base_cnn_kernel_sizes: list[int],
-        base_cnn_batchnorm: bool,
-        base_cnn_dropout: float,
+        emb_output_dim: int,
+        base_net_type: str,
+        base_attention_num_layers: int,
+        base_attention_num_heads: int,
+        base_attention_feedforward_dim: int,
+        base_attention_pe_sigma: float,
+        base_attention_dropout: float,
+        base_conv_out_channels: list[int],
+        base_conv_kernel_sizes: list[int],
+        base_conv_batchnorm: bool,
+        base_conv_dropout: float,
         base_fc_hidden_dims: list[int],
         base_fc_batchnorm: bool,
         base_fc_dropout: float,
@@ -175,14 +288,21 @@ class Net(nn.Module):
         for timeframe in feature_info:
             self.base_nets[timeframe] = BaseNet(
                 feature_info[timeframe],
-                window_size=window_size,
+                hist_len=hist_len,
                 numerical_emb_dim=numerical_emb_dim,
                 categorical_emb_dim=categorical_emb_dim,
                 periodic_activation_sigma=periodic_activation_sigma,
-                cnn_out_channels=base_cnn_out_channels,
-                cnn_kernel_sizes=base_cnn_kernel_sizes,
-                cnn_batchnorm=base_cnn_batchnorm,
-                cnn_dropout=base_cnn_dropout,
+                emb_output_dim=emb_output_dim,
+                net_type=base_net_type,
+                attention_num_layers=base_attention_num_layers,
+                attention_num_heads=base_attention_num_heads,
+                attention_feedforward_dim=base_attention_feedforward_dim,
+                attention_pe_sigma=base_attention_pe_sigma,
+                attention_dropout=base_attention_dropout,
+                conv_out_channels=base_conv_out_channels,
+                conv_kernel_sizes=base_conv_kernel_sizes,
+                conv_batchnorm=base_conv_batchnorm,
+                conv_dropout=base_conv_dropout,
                 fc_hidden_dims=base_fc_hidden_dims,
                 fc_batchnorm=base_fc_batchnorm,
                 fc_dropout=base_fc_dropout,
@@ -190,7 +310,7 @@ class Net(nn.Module):
             )
 
         self.head = build_fc_layer(
-            in_dim=base_fc_output_dim * len(feature_info),
+            input_dim=base_fc_output_dim * len(feature_info),
             hidden_dims=head_hidden_dims,
             batchnorm=head_batchnorm,
             dropout=head_dropout,
@@ -389,7 +509,7 @@ class Model(pl.LightningModule):
         features_torch = self._to_torch_features(features_np)
         return self._predict_prob(features_torch)
 
-    def on_train_epoch_end(self) -> None:
+    def on_trainput_epoch_end(self) -> None:
         if self.log_stdout:
             metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
             print(f"Training metrics: {metrics}")
