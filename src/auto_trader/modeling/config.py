@@ -57,8 +57,9 @@ class GainConfig:
 @dataclass
 class NetConfig:
     numerical_emb_dim: int = 16
-    categorical_emb_dim: int = 16
+    periodic_activation_num_coefs: int = 8
     periodic_activation_sigma: float = 1.0
+    categorical_emb_dim: int = 16
     emb_output_dim: int = 64
 
     base_net_type: str = "attention"

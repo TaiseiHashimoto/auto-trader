@@ -179,8 +179,9 @@ class BaseNet(nn.Module):
         feature_info: dict[data.FeatureName, data.FeatureInfo],
         hist_len: int,
         numerical_emb_dim: int,
-        categorical_emb_dim: int,
+        periodic_activation_num_coefs: int,
         periodic_activation_sigma: float,
+        categorical_emb_dim: int,
         emb_output_dim: int,
         net_type: str,
         attention_num_layers: int,
@@ -207,8 +208,12 @@ class BaseNet(nn.Module):
                 mean = info.mean
                 std = info.var**0.5
                 self.normalize_funs[name] = lambda x: (x - mean) / (std + 1e-6)
-                self.embed_layers[name] = PeriodicActivation(
-                    numerical_emb_dim // 2, periodic_activation_sigma
+                self.embed_layers[name] = nn.Sequential(
+                    PeriodicActivation(
+                        periodic_activation_num_coefs, periodic_activation_sigma
+                    ),
+                    nn.Linear(periodic_activation_num_coefs * 2, numerical_emb_dim),
+                    nn.ReLU(),
                 )
                 emb_total_dim += numerical_emb_dim
             elif info.dtype == np.int64:
@@ -274,8 +279,9 @@ class Net(nn.Module):
         feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
         hist_len: int,
         numerical_emb_dim: int,
-        categorical_emb_dim: int,
+        periodic_activation_num_coefs: int,
         periodic_activation_sigma: float,
+        categorical_emb_dim: int,
         emb_output_dim: int,
         base_net_type: str,
         base_attention_num_layers: int,
@@ -303,8 +309,9 @@ class Net(nn.Module):
                 feature_info[timeframe],
                 hist_len=hist_len,
                 numerical_emb_dim=numerical_emb_dim,
-                categorical_emb_dim=categorical_emb_dim,
+                periodic_activation_num_coefs=periodic_activation_num_coefs,
                 periodic_activation_sigma=periodic_activation_sigma,
+                categorical_emb_dim=categorical_emb_dim,
                 emb_output_dim=emb_output_dim,
                 net_type=base_net_type,
                 attention_num_layers=base_attention_num_layers,
