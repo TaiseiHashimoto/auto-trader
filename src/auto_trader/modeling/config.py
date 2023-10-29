@@ -74,7 +74,7 @@ class NetConfig:
     base_conv_batchnorm: bool = True
     base_conv_dropout: float = 0.0
 
-    base_fc_hidden_dims: list[int] = field(default_factory=lambda: [128, 128])
+    base_fc_hidden_dims: list[int] = field(default_factory=lambda: [128])
     base_fc_batchnorm: bool = False
     base_fc_dropout: float = 0.0
     base_fc_output_dim: int = 128
