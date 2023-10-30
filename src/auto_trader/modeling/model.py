@@ -185,7 +185,7 @@ def build_fc_layer(
             layers.append(nn.Dropout(dropout))
         input_dim = hidden_dim
 
-    layers.append(nn.Linear(hidden_dim, output_dim))
+    layers.append(nn.Linear(input_dim, output_dim))
     return nn.Sequential(*layers)
 
 
