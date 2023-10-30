@@ -235,7 +235,6 @@ def main(config: EvalConfig) -> None:
         base_attention_num_layers=train_config.net.base_attention_num_layers,
         base_attention_num_heads=train_config.net.base_attention_num_heads,
         base_attention_feedforward_dim=train_config.net.base_attention_feedforward_dim,
-        base_attention_pe_sigma=train_config.net.base_attention_pe_sigma,
         base_attention_dropout=train_config.net.base_attention_dropout,
         base_conv_out_channels=train_config.net.base_conv_out_channels,
         base_conv_kernel_sizes=train_config.net.base_conv_kernel_sizes,

@@ -256,7 +256,6 @@ class DataLoader:
         hist_len: int,
         sma_window_size_center: int,
         batch_size: int,
-        shuffle: bool = False,
     ) -> None:
         self.base_index = base_index
         self.features = features
@@ -265,7 +264,6 @@ class DataLoader:
         self.hist_len = hist_len
         self.sma_window_size_center = sma_window_size_center
         self.batch_size = batch_size
-        self.shuffle = shuffle
 
     def __iter__(
         self,
@@ -278,9 +276,6 @@ class DataLoader:
         None,
     ]:
         index = self.base_index
-        if self.shuffle:
-            index = index[np.random.permutation(len(index))]
-
         timeframes = list(self.features.keys())
 
         # それぞれの freq に対応する idx を予め計算しておく

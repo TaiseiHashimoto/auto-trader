@@ -12,6 +12,23 @@ from auto_trader.modeling import data
 Predictions = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
 
 
+class NumericalNormalizer:
+    def __init__(self, mean: float, std: float):
+        self._mean = mean
+        self._std = std
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return (x - self._mean) / (self._std + 1e-6)
+
+
+class CategoricalNormalizer:
+    def __init__(self, max: int):
+        self._max = max
+
+    def __call__(self, x: torch.Tensor) -> torch.Tensor:
+        return torch.clamp(x, max=self._max + 1)
+
+
 class PeriodicActivation(nn.Module):
     def __init__(self, num_coefs: int, sigma: float) -> None:
         super().__init__()
@@ -87,7 +104,6 @@ class AttentionExtractor(nn.Module):
         num_layers: int,
         num_heads: int,
         feedforward_dim: int,
-        pe_sigma: float,
         dropout: float,
     ):
         super().__init__()
@@ -187,7 +203,6 @@ class BaseNet(nn.Module):
         attention_num_layers: int,
         attention_num_heads: int,
         attention_feedforward_dim: int,
-        attention_pe_sigma: float,
         attention_dropout: float,
         conv_out_channels: list[int],
         conv_kernel_sizes: list[int],
@@ -205,9 +220,9 @@ class BaseNet(nn.Module):
         emb_total_dim = 0
         for name, info in feature_info.items():
             if info.dtype == np.float32:
-                mean = info.mean
-                std = info.var**0.5
-                self.normalize_funs[name] = lambda x: (x - mean) / (std + 1e-6)
+                self.normalize_funs[name] = NumericalNormalizer(
+                    info.mean, info.var**0.5
+                )
                 self.embed_layers[name] = nn.Sequential(
                     PeriodicActivation(
                         periodic_activation_num_coefs, periodic_activation_sigma
@@ -217,9 +232,9 @@ class BaseNet(nn.Module):
                 )
                 emb_total_dim += numerical_emb_dim
             elif info.dtype == np.int64:
-                # max + 1 を OOV token とする
-                self.normalize_funs[name] = lambda x: torch.clamp(x, max=info.max + 1)
+                self.normalize_funs[name] = CategoricalNormalizer(info.max)
                 self.embed_layers[name] = nn.Embedding(
+                    # max + 1 を OOV token とする
                     num_embeddings=info.max + 2,
                     embedding_dim=categorical_emb_dim,
                 )
@@ -235,7 +250,6 @@ class BaseNet(nn.Module):
                 num_layers=attention_num_layers,
                 num_heads=attention_num_heads,
                 feedforward_dim=attention_feedforward_dim,
-                pe_sigma=attention_pe_sigma,
                 dropout=attention_dropout,
             )
         elif net_type == "conv":
@@ -259,13 +273,13 @@ class BaseNet(nn.Module):
         )
 
     def forward(self, features: dict[str, torch.Tensor]) -> torch.Tensor:
-        embedded_tensors = []
+        embeddings = []
         for name, value in features.items():
             value_norm = self.normalize_funs[name](value)
-            embedded_tensors.append(self.embed_layers[name](value_norm))
+            embeddings.append(self.embed_layers[name](value_norm))
 
         # (batch, length, emb_output_dim)
-        x = self.fc_embed(torch.cat(embedded_tensors, dim=2))
+        x = self.fc_embed(torch.cat(embeddings, dim=2))
         # (batch, extractor_output_dim)
         x = self.extractor(x)
         # (batch, output_dim)
@@ -287,7 +301,6 @@ class Net(nn.Module):
         base_attention_num_layers: int,
         base_attention_num_heads: int,
         base_attention_feedforward_dim: int,
-        base_attention_pe_sigma: float,
         base_attention_dropout: float,
         base_conv_out_channels: list[int],
         base_conv_kernel_sizes: list[int],
@@ -306,7 +319,7 @@ class Net(nn.Module):
         self.base_nets = nn.ModuleDict()
         for timeframe in feature_info:
             self.base_nets[timeframe] = BaseNet(
-                feature_info[timeframe],
+                feature_info=feature_info[timeframe],
                 hist_len=hist_len,
                 numerical_emb_dim=numerical_emb_dim,
                 periodic_activation_num_coefs=periodic_activation_num_coefs,
@@ -317,7 +330,6 @@ class Net(nn.Module):
                 attention_num_layers=base_attention_num_layers,
                 attention_num_heads=base_attention_num_heads,
                 attention_feedforward_dim=base_attention_feedforward_dim,
-                attention_pe_sigma=base_attention_pe_sigma,
                 attention_dropout=base_attention_dropout,
                 conv_out_channels=base_conv_out_channels,
                 conv_kernel_sizes=base_conv_kernel_sizes,

@@ -68,7 +68,6 @@ class NetConfig:
     base_attention_num_heads: int = 1
     base_attention_feedforward_dim: int = 128
     base_attention_dropout: float = 0.1
-    base_attention_pe_sigma: float = 0.5
 
     base_conv_out_channels: list[int] = field(default_factory=lambda: [20, 40, 20])
     base_conv_kernel_sizes: list[int] = field(default_factory=lambda: [5, 5, 5])

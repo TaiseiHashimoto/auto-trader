@@ -77,7 +77,6 @@ def main(config: TrainConfig) -> None:
         hist_len=config.feature.hist_len,
         sma_window_size_center=config.feature.sma_window_size_center,
         batch_size=config.batch_size,
-        shuffle=True,
     )
     loader_valid = data.DataLoader(
         base_index=base_index_valid,
@@ -110,7 +109,6 @@ def main(config: TrainConfig) -> None:
         base_attention_num_layers=config.net.base_attention_num_layers,
         base_attention_num_heads=config.net.base_attention_num_heads,
         base_attention_feedforward_dim=config.net.base_attention_feedforward_dim,
-        base_attention_pe_sigma=config.net.base_attention_pe_sigma,
         base_attention_dropout=config.net.base_attention_dropout,
         base_conv_out_channels=config.net.base_conv_out_channels,
         base_conv_kernel_sizes=config.net.base_conv_kernel_sizes,

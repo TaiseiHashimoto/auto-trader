@@ -26,7 +26,6 @@ def test_attention_extractor() -> None:
         num_layers=2,
         num_heads=2,
         feedforward_dim=8,
-        pe_sigma=0.1,
         dropout=0.1,
     )
     assert layer.get_output_dim() == 4
