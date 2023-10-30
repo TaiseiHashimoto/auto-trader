@@ -133,15 +133,15 @@ def main(config: TrainConfig) -> None:
 
     print("Train")
     early_stopping_callback = EarlyStopping(
-        monitor="valid/loss",
-        mode="min",
+        monitor="valid/gain",
+        mode="max",
         patience=config.early_stopping_patience,
         check_finite=True,
         verbose=True,
     )
     checkpoint_callback = ModelCheckpoint(
-        monitor="valid/loss",
-        mode="min",
+        monitor="valid/gain",
+        mode="max",
         dirpath=config.output_dir,
         save_top_k=1,
         enable_version_counter=False,
