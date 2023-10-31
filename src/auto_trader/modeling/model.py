@@ -444,14 +444,14 @@ class Model(pl.LightningModule):
         prob_long_exit: torch.Tensor,
         prob_short_entry: torch.Tensor,
         prob_short_exit: torch.Tensor,
-        gain_long_torch: torch.Tensor,
-        gain_short_torch: torch.Tensor,
+        gain_long: torch.Tensor,
+        gain_short: torch.Tensor,
         log_prefix: str,
     ) -> torch.Tensor:
-        gain_long_entry = (prob_long_entry * (gain_long_torch - self.spread)).mean()
-        gain_long_exit = (prob_long_exit * -gain_long_torch).mean()
-        gain_short_entry = (prob_short_entry * (gain_short_torch - self.spread)).mean()
-        gain_short_exit = (prob_short_exit * -gain_short_torch).mean()
+        gain_long_entry = (prob_long_entry * (gain_long - self.spread)).mean()
+        gain_long_exit = (prob_long_exit * -gain_long).mean()
+        gain_short_entry = (prob_short_entry * (gain_short - self.spread)).mean()
+        gain_short_exit = (prob_short_exit * -gain_short).mean()
         entropy_long_entry = self._calc_binary_entropy(prob_long_entry).mean()
         entropy_long_exit = self._calc_binary_entropy(prob_long_exit).mean()
         entropy_short_entry = self._calc_binary_entropy(prob_short_entry).mean()

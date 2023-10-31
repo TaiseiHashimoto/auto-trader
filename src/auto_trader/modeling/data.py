@@ -278,18 +278,18 @@ class DataLoader:
         index = self.base_index
         timeframes = list(self.features.keys())
 
-        # それぞれの freq に対応する idx を予め計算しておく
-        index_dict = {}
+        # それぞれの timeframe に対応する idx を予め計算しておく
+        idx_dict = {}
         for timeframe in timeframes:
             index_timeframe = index.floor(freq=timeframe)
-            index_dict[timeframe] = self.features[timeframe]["rel"].index.get_indexer(
+            idx_dict[timeframe] = self.features[timeframe]["rel"].index.get_indexer(
                 index_timeframe
             )  # type: ignore
 
         row_count = 0
         while row_count < len(index):
             idx_batch_dict = {
-                timeframe: index_dict[timeframe][
+                timeframe: idx_dict[timeframe][
                     row_count : row_count + self.batch_size
                 ]
                 for timeframe in timeframes
