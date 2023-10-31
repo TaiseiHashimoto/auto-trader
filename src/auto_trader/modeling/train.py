@@ -126,6 +126,8 @@ def main(config: TrainConfig) -> None:
         net,
         entropy_coef=config.loss.entropy_coef,
         spread=config.loss.spread,
+        entry_pos_coef=config.loss.entry_pos_coef,
+        exit_pos_coef=config.loss.exit_pos_coef,
         learning_rate=config.optim.learning_rate,
         weight_decay=config.optim.weight_decay,
         log_stdout=config.neptune.mode == "debug",

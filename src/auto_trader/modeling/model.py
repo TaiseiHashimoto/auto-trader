@@ -365,6 +365,8 @@ class Model(pl.LightningModule):
         net: nn.Module,
         entropy_coef: float = 0.01,
         spread: float = 2.0,
+        entry_pos_coef: float = 1.0,
+        exit_pos_coef: float = 1.0,
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
         log_stdout: bool = False,
@@ -373,6 +375,8 @@ class Model(pl.LightningModule):
         self.net = net
         self.entropy_coef = entropy_coef
         self.spread = spread
+        self.entry_pos_coef = entry_pos_coef
+        self.exit_pos_coef = exit_pos_coef
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.log_stdout = log_stdout
@@ -448,10 +452,26 @@ class Model(pl.LightningModule):
         gain_short: torch.Tensor,
         log_prefix: str,
     ) -> torch.Tensor:
-        gain_long_entry = (prob_long_entry * (gain_long - self.spread)).mean()
-        gain_long_exit = (prob_long_exit * -gain_long).mean()
-        gain_short_entry = (prob_short_entry * (gain_short - self.spread)).mean()
-        gain_short_exit = (prob_short_exit * -gain_short).mean()
+        gain_long_entry = (
+            prob_long_entry
+            * (gain_long - self.spread)
+            * torch.where(gain_long - self.spread > 0, self.entry_pos_coef, 1.0)
+        ).mean()
+        gain_long_exit = (
+            prob_long_exit
+            * -gain_long
+            * torch.where(-gain_long > 0, self.exit_pos_coef, 1.0)
+        ).mean()
+        gain_short_entry = (
+            prob_short_entry
+            * (gain_short - self.spread)
+            * torch.where(gain_short - self.spread > 0, self.entry_pos_coef, 1.0)
+        ).mean()
+        gain_short_exit = (
+            prob_short_exit
+            * -gain_short
+            * torch.where(-gain_short > 0, self.exit_pos_coef, 1.0)
+        ).mean()
         entropy_long_entry = self._calc_binary_entropy(prob_long_entry).mean()
         entropy_long_exit = self._calc_binary_entropy(prob_long_exit).mean()
         entropy_short_entry = self._calc_binary_entropy(prob_short_entry).mean()

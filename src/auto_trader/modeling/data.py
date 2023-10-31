@@ -289,9 +289,7 @@ class DataLoader:
         row_count = 0
         while row_count < len(index):
             idx_batch_dict = {
-                timeframe: idx_dict[timeframe][
-                    row_count : row_count + self.batch_size
-                ]
+                timeframe: idx_dict[timeframe][row_count : row_count + self.batch_size]
                 for timeframe in timeframes
             }
 
