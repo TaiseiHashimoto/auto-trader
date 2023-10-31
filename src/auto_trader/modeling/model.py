@@ -429,12 +429,18 @@ class Model(pl.LightningModule):
         # (prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit)
         # = (p0, p2 + p3, p3, p0 + p1)
         pred = self.net(features_torch)
-        pred_norm = torch.softmax(pred, dim=1)
-        prob_long_entry = pred_norm[:, 0]
-        prob_long_exit = pred_norm[:, 2] + pred_norm[:, 3]
-        prob_short_entry = pred_norm[:, 3]
-        prob_short_exit = pred_norm[:, 0] + pred_norm[:, 1]
-        return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
+        # pred_norm = torch.softmax(pred, dim=1)
+        # prob_long_entry = pred_norm[:, 0]
+        # prob_long_exit = pred_norm[:, 2] + pred_norm[:, 3]
+        # prob_short_entry = pred_norm[:, 3]
+        # prob_short_exit = pred_norm[:, 0] + pred_norm[:, 1]
+        # return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
+        return (
+            torch.sigmoid(pred[:, 0]),
+            torch.sigmoid(pred[:, 1]),
+            torch.sigmoid(pred[:, 2]),
+            torch.sigmoid(pred[:, 3]),
+        )
 
     def _calc_binary_entropy(self, prob: torch.Tensor) -> torch.Tensor:
         return cast(
