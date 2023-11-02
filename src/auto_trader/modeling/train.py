@@ -121,13 +121,11 @@ def main(config: TrainConfig) -> None:
         head_hidden_dims=config.net.head_hidden_dims,
         head_batchnorm=config.net.head_batchnorm,
         head_dropout=config.net.head_dropout,
+        head_output_dim=(len(config.loss.bucket_boundaries) + 1) * 2,
     )
     model_ = model.Model(
         net,
-        entropy_coef=config.loss.entropy_coef,
-        spread=config.loss.spread,
-        entry_pos_coef=config.loss.entry_pos_coef,
-        exit_pos_coef=config.loss.exit_pos_coef,
+        bucket_boundaries=config.loss.bucket_boundaries,
         learning_rate=config.optim.learning_rate,
         weight_decay=config.optim.weight_decay,
         log_stdout=config.neptune.mode == "debug",
@@ -135,15 +133,15 @@ def main(config: TrainConfig) -> None:
 
     print("Train")
     early_stopping_callback = EarlyStopping(
-        monitor="valid/gain",
-        mode="max",
+        monitor="valid/loss",
+        mode="min",
         patience=config.early_stopping_patience,
         check_finite=True,
         verbose=True,
     )
     checkpoint_callback = ModelCheckpoint(
-        monitor="valid/gain",
-        mode="max",
+        monitor="valid/loss",
+        mode="min",
         dirpath=config.output_dir,
         save_top_k=1,
         enable_version_counter=False,
@@ -165,10 +163,7 @@ def main(config: TrainConfig) -> None:
     model.Model.load_from_checkpoint(
         checkpoint_path=checkpoint_callback.best_model_path,
         net=net,
-        entropy_coef=config.loss.entropy_coef,
-        spread=config.loss.spread,
-        learning_rate=config.optim.learning_rate,
-        weight_decay=config.optim.weight_decay,
+        bucket_boundaries=config.loss.bucket_boundaries,
     )
     os.makedirs(config.output_dir, exist_ok=True)
     params_file = os.path.join(config.output_dir, "params.pt")

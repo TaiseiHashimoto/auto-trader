@@ -90,7 +90,7 @@ class NetConfig:
             )
 
         if self.base_net_type not in ["attention", "conv"]:
-            raise ValueError(f"Unknown base_type {self.base_net_type}")
+            raise ValueError(f"Unknown base_net_type {self.base_net_type}")
 
         if self.emb_output_dim % self.base_attention_num_heads != 0:
             raise ValueError(
@@ -107,10 +107,21 @@ class NetConfig:
 
 @dataclass
 class LossConfig:
-    entropy_coef: float = 1.0
-    spread: float = 2.0
-    entry_pos_coef: float = 1.0
-    exit_pos_coef: float = 1.0
+    bucket_boundaries: list[float] = field(
+        default_factory=lambda: [
+            -5.0,
+            -4.0,
+            -3.0,
+            -2.0,
+            -1.0,
+            0.0,
+            1.0,
+            2.0,
+            3.0,
+            4.0,
+            5.0,
+        ]
+    )
 
 
 @dataclass

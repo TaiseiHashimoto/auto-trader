@@ -111,7 +111,6 @@ class AttentionExtractor(nn.Module):
         assert emb_dim % num_heads == 0
 
         self.attention_layers = nn.ModuleList()
-        self.linear_layers = nn.ModuleList()
         self.feedforward_layers = nn.ModuleList()
         for _ in range(num_layers):
             self.attention_layers.append(
@@ -121,7 +120,6 @@ class AttentionExtractor(nn.Module):
                     batch_first=True,
                 ),
             )
-            self.linear_layers.append(nn.Linear(emb_dim, emb_dim))
             self.feedforward_layers.append(
                 nn.Sequential(
                     nn.Linear(emb_dim, feedforward_dim),
@@ -158,7 +156,6 @@ class AttentionExtractor(nn.Module):
 
             # (batch, length or 1, embed)
             x_ = self.attention_layers[i](q, k, v, need_weights=False)[0]
-            x_ = self.linear_layers[i](x_)
             x = self.layer_norm(q + self.dropout(x_))
 
             x_ = self.feedforward_layers[i](x)
@@ -313,6 +310,7 @@ class Net(nn.Module):
         head_hidden_dims: list[int],
         head_batchnorm: bool,
         head_dropout: float,
+        head_output_dim: int,
     ):
         super().__init__()
 
@@ -346,7 +344,7 @@ class Net(nn.Module):
             hidden_dims=head_hidden_dims,
             batchnorm=head_batchnorm,
             dropout=head_dropout,
-            output_dim=4,
+            output_dim=head_output_dim,
         )
 
     def forward(self, features: dict[str, dict[str, torch.Tensor]]) -> torch.Tensor:
@@ -363,20 +361,25 @@ class Model(pl.LightningModule):
     def __init__(
         self,
         net: nn.Module,
-        entropy_coef: float = 0.01,
-        spread: float = 2.0,
-        entry_pos_coef: float = 1.0,
-        exit_pos_coef: float = 1.0,
+        bucket_boundaries: list[float],
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
         log_stdout: bool = False,
     ):
         super().__init__()
         self.net = net
-        self.entropy_coef = entropy_coef
-        self.spread = spread
-        self.entry_pos_coef = entry_pos_coef
-        self.exit_pos_coef = exit_pos_coef
+
+        self.bucket_boundaries = torch.tensor(
+            bucket_boundaries, dtype=torch.float32, device=self.device
+        )
+        bucket_centers = [bucket_boundaries[0]]
+        for left, right in zip(bucket_boundaries[:-1], bucket_boundaries[1:]):
+            bucket_centers.append((left + right) / 2)
+        bucket_centers.append(bucket_boundaries[-1])
+        self.bucket_centers = torch.tensor(
+            bucket_centers, dtype=torch.float32, device=self.device
+        )
+
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.log_stdout = log_stdout
@@ -420,99 +423,62 @@ class Model(pl.LightningModule):
     def _to_torch_gain(self, gain: NDArray[np.float32]) -> torch.Tensor:
         return torch.from_numpy(gain).to(self.device)
 
-    def _predict_prob(
+    def _predict_logits(
+        self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        pred = self.net(features_torch)
+        return cast(tuple[torch.Tensor, torch.Tensor], torch.chunk(pred, 2, dim=1))
+
+    def _predict_probs(
         self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
     ) -> Predictions:
-        # (long_entry, long_exit, short_entry, short_exit) は
-        # (1, 0, 0, 1), (0, 0, 0, 1), (0, 1, 0, 0),  (0, 1, 1, 0) のいずれか。
-        # 各ケースの確率を p0, p1, p2, p3 とすると、
-        # (prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit)
-        # = (p0, p2 + p3, p3, p0 + p1)
-        pred = self.net(features_torch)
-        # pred_norm = torch.softmax(pred, dim=1)
-        # prob_long_entry = pred_norm[:, 0]
-        # prob_long_exit = pred_norm[:, 2] + pred_norm[:, 3]
-        # prob_short_entry = pred_norm[:, 3]
-        # prob_short_exit = pred_norm[:, 0] + pred_norm[:, 1]
-        # return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
+        logits_long, logits_short = self._predict_logits(features_torch)
+        probs_long = torch.softmax(logits_long, dim=1)
+        probs_short = torch.softmax(logits_short, dim=1)
+        pred_gain_long = (probs_long * self.bucket_centers).sum(dim=1)
+        pred_gain_short = (probs_short * self.bucket_centers).sum(dim=1)
         return (
-            torch.sigmoid(pred[:, 0]),
-            torch.sigmoid(pred[:, 1]),
-            torch.sigmoid(pred[:, 2]),
-            torch.sigmoid(pred[:, 3]),
-        )
-
-    def _calc_binary_entropy(self, prob: torch.Tensor) -> torch.Tensor:
-        return cast(
-            torch.Tensor,
-            -(prob * torch.log(prob + 1e-6) + (1 - prob) * torch.log(1 - prob + 1e-6)),
+            # 順番が変わらなければ sigmoid でなくてもよい
+            torch.sigmoid(pred_gain_long),
+            torch.sigmoid(-pred_gain_long),
+            torch.sigmoid(pred_gain_short),
+            torch.sigmoid(-pred_gain_short),
         )
 
     def _calc_loss(
         self,
-        prob_long_entry: torch.Tensor,
-        prob_long_exit: torch.Tensor,
-        prob_short_entry: torch.Tensor,
-        prob_short_exit: torch.Tensor,
+        logits_long: torch.Tensor,
+        logits_short: torch.Tensor,
         gain_long: torch.Tensor,
         gain_short: torch.Tensor,
         log_prefix: str,
     ) -> torch.Tensor:
-        gain_long_entry = (
-            prob_long_entry
-            * (gain_long - self.spread)
-            * torch.where(gain_long - self.spread > 0, self.entry_pos_coef, 1.0)
-        ).mean()
-        gain_long_exit = (
-            prob_long_exit
-            * -gain_long
-            * torch.where(-gain_long > 0, self.exit_pos_coef, 1.0)
-        ).mean()
-        gain_short_entry = (
-            prob_short_entry
-            * (gain_short - self.spread)
-            * torch.where(gain_short - self.spread > 0, self.entry_pos_coef, 1.0)
-        ).mean()
-        gain_short_exit = (
-            prob_short_exit
-            * -gain_short
-            * torch.where(-gain_short > 0, self.exit_pos_coef, 1.0)
-        ).mean()
-        entropy_long_entry = self._calc_binary_entropy(prob_long_entry).mean()
-        entropy_long_exit = self._calc_binary_entropy(prob_long_exit).mean()
-        entropy_short_entry = self._calc_binary_entropy(prob_short_entry).mean()
-        entropy_short_exit = self._calc_binary_entropy(prob_short_exit).mean()
-        gain = gain_long_entry + gain_long_exit + gain_short_entry + gain_short_exit
-        entropy = (
-            entropy_long_entry
-            + entropy_long_exit
-            + entropy_short_entry
-            + entropy_short_exit
+        gain_long_oh = F.one_hot(
+            torch.bucketize(gain_long, self.bucket_boundaries),
+            num_classes=len(self.bucket_boundaries) + 1,
+        ).float()
+        gain_short_oh = F.one_hot(
+            torch.bucketize(gain_short, self.bucket_boundaries),
+            num_classes=len(self.bucket_boundaries) + 1,
+        ).float()
+        loss_long = (
+            -(F.log_softmax(logits_long, dim=1) * gain_long_oh).sum(dim=1).mean(dim=0)
         )
-        loss = -(gain + self.entropy_coef * entropy)
+        loss_short = (
+            -(F.log_softmax(logits_short, dim=1) * gain_short_oh).sum(dim=1).mean(dim=0)
+        )
+        loss = loss_long + loss_short
 
         self.log_dict(
             {
-                f"{log_prefix}/prob_long_entry": prob_long_entry.mean(),
-                f"{log_prefix}/prob_long_exit": prob_long_exit.mean(),
-                f"{log_prefix}/prob_short_entry": prob_short_entry.mean(),
-                f"{log_prefix}/prob_short_exit": prob_short_exit.mean(),
-                f"{log_prefix}/gain_long_entry": gain_long_entry,
-                f"{log_prefix}/gain_long_exit": gain_long_exit,
-                f"{log_prefix}/gain_short_entry": gain_short_entry,
-                f"{log_prefix}/gain_short_exit": gain_short_exit,
-                f"{log_prefix}/entropy_long_entry": entropy_long_entry,
-                f"{log_prefix}/entropy_long_exit": entropy_long_exit,
-                f"{log_prefix}/entropy_short_entry": entropy_short_entry,
-                f"{log_prefix}/entropy_short_exit": entropy_short_exit,
-                f"{log_prefix}/gain": gain,
-                f"{log_prefix}/entropy": entropy,
+                f"{log_prefix}/loss_long": loss_long,
+                f"{log_prefix}/loss_short": loss_short,
                 f"{log_prefix}/loss": loss,
             },
             # Accumulate metrics on epoch level
             on_step=False,
             on_epoch=True,
-            batch_size=prob_long_entry.shape[0],
+            batch_size=logits_long.shape[0],
         )
 
         return loss
@@ -530,7 +496,7 @@ class Model(pl.LightningModule):
         gain_long_torch = self._to_torch_gain(gain_long_np)
         gain_short_torch = self._to_torch_gain(gain_short_np)
         return self._calc_loss(
-            *self._predict_prob(features_torch),
+            *self._predict_logits(features_torch),
             gain_long_torch,
             gain_short_torch,
             log_prefix="train",
@@ -550,7 +516,7 @@ class Model(pl.LightningModule):
         gain_short_torch = self._to_torch_gain(gain_short_np)
         # ロギング目的
         _ = self._calc_loss(
-            *self._predict_prob(features_torch),
+            *self._predict_logits(features_torch),
             gain_long_torch,
             gain_short_torch,
             log_prefix="valid",
@@ -565,7 +531,7 @@ class Model(pl.LightningModule):
     ) -> Predictions:
         features_np, _ = batch
         features_torch = self._to_torch_features(features_np)
-        return self._predict_prob(features_torch)
+        return self._predict_probs(features_torch)
 
     def on_trainput_epoch_end(self) -> None:
         if self.log_stdout:

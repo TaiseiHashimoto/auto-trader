@@ -247,9 +247,10 @@ def main(config: EvalConfig) -> None:
         head_hidden_dims=train_config.net.head_hidden_dims,
         head_batchnorm=train_config.net.head_batchnorm,
         head_dropout=train_config.net.head_dropout,
+        head_output_dim=(len(train_config.loss.bucket_boundaries) + 1) * 2,
     )
     net.load_state_dict(net_state)
-    model_ = model.Model(net)
+    model_ = model.Model(net, bucket_boundaries=train_config.loss.bucket_boundaries)
     trainer = pl.Trainer(logger=False)
 
     preds_torch = cast(list[model.Predictions], trainer.predict(model_, loader))
