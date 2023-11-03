@@ -369,16 +369,12 @@ class Model(pl.LightningModule):
         super().__init__()
         self.net = net
 
-        self.bucket_boundaries = torch.tensor(
-            bucket_boundaries, dtype=torch.float32, device=self.device
-        )
+        self.bucket_boundaries = torch.tensor(bucket_boundaries, dtype=torch.float32)
         bucket_centers = [bucket_boundaries[0]]
         for left, right in zip(bucket_boundaries[:-1], bucket_boundaries[1:]):
             bucket_centers.append((left + right) / 2)
         bucket_centers.append(bucket_boundaries[-1])
-        self.bucket_centers = torch.tensor(
-            bucket_centers, dtype=torch.float32, device=self.device
-        )
+        self.bucket_centers = torch.tensor(bucket_centers, dtype=torch.float32)
 
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
@@ -432,6 +428,7 @@ class Model(pl.LightningModule):
     def _predict_probs(
         self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
     ) -> Predictions:
+        self.bucket_centers = self.bucket_centers.to(self.device)
         logits_long, logits_short = self._predict_logits(features_torch)
         probs_long = torch.softmax(logits_long, dim=1)
         probs_short = torch.softmax(logits_short, dim=1)
@@ -453,6 +450,7 @@ class Model(pl.LightningModule):
         gain_short: torch.Tensor,
         log_prefix: str,
     ) -> torch.Tensor:
+        self.bucket_boundaries = self.bucket_boundaries.to(self.device)
         gain_long_oh = F.one_hot(
             torch.bucketize(gain_long, self.bucket_boundaries),
             num_classes=len(self.bucket_boundaries) + 1,
