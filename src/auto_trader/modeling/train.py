@@ -17,7 +17,7 @@ def main(config: TrainConfig) -> None:
     logger = NeptuneLogger(
         project=config.neptune.project,
         mode=config.neptune.mode,
-        tags=["train", config.net.base_net_type],
+        tags=["classification", "train", config.net.base_net_type],
         prefix="",
     )
     logger.experiment["config"] = OmegaConf.to_yaml(config)
