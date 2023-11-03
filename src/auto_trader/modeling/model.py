@@ -451,19 +451,11 @@ class Model(pl.LightningModule):
         log_prefix: str,
     ) -> torch.Tensor:
         self.bucket_boundaries = self.bucket_boundaries.to(self.device)
-        gain_long_oh = F.one_hot(
-            torch.bucketize(gain_long, self.bucket_boundaries),
-            num_classes=len(self.bucket_boundaries) + 1,
-        ).float()
-        gain_short_oh = F.one_hot(
-            torch.bucketize(gain_short, self.bucket_boundaries),
-            num_classes=len(self.bucket_boundaries) + 1,
-        ).float()
-        loss_long = (
-            -(F.log_softmax(logits_long, dim=1) * gain_long_oh).sum(dim=1).mean(dim=0)
+        loss_long = F.cross_entropy(
+            logits_long, torch.bucketize(gain_long, self.bucket_boundaries)
         )
-        loss_short = (
-            -(F.log_softmax(logits_short, dim=1) * gain_short_oh).sum(dim=1).mean(dim=0)
+        loss_short = F.cross_entropy(
+            logits_short, torch.bucketize(gain_short, self.bucket_boundaries)
         )
         loss = loss_long + loss_short
 
