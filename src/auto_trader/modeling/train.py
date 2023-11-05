@@ -23,8 +23,11 @@ def main(config: TrainConfig) -> None:
     logger.experiment["config"] = OmegaConf.to_yaml(config)
 
     print("Prepare data")
-    loaders_train: dict[str, data.DataLoader] = {}
-    loaders_valid: dict[str, data.DataLoader] = {}
+    feature_info_all: dict[
+        data.Symbol, dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]]
+    ] = {}
+    loaders_train: dict[data.Symbol, data.NormalizedLoader] = {}
+    loaders_valid: dict[data.Symbol, data.NormalizedLoader] = {}
     for symbol in config.symbols:
         print(f"{symbol=}")
         yyyymm_begin = config.yyyymm_begin or YYYYMM_BEGIN_MAP[symbol]
@@ -66,22 +69,42 @@ def main(config: TrainConfig) -> None:
         base_index_train = base_index[idxs_train]
         base_index_valid = base_index[idxs_valid]
 
-        loaders_train[symbol] = data.DataLoader(
+        raw_loader_train = data.RawLoader(
             base_index=base_index_train,
             features=features,
             gain_long=gain_long,
             gain_short=gain_short,
             hist_len=config.feature.hist_len,
             sma_window_size_center=config.feature.sma_window_size_center,
+            batch_size=config.batch_size,
         )
-        loaders_valid[symbol] = data.DataLoader(
+        raw_loader_valid = data.RawLoader(
             base_index=base_index_valid,
             features=features,
             gain_long=gain_long,
             gain_short=gain_short,
             hist_len=config.feature.hist_len,
             sma_window_size_center=config.feature.sma_window_size_center,
+            batch_size=config.batch_size,
         )
+        feature_info, (gain_long_info, gain_short_info) = data.get_feature_info(
+            raw_loader_train
+        )
+        feature_info_all[symbol] = feature_info
+        normalized_loader_train = data.NormalizedLoader(
+            loader=raw_loader_train,
+            feature_info=feature_info,
+            gain_long_info=gain_long_info,
+            gain_short_info=gain_short_info,
+        )
+        normalized_loader_valid = data.NormalizedLoader(
+            loader=raw_loader_valid,
+            feature_info=feature_info,
+            gain_long_info=gain_long_info,
+            gain_short_info=gain_short_info,
+        )
+        loaders_train[symbol] = normalized_loader_train
+        loaders_valid[symbol] = normalized_loader_valid
 
     size_train = sum(loader.size for loader in loaders_train.values())
     size_valid = sum(loader.size for loader in loaders_valid.values())
@@ -109,9 +132,6 @@ def main(config: TrainConfig) -> None:
         key_map=symbol_idxs,
     )
 
-    feature_info, (gain_long_info, gain_short_info) = data.get_feature_info(
-        combined_loader_train
-    )
     logger.experiment["data/feature_info"] = yaml.dump(
         {t: {n: str(feature_info[t][n]) for n in feature_info[t]} for t in feature_info}
     )
@@ -120,7 +140,8 @@ def main(config: TrainConfig) -> None:
 
     net = model.Net(
         symbol_num=len(config.symbols),
-        feature_info=feature_info,
+        # symbol ごとに特徴量は変わらないので、どれを渡しても良い
+        feature_info=feature_info_all[config.symbols[0]],
         hist_len=config.feature.hist_len,
         numerical_emb_dim=config.net.numerical_emb_dim,
         periodic_activation_num_coefs=config.net.periodic_activation_num_coefs,
@@ -194,7 +215,7 @@ def main(config: TrainConfig) -> None:
         {
             "config": asdict(config),
             "symbol_idxs": symbol_idxs,
-            "feature_info": feature_info,
+            "feature_info_all": feature_info_all,
             "net_state": net.state_dict(),
         },
         params_file,

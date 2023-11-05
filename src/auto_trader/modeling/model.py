@@ -1,4 +1,4 @@
-from typing import Callable, cast
+from typing import cast
 
 import lightning.pytorch as pl
 import numpy as np
@@ -10,23 +10,6 @@ from numpy.typing import NDArray
 from auto_trader.modeling import data
 
 Predictions = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-
-
-class NumericalNormalizer:
-    def __init__(self, mean: float, std: float):
-        self._mean = mean
-        self._std = std
-
-    def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        return (x - self._mean) / (self._std + 1e-6)
-
-
-class CategoricalNormalizer:
-    def __init__(self, max: int):
-        self._max = max
-
-    def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.clamp(x, max=self._max + 1)
 
 
 class PeriodicActivation(nn.Module):
@@ -212,14 +195,10 @@ class BaseNet(nn.Module):
     ):
         super().__init__()
 
-        self.normalize_funs: dict[str, Callable[[torch.Tensor], torch.Tensor]] = {}
         self.emb_layers = nn.ModuleDict()
         emb_total_dim = 0
         for name, info in feature_info.items():
             if info.dtype == np.float32:
-                self.normalize_funs[name] = NumericalNormalizer(
-                    info.mean, info.var**0.5
-                )
                 self.emb_layers[name] = nn.Sequential(
                     PeriodicActivation(
                         periodic_activation_num_coefs, periodic_activation_sigma
@@ -229,7 +208,6 @@ class BaseNet(nn.Module):
                 )
                 emb_total_dim += numerical_emb_dim
             elif info.dtype == np.int64:
-                self.normalize_funs[name] = CategoricalNormalizer(info.max)
                 self.emb_layers[name] = nn.Embedding(
                     # max + 1 を OOV token とする
                     num_embeddings=info.max + 2,
@@ -269,11 +247,10 @@ class BaseNet(nn.Module):
             output_dim=output_dim,
         )
 
-    def forward(self, features: dict[str, torch.Tensor]) -> torch.Tensor:
+    def forward(self, features: dict[data.FeatureName, torch.Tensor]) -> torch.Tensor:
         embeddings = []
         for name, value in features.items():
-            value_norm = self.normalize_funs[name](value)
-            embeddings.append(self.emb_layers[name](value_norm))
+            embeddings.append(self.emb_layers[name](value))
 
         # (batch, length, emb_output_dim)
         x = self.fc_emb(torch.cat(embeddings, dim=2))
@@ -350,7 +327,9 @@ class Net(nn.Module):
         )
 
     def forward(
-        self, symbol_idx: torch.Tensor, features: dict[str, dict[str, torch.Tensor]]
+        self,
+        symbol_idx: torch.Tensor,
+        features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
     ) -> torch.Tensor:
         base_outputs = []
         for timeframe, base_net in self.base_nets.items():

@@ -8,6 +8,7 @@ from numpy.typing import DTypeLike, NDArray
 
 from auto_trader.common import utils
 
+Symbol = str
 Timeframe = str
 FeatureType = Literal["rel", "abs"]
 FeatureName = str
@@ -15,7 +16,7 @@ FeatureValue = NDArray[Union[np.float32, np.int64]]
 
 
 def read_cleansed_data(
-    symbol: str,
+    symbol: Symbol,
     yyyymm_begin: int,
     yyyymm_end: int,
     cleansed_data_dir: str,
@@ -53,7 +54,7 @@ def merge_bid_ask(df: pd.DataFrame) -> pd.DataFrame:
 
 def resample(
     values_base: pd.DataFrame,
-    timeframe: str,
+    timeframe: Timeframe,
 ) -> pd.DataFrame:
     if timeframe == "1min":
         values_resampled = values_base
@@ -241,15 +242,16 @@ def split_block_idxs(
     return idxs_train, idxs_valid
 
 
-class DataLoader:
+class RawLoader:
     def __init__(
         self,
         base_index: pd.DatetimeIndex,
-        features: dict[str, dict[FeatureType, pd.DataFrame]],
+        features: dict[Timeframe, dict[FeatureType, pd.DataFrame]],
         gain_long: Optional["pd.Series[float]"],
         gain_short: Optional["pd.Series[float]"],
         hist_len: int,
         sma_window_size_center: int,
+        batch_size: int,
     ) -> None:
         self.base_index = base_index
         self.features = features
@@ -257,6 +259,7 @@ class DataLoader:
         self.gain_short = gain_short
         self.hist_len = hist_len
         self.sma_window_size_center = sma_window_size_center
+        self.batch_size = batch_size
 
     def set_batch_size(self, batch_size: int) -> None:
         self.batch_size = batch_size
@@ -341,8 +344,158 @@ class DataLoader:
             row_count += len(idx_batch_dict["1min"])
 
 
+class FeatureInfo:
+    def __init__(self, dtype: DTypeLike):
+        self._dtype = dtype
+        if dtype == np.float32:
+            self._count = 0
+            self._mean = 0.0
+            self._var = 0.0
+        elif dtype == np.int64:
+            self._max = 0
+        else:
+            raise ValueError(f"Data type {dtype} is not supported")
+
+    def update(self, values: FeatureValue) -> None:
+        if self._dtype == np.float32:
+            count_add = values.size
+            mean_add = np.mean(values)
+            var_add = np.var(values)
+            count_new = self._count + count_add
+            mean_new = (self._mean * self._count + mean_add * count_add) / count_new
+            var_new = (self._var * self._count + var_add * count_add) / count_new + (
+                (self._mean - mean_add) ** 2
+            ) * self._count * count_add / count_new**2
+            self._count = count_new
+            self._mean = float(mean_new)
+            self._var = float(var_new)
+        else:
+            self._max = max(self._max, values.max())
+
+    @property
+    def dtype(self) -> DTypeLike:
+        return self._dtype
+
+    @property
+    def mean(self) -> float:
+        assert self.dtype == np.float32
+        return self._mean
+
+    @property
+    def var(self) -> float:
+        assert self.dtype == np.float32
+        return self._var
+
+    @property
+    def max(self) -> int:
+        assert self.dtype == np.int64
+        return self._max
+
+    def __str__(self) -> str:
+        if self._dtype == np.float32:
+            return f"{self._mean:.6f} +- {self._var ** 0.5:.6f}"
+        else:
+            return f"<= {self._max}"
+
+
+def get_feature_info(
+    loader: RawLoader, batch_num: int = 100
+) -> tuple[
+    dict[Timeframe, dict[FeatureName, FeatureInfo]], tuple[FeatureInfo, FeatureInfo]
+]:
+    feature_info: dict[Timeframe, dict[FeatureName, FeatureInfo]] = {}
+    gain_long_info = FeatureInfo(np.float32)
+    gain_short_info = FeatureInfo(np.float32)
+    for batch_idx, (features, (gain_long, gain_short)) in enumerate(loader):
+        if batch_idx == batch_num:
+            break
+
+        for timeframe in features:
+            if batch_idx == 0:
+                feature_info[timeframe] = {}
+
+            for feature_name in features[timeframe]:
+                values = features[timeframe][feature_name]
+                if batch_idx == 0:
+                    feature_info[timeframe][feature_name] = FeatureInfo(values.dtype)
+
+                feature_info[timeframe][feature_name].update(values)
+
+        gain_long_info.update(gain_long)
+        gain_short_info.update(gain_short)
+
+    return feature_info, (gain_long_info, gain_short_info)
+
+
+class NormalizedLoader:
+    def __init__(
+        self,
+        loader: RawLoader,
+        feature_info: dict[Timeframe, dict[FeatureName, FeatureInfo]],
+        gain_long_info: Optional[FeatureInfo] = None,
+        gain_short_info: Optional[FeatureInfo] = None,
+    ):
+        self._loader = loader
+        self._feature_info = feature_info
+        self._gain_long_info = gain_long_info
+        self._gain_short_info = gain_short_info
+
+    def set_batch_size(self, batch_size: int) -> None:
+        self._loader.set_batch_size(batch_size)
+
+    def __len__(self) -> int:
+        return len(self._loader)
+
+    @property
+    def size(self) -> int:
+        return self._loader.size
+
+    def __iter__(
+        self,
+    ) -> Generator[
+        tuple[
+            dict[Timeframe, dict[FeatureName, FeatureValue]],
+            tuple[NDArray[np.float32], NDArray[np.float32]],
+        ],
+        None,
+        None,
+    ]:
+        for features, (gain_long, gain_short) in self._loader:
+            features_norm: dict[Timeframe, dict[FeatureName, FeatureValue]] = {}
+            for timeframe in features:
+                features_norm[timeframe] = {}
+                for feature_name in features[timeframe]:
+                    feature_value = features[timeframe][feature_name]
+                    feature_info = self._feature_info[timeframe][feature_name]
+                    if feature_info.dtype == np.float32:
+                        feature_value_norm = (feature_value - feature_info.mean) / (
+                            feature_info.var**0.5 + 1e-6
+                        )
+                    elif feature_info.dtype == np.int64:
+                        feature_value_norm = np.clip(feature_value, 0, feature_info.max)
+                    features_norm[timeframe][feature_name] = feature_value_norm
+
+            if self._gain_long_info is not None:
+                gain_long_norm = (gain_long - self._gain_long_info.mean) / (
+                    self._gain_long_info.var**0.5 + 1e-6
+                )
+            else:
+                gain_long_norm = gain_long
+
+            if self._gain_short_info is not None:
+                gain_short_norm = (gain_short - self._gain_short_info.mean) / (
+                    self._gain_short_info.var**0.5 + 1e-6
+                )
+            else:
+                gain_short_norm = gain_short
+
+            yield features_norm, (gain_long_norm, gain_short_norm)
+
+
 class CombinedLoader:
-    def __init__(self, loaders: dict[str, DataLoader], key_map: dict[str, int]):
+    def __init__(
+        self, loaders: dict[Symbol, NormalizedLoader], key_map: dict[Symbol, int]
+    ):
         self._loaders = {key: loader for key, loader in loaders.items()}
         self._key_map = key_map
 
@@ -413,86 +566,3 @@ class CombinedLoader:
                 gain_long_combined,
                 gain_short_combined,
             )
-
-
-class FeatureInfo:
-    def __init__(self, dtype: DTypeLike):
-        self._dtype = dtype
-        if dtype == np.float32:
-            self._count = 0
-            self._mean = 0.0
-            self._var = 0.0
-        elif dtype == np.int64:
-            self._max = 0
-        else:
-            raise ValueError(f"Data type {dtype} is not supported")
-
-    def update(self, values: FeatureValue) -> None:
-        if self._dtype == np.float32:
-            count_add = values.size
-            mean_add = np.mean(values)
-            var_add = np.var(values)
-            count_new = self._count + count_add
-            mean_new = (self._mean * self._count + mean_add * count_add) / count_new
-            var_new = (self._var * self._count + var_add * count_add) / count_new + (
-                (self._mean - mean_add) ** 2
-            ) * self._count * count_add / count_new**2
-            self._count = count_new
-            self._mean = float(mean_new)
-            self._var = float(var_new)
-        else:
-            self._max = max(self._max, values.max())
-
-    @property
-    def dtype(self) -> DTypeLike:
-        return self._dtype
-
-    @property
-    def mean(self) -> float:
-        assert self.dtype == np.float32
-        return self._mean
-
-    @property
-    def var(self) -> float:
-        assert self.dtype == np.float32
-        return self._var
-
-    @property
-    def max(self) -> int:
-        assert self.dtype == np.int64
-        return self._max
-
-    def __str__(self) -> str:
-        if self._dtype == np.float32:
-            return f"{self._mean:.6f} +- {self._var ** 0.5:.6f}"
-        else:
-            return f"<= {self._max}"
-
-
-def get_feature_info(
-    loader: CombinedLoader, batch_num: int = 100
-) -> tuple[
-    dict[Timeframe, dict[FeatureName, FeatureInfo]], tuple[FeatureInfo, FeatureInfo]
-]:
-    feature_info: dict[Timeframe, dict[FeatureName, FeatureInfo]] = {}
-    gain_long_info = FeatureInfo(np.float32)
-    gain_short_info = FeatureInfo(np.float32)
-    for batch_idx, (_, features, (gain_long, gain_short)) in enumerate(loader):
-        if batch_idx == batch_num:
-            break
-
-        for timeframe in features:
-            if batch_idx == 0:
-                feature_info[timeframe] = {}
-
-            for feature_name in features[timeframe]:
-                values = features[timeframe][feature_name]
-                if batch_idx == 0:
-                    feature_info[timeframe][feature_name] = FeatureInfo(values.dtype)
-
-                feature_info[timeframe][feature_name].update(values)
-
-        gain_long_info.update(gain_long)
-        gain_short_info.update(gain_short)
-
-    return feature_info, (gain_long_info, gain_short_info)

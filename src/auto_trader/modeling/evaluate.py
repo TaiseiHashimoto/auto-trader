@@ -174,7 +174,7 @@ def main(config: EvalConfig) -> None:
     params = torch.load(params_file)
     train_config = cast(TrainConfig, OmegaConf.create(params["config"]))
     symbol_idxs = params["symbol_idxs"]
-    feature_info = params["feature_info"]
+    feature_info_all = params["feature_info_all"]
     net_state = params["net_state"]
     run["sys/tags"].add(train_config.net.base_net_type)
 
@@ -212,23 +212,27 @@ def main(config: EvalConfig) -> None:
     run["data/first_timestamp"] = str(base_index[0])
     run["data/last_timestamp"] = str(base_index[-1])
 
-    loader = data.DataLoader(
+    raw_loader = data.RawLoader(
         base_index=base_index,
         features=features,
         gain_long=gain_long,
         gain_short=gain_short,
         hist_len=train_config.feature.hist_len,
         sma_window_size_center=train_config.feature.sma_window_size_center,
+        batch_size=train_config.batch_size,
     )
-    loader.set_batch_size(train_config.batch_size)
+    normalized_loader = data.NormalizedLoader(
+        loader=raw_loader,
+        feature_info=feature_info_all[config.symbol],
+    )
     combined_loader = data.CombinedLoader(
-        loaders={config.symbol: loader},
+        loaders={config.symbol: normalized_loader},
         key_map=symbol_idxs,
     )
 
     net = model.Net(
         symbol_num=len(train_config.symbols),
-        feature_info=feature_info,
+        feature_info=feature_info_all[config.symbol],
         hist_len=train_config.feature.hist_len,
         numerical_emb_dim=train_config.net.numerical_emb_dim,
         periodic_activation_num_coefs=train_config.net.periodic_activation_num_coefs,
