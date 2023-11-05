@@ -26,6 +26,7 @@ def main(config: TrainConfig) -> None:
     loaders_train: dict[str, data.DataLoader] = {}
     loaders_valid: dict[str, data.DataLoader] = {}
     for symbol in config.symbols:
+        print(f"{symbol=}")
         yyyymm_begin = config.yyyymm_begin or YYYYMM_BEGIN_MAP[symbol]
         df = data.read_cleansed_data(
             symbol=symbol,
