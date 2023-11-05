@@ -17,14 +17,15 @@ def test_main(tmp_path: Path) -> None:
             "output_dir=" + str(tmp_path / "output"),
             "max_epochs=1",
             "neptune.mode=debug",
-            "data.symbol=usdjpy",
-            "data.cleansed_data_dir=" + str(tmp_path / "cleansed"),
-            "data.yyyymm_begin=202301",
-            "data.yyyymm_end=202301",
+            "symbols=[usdjpy]",
+            "cleansed_data_dir=" + str(tmp_path / "cleansed"),
+            "yyyymm_begin=202301",
+            "yyyymm_end=202301",
             "net.numerical_emb_dim=2",
             "net.categorical_emb_dim=1",
             "net.emb_output_dim=4",
             "net.base_net_type=attention",
+            "net.base_attention_num_layers=1",
             "net.base_attention_feedforward_dim=8",
             "net.base_fc_hidden_dims=[4]",
             "net.head_hidden_dims=[2]",
@@ -46,8 +47,8 @@ def test_main(tmp_path: Path) -> None:
         },
         index=index,
     )
-    (tmp_path / "cleansed").mkdir()
-    df_cleansed.to_parquet(tmp_path / "cleansed" / "usdjpy-202301.parquet")
+    (tmp_path / "cleansed" / "usdjpy").mkdir(parents=True)
+    df_cleansed.to_parquet(tmp_path / "cleansed" / "usdjpy" / "202301.parquet")
 
     train.main(config)
     assert (tmp_path / "output" / "params.pt").exists()

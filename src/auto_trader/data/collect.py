@@ -29,7 +29,11 @@ def main(config: CollectConfig) -> None:
         # 最新ファイルを削除して作り直す
         for price_type in PRICE_TYPES:
             raw_data_files = sorted(
-                glob.glob(f"{config.raw_data_dir}/{config.symbol}-{price_type}-*.csv")
+                glob.glob(
+                    os.path.join(
+                        config.raw_data_dir, config.symbol, f"{price_type}-*.csv"
+                    )
+                )
             )
             if len(raw_data_files) > 0:
                 latest_file_path = raw_data_files[-1]
@@ -53,7 +57,8 @@ def main(config: CollectConfig) -> None:
 
             raw_data_file = os.path.join(
                 config.raw_data_dir,
-                f"{config.symbol}-{price_type}-{date_first_str}-{date_last_str}.csv",
+                config.symbol,
+                f"{price_type}-{date_first_str}-{date_last_str}.csv",
             )
             if os.path.exists(raw_data_file):
                 print("Skip")
@@ -67,7 +72,7 @@ def main(config: CollectConfig) -> None:
                         f"--timeframe m1 "
                         f"--format csv "
                         f"--price-type {price_type} "
-                        f"--directory {config.raw_data_dir} "
+                        f"--directory {Path(raw_data_file).parent} "
                         f"--file-name {Path(raw_data_file).stem} "
                         "--cache"
                     )

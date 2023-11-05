@@ -33,8 +33,9 @@ def test_read_raw_data(tmp_path: Path) -> None:
             "close": np.full(len(timestamp), 1.1),
         }
     )
-    df_bid.to_csv(tmp_path / "usdjpy-bid-20230101-20230131.csv", index=False)
-    df_ask.to_csv(tmp_path / "usdjpy-ask-20230101-20230131.csv", index=False)
+    (tmp_path / "usdjpy").mkdir(parents=True)
+    df_bid.to_csv(tmp_path / "usdjpy" / "bid-20230101-20230131.csv", index=False)
+    df_ask.to_csv(tmp_path / "usdjpy" / "ask-20230101-20230131.csv", index=False)
 
     df_actual = cleanse.read_raw_data(
         symbol="usdjpy",
@@ -141,24 +142,24 @@ def test_main(tmp_path: Path) -> None:
             "close": np.full(len(timestamp_202302), 11.1),
         }
     )
-    (tmp_path / "raw").mkdir()
+    (tmp_path / "raw" / "usdjpy").mkdir(parents=True)
     df_bid_202301.to_csv(
-        tmp_path / "raw" / "usdjpy-bid-20230101-20230131.csv", index=False
+        tmp_path / "raw" / "usdjpy" / "bid-20230101-20230131.csv", index=False
     )
     df_ask_202301.to_csv(
-        tmp_path / "raw" / "usdjpy-ask-20230101-20230131.csv", index=False
+        tmp_path / "raw" / "usdjpy" / "ask-20230101-20230131.csv", index=False
     )
     df_bid_202302.to_csv(
-        tmp_path / "raw" / "usdjpy-bid-20230201-20230228.csv", index=False
+        tmp_path / "raw" / "usdjpy" / "bid-20230201-20230228.csv", index=False
     )
     df_ask_202302.to_csv(
-        tmp_path / "raw" / "usdjpy-ask-20230201-20230228.csv", index=False
+        tmp_path / "raw" / "usdjpy" / "ask-20230201-20230228.csv", index=False
     )
 
     cleanse.main(config)
 
-    assert len(list((tmp_path / "cleansed").glob("*.parquet"))) == 1
-    df_actual = pd.read_parquet(tmp_path / "cleansed" / "usdjpy-202302.parquet")
+    assert len(list((tmp_path / "cleansed" / "usdjpy").glob("*.parquet"))) == 1
+    df_actual = pd.read_parquet(tmp_path / "cleansed" / "usdjpy" / "202302.parquet")
 
     df_expected = cleanse.remove_flat_data(
         cast(

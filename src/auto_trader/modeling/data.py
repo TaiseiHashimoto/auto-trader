@@ -29,7 +29,7 @@ def read_cleansed_data(
     while yyyymm <= yyyymm_end:
         df_data.append(
             pd.read_parquet(
-                os.path.join(cleansed_data_dir, f"{symbol}-{yyyymm}.parquet")
+                os.path.join(cleansed_data_dir, symbol, f"{yyyymm}.parquet")
             )
         )
         yyyymm = utils.calc_yyyymm(yyyymm, month_delta=1)
@@ -196,10 +196,7 @@ def calc_gains(
 
 
 def calc_available_index(
-    features: dict[Timeframe, dict[FeatureType, pd.DataFrame]],
-    hist_len: int,
-    start_hour: int,
-    end_hour: int,
+    features: dict[Timeframe, dict[FeatureType, pd.DataFrame]], hist_len: int
 ) -> pd.DatetimeIndex:
     def get_first_index(df: pd.DataFrame) -> pd.Timestamp:
         notnan_idxs = cast(
@@ -220,8 +217,6 @@ def calc_available_index(
     base_index = cast(pd.DatetimeIndex, features["1min"]["rel"].index)
     available_mask = (
         (base_index >= first_index)
-        & (base_index.hour >= start_hour)
-        & (base_index.hour < end_hour)
         # クリスマスは一部時間がデータに含まれるが、傾向が特殊なので除外
         & ~((base_index.month == 12) & (base_index.day == 25))
     )
@@ -255,7 +250,6 @@ class DataLoader:
         gain_short: Optional["pd.Series[float]"],
         hist_len: int,
         sma_window_size_center: int,
-        batch_size: int,
     ) -> None:
         self.base_index = base_index
         self.features = features
@@ -263,7 +257,16 @@ class DataLoader:
         self.gain_short = gain_short
         self.hist_len = hist_len
         self.sma_window_size_center = sma_window_size_center
+
+    def set_batch_size(self, batch_size: int) -> None:
         self.batch_size = batch_size
+
+    def __len__(self) -> int:
+        return (len(self.base_index) + self.batch_size - 1) // self.batch_size
+
+    @property
+    def size(self) -> int:
+        return len(self.base_index)
 
     def __iter__(
         self,
@@ -338,6 +341,80 @@ class DataLoader:
             row_count += len(idx_batch_dict["1min"])
 
 
+class CombinedLoader:
+    def __init__(self, loaders: dict[str, DataLoader], key_map: dict[str, int]):
+        self._loaders = {key: loader for key, loader in loaders.items()}
+        self._key_map = key_map
+
+    def __len__(self) -> int:
+        return max(len(loader) for loader in self._loaders.values())
+
+    @property
+    def size(self) -> int:
+        return sum(loader.size for loader in self._loaders.values())
+
+    def __iter__(
+        self,
+    ) -> Generator[
+        tuple[
+            NDArray[np.int64],
+            dict[Timeframe, dict[FeatureName, FeatureValue]],
+            tuple[NDArray[np.float32], NDArray[np.float32]],
+        ],
+        None,
+        None,
+    ]:
+        iterators = {key: iter(loader) for key, loader in self._loaders.items()}
+        while True:
+            key_idx_list = []
+            features_list: dict[Timeframe, dict[FeatureName, list[FeatureValue]]] = {}
+            gain_long_list = []
+            gain_short_list = []
+            for key, iterator in iterators.items():
+                batch = next(iterator, None)
+                if batch is None:
+                    continue
+
+                features, (gain_long, gain_short) = batch
+
+                key_idx_list.append([self._key_map[key]] * len(gain_long))
+
+                for timeframe in features:
+                    if timeframe not in features_list:
+                        features_list[timeframe] = {}
+
+                    for feature_name in features[timeframe]:
+                        if feature_name not in features_list[timeframe]:
+                            features_list[timeframe][feature_name] = []
+
+                        features_list[timeframe][feature_name].append(
+                            features[timeframe][feature_name]
+                        )
+
+                gain_long_list.append(gain_long)
+                gain_short_list.append(gain_short)
+
+            if len(key_idx_list) == 0:
+                return
+
+            key_idx_combined = np.concatenate(key_idx_list, axis=0)
+            batch_combined = {
+                timeframe: {
+                    feature_name: np.concatenate(
+                        features_list[timeframe][feature_name], axis=0
+                    )
+                    for feature_name in features_list[timeframe]
+                }
+                for timeframe in features_list
+            }
+            gain_long_combined = np.concatenate(gain_long_list, axis=0)
+            gain_short_combined = np.concatenate(gain_short_list, axis=0)
+            yield key_idx_combined, batch_combined, (
+                gain_long_combined,
+                gain_short_combined,
+            )
+
+
 class FeatureInfo:
     def __init__(self, dtype: DTypeLike):
         self._dtype = dtype
@@ -393,14 +470,14 @@ class FeatureInfo:
 
 
 def get_feature_info(
-    loader: DataLoader, batch_num: int = 100
+    loader: CombinedLoader, batch_num: int = 100
 ) -> tuple[
     dict[Timeframe, dict[FeatureName, FeatureInfo]], tuple[FeatureInfo, FeatureInfo]
 ]:
     feature_info: dict[Timeframe, dict[FeatureName, FeatureInfo]] = {}
     gain_long_info = FeatureInfo(np.float32)
     gain_short_info = FeatureInfo(np.float32)
-    for batch_idx, (features, gains) in enumerate(loader):
+    for batch_idx, (_, features, (gain_long, gain_short)) in enumerate(loader):
         if batch_idx == batch_num:
             break
 
@@ -415,7 +492,7 @@ def get_feature_info(
 
                 feature_info[timeframe][feature_name].update(values)
 
-        gain_long_info.update(gains[0])
-        gain_short_info.update(gains[1])
+        gain_long_info.update(gain_long)
+        gain_short_info.update(gain_short)
 
     return feature_info, (gain_long_info, gain_short_info)

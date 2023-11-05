@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Optional
 
 from omegaconf import MISSING
 
@@ -13,16 +14,15 @@ class NeptuneConfig:
             raise ValueError(f"Unknown mode {self.mode}")
 
 
-@dataclass
-class DataConfig:
-    symbol: str = MISSING
-    cleansed_data_dir: str = "./cleansed"
-    yyyymm_begin: int = MISSING
-    yyyymm_end: int = MISSING
-
-    def __post_init__(self) -> None:
-        if self.symbol != MISSING and self.symbol not in ["usdjpy", "eurusd"]:
-            raise ValueError(f"Unknown symbol {self.symbol}")
+YYYYMM_BEGIN_MAP = {
+    "usdjpy": 201204,  # 201203 にスプレッドマイナス
+    "eurusd": 201012,  # 201011 まではスプレッドが同じ値を取ることが多い
+    "gbpusd": 201011,  # 201010 までは桁数が少ない
+    "usdcad": 201011,  # 201010 までは桁数が少ない
+    "usdchf": 201011,  # 201010 までは桁数が少ない
+    "audusd": 201109,  # 201108 にスプレッドマイナス
+    "nzdusd": 201011,  # 201010 までは桁数が少ない
+}
 
 
 @dataclass
@@ -34,8 +34,6 @@ class FeatureConfig:
     sigma_window_sizes: list[int] = field(default_factory=lambda: [9])
     sma_frac_unit: int = 100
     hist_len: int = 10
-    start_hour: int = 2
-    end_hour: int = 22
 
     def __post_init__(self) -> None:
         if "1min" not in self.timeframes:
@@ -107,21 +105,7 @@ class NetConfig:
 
 @dataclass
 class LossConfig:
-    bucket_boundaries: list[float] = field(
-        default_factory=lambda: [
-            -5.0,
-            -4.0,
-            -3.0,
-            -2.0,
-            -1.0,
-            0.0,
-            1.0,
-            2.0,
-            3.0,
-            4.0,
-            5.0,
-        ]
-    )
+    bucket_boundaries: list[float] = field(default_factory=lambda: [0.0, 2.0])
 
 
 @dataclass
@@ -132,6 +116,10 @@ class OptimConfig:
 
 @dataclass
 class TrainConfig:
+    cleansed_data_dir: str = "./cleansed"
+    symbols: list[str] = field(default_factory=lambda: ["usdjpy"])
+    yyyymm_begin: Optional[int] = None
+    yyyymm_end: int = MISSING
     output_dir: str = "./output"
     max_epochs: int = 20
     early_stopping_patience: int = 3
@@ -141,12 +129,16 @@ class TrainConfig:
     random_seed: int = 123
 
     neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
-    data: DataConfig = field(default_factory=DataConfig)
     feature: FeatureConfig = field(default_factory=FeatureConfig)
     gain: GainConfig = field(default_factory=GainConfig)
     net: NetConfig = field(default_factory=NetConfig)
     loss: LossConfig = field(default_factory=LossConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
+
+    def __post_init__(self) -> None:
+        for symbol in self.symbols:
+            if symbol not in YYYYMM_BEGIN_MAP:
+                raise ValueError(f"Unknown symbol {symbol}")
 
 
 @dataclass
@@ -160,6 +152,10 @@ class SimulationConfig:
 
 @dataclass
 class EvalConfig:
+    cleansed_data_dir: str = "./cleansed"
+    symbol: str = "usdjpy"
+    yyyymm_begin: int = MISSING
+    yyyymm_end: int = MISSING
     output_dir: str = "./output"
     train_run_id: str = ""
     params_file: str = ""
@@ -167,9 +163,11 @@ class EvalConfig:
     percentile_exit_list: list[float] = field(default_factory=lambda: [90, 95])
 
     neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
-    data: DataConfig = field(default_factory=DataConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
 
     def __post_init__(self) -> None:
+        if self.symbol not in YYYYMM_BEGIN_MAP:
+            raise ValueError(f"Unknown symbol {self.symbol}")
+
         if self.train_run_id == "" and self.params_file == "":
             raise ValueError("Either train_run_id or params_file must be specified")

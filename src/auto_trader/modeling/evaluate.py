@@ -173,15 +173,16 @@ def main(config: EvalConfig) -> None:
 
     params = torch.load(params_file)
     train_config = cast(TrainConfig, OmegaConf.create(params["config"]))
+    symbol_idxs = params["symbol_idxs"]
     feature_info = params["feature_info"]
     net_state = params["net_state"]
     run["sys/tags"].add(train_config.net.base_net_type)
 
     df = data.read_cleansed_data(
-        config.data.symbol,
-        config.data.yyyymm_begin,
-        config.data.yyyymm_end,
-        config.data.cleansed_data_dir,
+        symbol=config.symbol,
+        yyyymm_begin=config.yyyymm_begin,
+        yyyymm_end=config.yyyymm_end,
+        cleansed_data_dir=config.cleansed_data_dir,
     )
     df_base = data.merge_bid_ask(df)
 
@@ -204,9 +205,6 @@ def main(config: EvalConfig) -> None:
     base_index = data.calc_available_index(
         features=features,
         hist_len=train_config.feature.hist_len,
-        # 取引時間は OrderSimulator で絞る
-        start_hour=0,
-        end_hour=24,
     )
 
     print(f"Evaluation period: {base_index[0]} ~ {base_index[-1]}")
@@ -221,9 +219,15 @@ def main(config: EvalConfig) -> None:
         gain_short=gain_short,
         hist_len=train_config.feature.hist_len,
         sma_window_size_center=train_config.feature.sma_window_size_center,
-        batch_size=train_config.batch_size,
     )
+    loader.set_batch_size(train_config.batch_size)
+    combined_loader = data.CombinedLoader(
+        loaders={config.symbol: loader},
+        key_map=symbol_idxs,
+    )
+
     net = model.Net(
+        symbol_num=len(train_config.symbols),
         feature_info=feature_info,
         hist_len=train_config.feature.hist_len,
         numerical_emb_dim=train_config.net.numerical_emb_dim,
@@ -253,7 +257,9 @@ def main(config: EvalConfig) -> None:
     model_ = model.Model(net, bucket_boundaries=train_config.loss.bucket_boundaries)
     trainer = pl.Trainer(logger=False)
 
-    preds_torch = cast(list[model.Predictions], trainer.predict(model_, loader))
+    preds_torch = cast(
+        list[model.Predictions], trainer.predict(model_, combined_loader)
+    )
     preds = pd.DataFrame(
         {
             "long_entry": np.concatenate([p[0].numpy() for p in preds_torch]),

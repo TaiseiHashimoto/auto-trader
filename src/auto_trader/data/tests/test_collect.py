@@ -18,11 +18,12 @@ def test_main(execute_command_mock: MagicMock, tmp_path: Path) -> None:
             "recreate_latest=True",
         ],
     )
+    (tmp_path / "usdjpy").mkdir()
     # 202301 は bid が存在するので ask だけ作成される
-    (tmp_path / "usdjpy-bid-20230101-20230131.csv").touch()
+    (tmp_path / "usdjpy" / "bid-20230101-20230131.csv").touch()
     # 202302 は 削除されて再作成される
-    (tmp_path / "usdjpy-bid-20230201-20230228.csv").touch()
-    (tmp_path / "usdjpy-ask-20230201-20230228.csv").touch()
+    (tmp_path / "usdjpy" / "bid-20230201-20230228.csv").touch()
+    (tmp_path / "usdjpy" / "ask-20230201-20230228.csv").touch()
 
     collect.main(config)
 

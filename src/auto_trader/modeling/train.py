@@ -10,7 +10,7 @@ from omegaconf import OmegaConf
 
 from auto_trader.common import utils
 from auto_trader.modeling import data, model
-from auto_trader.modeling.config import TrainConfig
+from auto_trader.modeling.config import YYYYMM_BEGIN_MAP, TrainConfig
 
 
 def main(config: TrainConfig) -> None:
@@ -22,74 +22,94 @@ def main(config: TrainConfig) -> None:
     )
     logger.experiment["config"] = OmegaConf.to_yaml(config)
 
-    print("Read data")
-    df = data.read_cleansed_data(
-        config.data.symbol,
-        config.data.yyyymm_begin,
-        config.data.yyyymm_end,
-        config.data.cleansed_data_dir,
-    )
-    df_base = data.merge_bid_ask(df)
+    print("Prepare data")
+    loaders_train: dict[str, data.DataLoader] = {}
+    loaders_valid: dict[str, data.DataLoader] = {}
+    for symbol in config.symbols:
+        yyyymm_begin = config.yyyymm_begin or YYYYMM_BEGIN_MAP[symbol]
+        df = data.read_cleansed_data(
+            symbol=symbol,
+            yyyymm_begin=yyyymm_begin,
+            yyyymm_end=config.yyyymm_end,
+            cleansed_data_dir=config.cleansed_data_dir,
+        )
+        df_base = data.merge_bid_ask(df)
 
-    print("Create features")
-    features = {}
-    for timeframe in config.feature.timeframes:
-        df_resampled = data.resample(df_base, timeframe)
-        features[timeframe] = data.create_features(
-            df_resampled,
-            base_timing=config.feature.base_timing,
-            sma_window_sizes=config.feature.sma_window_sizes,
-            sma_window_size_center=config.feature.sma_window_size_center,
-            sigma_window_sizes=config.feature.sigma_window_sizes,
-            sma_frac_unit=config.feature.sma_frac_unit,
+        features = {}
+        for timeframe in config.feature.timeframes:
+            df_resampled = data.resample(df_base, timeframe)
+            features[timeframe] = data.create_features(
+                df_resampled,
+                base_timing=config.feature.base_timing,
+                sma_window_sizes=config.feature.sma_window_sizes,
+                sma_window_size_center=config.feature.sma_window_size_center,
+                sigma_window_sizes=config.feature.sigma_window_sizes,
+                sma_frac_unit=config.feature.sma_frac_unit,
+            )
+
+        gain_long, gain_short = data.calc_gains(
+            df_base["close"], config.gain.alpha, config.gain.thresh_losscut
         )
 
-    gain_long, gain_short = data.calc_gains(
-        df_base["close"], config.gain.alpha, config.gain.thresh_losscut
-    )
+        base_index = data.calc_available_index(
+            features=features,
+            hist_len=config.feature.hist_len,
+        )
+        print(f"Train period: {base_index[0]} ~ {base_index[-1]}")
 
-    base_index = data.calc_available_index(
-        features=features,
-        hist_len=config.feature.hist_len,
-        start_hour=config.feature.start_hour,
-        end_hour=config.feature.end_hour,
-    )
-    print(f"Train period: {base_index[0]} ~ {base_index[-1]}")
+        idxs_train, idxs_valid = data.split_block_idxs(
+            len(base_index),
+            block_size=config.valid_block_size,
+            valid_ratio=config.valid_ratio,
+        )
+        base_index_train = base_index[idxs_train]
+        base_index_valid = base_index[idxs_valid]
 
-    idxs_train, idxs_valid = data.split_block_idxs(
-        len(base_index),
-        block_size=config.valid_block_size,
-        valid_ratio=config.valid_ratio,
-    )
-    base_index_train = base_index[idxs_train]
-    base_index_valid = base_index[idxs_valid]
-    logger.experiment["data/size/total"] = len(base_index)
-    logger.experiment["data/size/train"] = len(base_index_train)
-    logger.experiment["data/size/valid"] = len(base_index_valid)
-    logger.experiment["data/first_timestamp"] = str(base_index[0])
-    logger.experiment["data/last_timestamp"] = str(base_index[-1])
+        loaders_train[symbol] = data.DataLoader(
+            base_index=base_index_train,
+            features=features,
+            gain_long=gain_long,
+            gain_short=gain_short,
+            hist_len=config.feature.hist_len,
+            sma_window_size_center=config.feature.sma_window_size_center,
+        )
+        loaders_valid[symbol] = data.DataLoader(
+            base_index=base_index_valid,
+            features=features,
+            gain_long=gain_long,
+            gain_short=gain_short,
+            hist_len=config.feature.hist_len,
+            sma_window_size_center=config.feature.sma_window_size_center,
+        )
 
-    loader_train = data.DataLoader(
-        base_index=base_index_train,
-        features=features,
-        gain_long=gain_long,
-        gain_short=gain_short,
-        hist_len=config.feature.hist_len,
-        sma_window_size_center=config.feature.sma_window_size_center,
-        batch_size=config.batch_size,
+    size_train = sum(loader.size for loader in loaders_train.values())
+    size_valid = sum(loader.size for loader in loaders_valid.values())
+    logger.experiment["data/size/train"] = size_train
+    logger.experiment["data/size/valid"] = size_valid
+    logger.experiment["data/size/total"] = size_train + size_valid
+
+    for symbol in config.symbols:
+        loader_train = loaders_train[symbol]
+        loader_valid = loaders_valid[symbol]
+        loader_train.set_batch_size(
+            int(config.batch_size * loader_train.size / size_train)
+        )
+        loader_valid.set_batch_size(
+            int(config.batch_size * loader_valid.size / size_valid)
+        )
+
+    symbol_idxs = {symbol: i for i, symbol in enumerate(config.symbols)}
+    combined_loader_train = data.CombinedLoader(
+        loaders=loaders_train,
+        key_map=symbol_idxs,
     )
-    loader_valid = data.DataLoader(
-        base_index=base_index_valid,
-        features=features,
-        gain_long=gain_long,
-        gain_short=gain_short,
-        hist_len=config.feature.hist_len,
-        sma_window_size_center=config.feature.sma_window_size_center,
-        batch_size=config.batch_size,
+    combined_loader_valid = data.CombinedLoader(
+        loaders=loaders_valid,
+        key_map=symbol_idxs,
     )
 
     feature_info, (gain_long_info, gain_short_info) = data.get_feature_info(
-        loader_train
+        combined_loader_train
     )
     logger.experiment["data/feature_info"] = yaml.dump(
         {t: {n: str(feature_info[t][n]) for n in feature_info[t]} for t in feature_info}
@@ -98,6 +118,7 @@ def main(config: TrainConfig) -> None:
     logger.experiment["data/gain_short_info"] = str(gain_short_info)
 
     net = model.Net(
+        symbol_num=len(config.symbols),
         feature_info=feature_info,
         hist_len=config.feature.hist_len,
         numerical_emb_dim=config.net.numerical_emb_dim,
@@ -126,6 +147,7 @@ def main(config: TrainConfig) -> None:
     model_ = model.Model(
         net,
         bucket_boundaries=config.loss.bucket_boundaries,
+        canonical_batch_size=config.batch_size,
         learning_rate=config.optim.learning_rate,
         weight_decay=config.optim.weight_decay,
         log_stdout=config.neptune.mode == "debug",
@@ -154,8 +176,8 @@ def main(config: TrainConfig) -> None:
     )
     trainer.fit(
         model=model_,
-        train_dataloaders=loader_train,
-        val_dataloaders=loader_valid,
+        train_dataloaders=combined_loader_train,
+        val_dataloaders=combined_loader_valid,
     )
 
     print("Save model")
@@ -170,6 +192,7 @@ def main(config: TrainConfig) -> None:
     torch.save(
         {
             "config": asdict(config),
+            "symbol_idxs": symbol_idxs,
             "feature_info": feature_info,
             "net_state": net.state_dict(),
         },

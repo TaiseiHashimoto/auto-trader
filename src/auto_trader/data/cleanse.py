@@ -4,6 +4,7 @@ from typing import cast
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 from omegaconf import OmegaConf
 
 from auto_trader.common import utils
@@ -20,8 +21,8 @@ def read_raw_data(
     Dukascopy から取得した生データを読み込む
     """
 
-    bid_paths = glob.glob(os.path.join(raw_data_dir, f"{symbol}-bid-{yyyymm}*.csv"))
-    ask_paths = glob.glob(os.path.join(raw_data_dir, f"{symbol}-ask-{yyyymm}*.csv"))
+    bid_paths = glob.glob(os.path.join(raw_data_dir, symbol, f"bid-{yyyymm}*.csv"))
+    ask_paths = glob.glob(os.path.join(raw_data_dir, symbol, f"ask-{yyyymm}*.csv"))
     if len(bid_paths) != 1 or len(ask_paths) != 1:
         raise RuntimeError(f"Raw data for {symbol} {yyyymm} is not properly prepared.")
 
@@ -74,8 +75,10 @@ def validate_data(df: pd.DataFrame, symbol: str) -> None:
     """
 
     FLAT_RATIO_TOLERANCE = 0.1
-    NO_MOVE_RATIO_TOLERANCE = 0.1
+    NO_BODY_RATIO_TOLERANCE = 0.2
     BID_HIGHER_RATIO_TOLERANCE = 0.0
+    INVALID_ORDER_RATIO_TOLERATNCE = 0.0
+    ZERO_FIVE_RATIO_TOLERANCE = 2 / 10 * 2.0
 
     # フラット期間が一定割合以下
     flat_idxs = np.nonzero(np.all(df.iloc[1:].values == df.iloc[:-1].values, axis=1))[0]
@@ -86,11 +89,11 @@ def validate_data(df: pd.DataFrame, symbol: str) -> None:
         )
 
     # 4値同一が一定割合以下
-    no_move_mask = (df["bid_high"] == df["bid_low"]) | (df["ask_high"] == df["ask_low"])
-    no_move_ratio = no_move_mask.mean()
-    if no_move_ratio > NO_MOVE_RATIO_TOLERANCE:
+    no_body_mask = (df["bid_high"] == df["bid_low"]) | (df["ask_high"] == df["ask_low"])
+    no_body_ratio = no_body_mask.mean()
+    if no_body_ratio > NO_BODY_RATIO_TOLERANCE:
         raise ValueError(
-            f"no_move_ratio is too high: {no_move_ratio} > {NO_MOVE_RATIO_TOLERANCE}"
+            f"no_body_ratio is too high: {no_body_ratio} > {NO_BODY_RATIO_TOLERANCE}"
         )
 
     # bid > ask が一定割合以下
@@ -118,15 +121,41 @@ def validate_data(df: pd.DataFrame, symbol: str) -> None:
         | (df["ask_open"] > df["ask_high"])
         | (df["ask_close"] > df["ask_high"])
     )
-    if invalid_order_mask.any():
+    invalid_order_ratio = invalid_order_mask.mean()
+    if invalid_order_ratio > INVALID_ORDER_RATIO_TOLERATNCE:
         raise ValueError(
-            "Order of prices (low <= open, close <= high) is not satisfied"
+            f"invalid_order_ratio is too high: "
+            f"{invalid_order_ratio} > {INVALID_ORDER_RATIO_TOLERATNCE}"
+        )
+
+    # 0.1 pips の桁について 0 or 5 が一定割合以下
+    pip_scale = utils.get_pip_scale(symbol)
+    last_decimal = (
+        (cast(NDArray[np.float32], df["ask_close"].values) / pip_scale * 10) % 10
+    ).astype(np.int64)
+    zero_five_ratio = np.isin(last_decimal, [0, 5]).mean()
+    if zero_five_ratio > ZERO_FIVE_RATIO_TOLERANCE:
+        raise ValueError(
+            f"zero_five_ratio is too high: "
+            f"{zero_five_ratio} > {ZERO_FIVE_RATIO_TOLERANCE}"
         )
 
     if symbol == "usdjpy":
         extreme_value_mask = (df < 5000) | (df > 20000)
     elif symbol == "eurusd":
         extreme_value_mask = (df < 8000) | (df > 16000)
+    elif symbol == "gbpusd":
+        extreme_value_mask = (df < 10000) | (df > 21000)
+    elif symbol == "usdcad":
+        extreme_value_mask = (df < 9000) | (df > 17000)
+    elif symbol == "usdchf":
+        extreme_value_mask = (df < 7000) | (df > 18000)
+    elif symbol == "audusd":
+        extreme_value_mask = (df < 4000) | (df > 11000)
+    elif symbol == "nzdusd":
+        extreme_value_mask = (df < 4000) | (df > 9000)
+    else:
+        raise ValueError(f"Unknown symbol {symbol}")
 
     if extreme_value_mask.any(axis=None):
         raise ValueError(
@@ -135,12 +164,14 @@ def validate_data(df: pd.DataFrame, symbol: str) -> None:
 
 
 def main(config: CleanseConfig) -> None:
-    os.makedirs(config.cleansed_data_dir, exist_ok=True)
+    os.makedirs(os.path.join(config.cleansed_data_dir, config.symbol), exist_ok=True)
 
     if config.recreate_latest:
         # 最新ファイルを削除して作り直す
         cleansed_data_files = sorted(
-            glob.glob(f"{config.cleansed_data_dir}/{config.symbol}-*.parquet")
+            glob.glob(
+                os.path.join(config.cleansed_data_dir, config.symbol, "*.parquet")
+            )
         )
         if len(cleansed_data_files) > 0:
             latest_file_path = cleansed_data_files[-1]
@@ -153,8 +184,8 @@ def main(config: CleanseConfig) -> None:
     while yyyymm <= config.yyyymm_end:
         print(yyyymm)
 
-        cleansed_data_file = (
-            f"{config.cleansed_data_dir}/{config.symbol}-{yyyymm}.parquet"
+        cleansed_data_file = os.path.join(
+            config.cleansed_data_dir, config.symbol, f"{yyyymm}.parquet"
         )
         if os.path.exists(cleansed_data_file):
             print("Skip")

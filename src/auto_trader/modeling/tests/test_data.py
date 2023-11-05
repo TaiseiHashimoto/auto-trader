@@ -1,9 +1,10 @@
 from datetime import date
 from pathlib import Path
-from typing import cast
+from typing import Generator, cast
 
 import numpy as np
 import pandas as pd
+from numpy.typing import NDArray
 from pytest import approx
 
 from auto_trader.modeling import data
@@ -12,8 +13,9 @@ from auto_trader.modeling import data
 def test_read_cleansed_data(tmp_path: Path) -> None:
     df_202301 = pd.DataFrame({"x": [1, 2, 3]})
     df_202302 = pd.DataFrame({"x": [4, 5]})
-    df_202301.to_parquet(tmp_path / "usdjpy-202301.parquet")
-    df_202302.to_parquet(tmp_path / "usdjpy-202302.parquet")
+    (tmp_path / "usdjpy").mkdir()
+    df_202301.to_parquet(tmp_path / "usdjpy" / "202301.parquet")
+    df_202302.to_parquet(tmp_path / "usdjpy" / "202302.parquet")
 
     df_actual = data.read_cleansed_data(
         symbol="usdjpy",
@@ -309,8 +311,6 @@ def test_calc_available_index_nan() -> None:
     actual = data.calc_available_index(
         features=features,
         hist_len=2,
-        start_hour=0,
-        end_hour=24,
     )
     expected = pd.date_range("2023-1-1 00:10", "2023-1-1 00:19", freq="1min")
     pd.testing.assert_index_equal(actual, expected)
@@ -424,8 +424,8 @@ def test_dataloader() -> None:
         gain_short=gain_short,
         hist_len=2,
         sma_window_size_center=5,
-        batch_size=2,
     )
+    loader.set_batch_size(2)
 
     expected_features_list = [
         {
@@ -463,8 +463,7 @@ def test_dataloader() -> None:
     ]
     expected_gain_short_list = [-g for g in expected_gain_long_list]
 
-    # iterator のテスト
-    for batch_idx, (actual_features, actual_gains) in enumerate(loader):
+    for batch_idx, (actual_features, (actual_gains)) in enumerate(loader):
         for timeframe in ["1min", "2min"]:
             for feature_name in ["sma5", "x", "sigma", "minute"]:
                 np.testing.assert_allclose(
@@ -475,26 +474,150 @@ def test_dataloader() -> None:
         np.testing.assert_allclose(actual_gains[0], expected_gain_long_list[batch_idx])
         np.testing.assert_allclose(actual_gains[1], expected_gain_short_list[batch_idx])
 
+
+def test_combined_loader() -> None:
+    class DummyLoader:
+        def __init__(
+            self,
+            features: dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
+            gain_long: NDArray[np.float32],
+            gain_short: NDArray[np.float32],
+            batch_size: int,
+        ):
+            self.features = features
+            self.gain_long = gain_long
+            self.gain_short = gain_short
+            self.batch_size = batch_size
+
+        def __len__(self) -> int:
+            return (len(self.gain_long) + self.batch_size - 1) // self.batch_size
+
+        @property
+        def size(self) -> int:
+            return len(self.gain_long)
+
+        def __iter__(
+            self,
+        ) -> Generator[
+            tuple[
+                dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
+                tuple[NDArray[np.float32], NDArray[np.float32]],
+            ],
+            None,
+            None,
+        ]:
+            for i in range(
+                (len(self.gain_long) + self.batch_size - 1) // self.batch_size
+            ):
+                features_batch = {}
+                for timeframe in self.features:
+                    features_batch[timeframe] = {
+                        feature_name: feature_value[
+                            self.batch_size * i : self.batch_size * (i + 1)
+                        ]
+                        for feature_name, feature_value in self.features[
+                            timeframe
+                        ].items()
+                    }
+
+                yield (
+                    {
+                        timeframe: {
+                            feature_name: feature_value[
+                                self.batch_size * i : self.batch_size * (i + 1)
+                            ]
+                            for feature_name, feature_value in self.features[
+                                timeframe
+                            ].items()
+                        }
+                        for timeframe in self.features
+                    },
+                    (
+                        self.gain_long[self.batch_size * i : self.batch_size * (i + 1)],
+                        self.gain_short[
+                            self.batch_size * i : self.batch_size * (i + 1)
+                        ],
+                    ),
+                )
+
+    loader1 = DummyLoader(
+        features={
+            "1min": {
+                "close": np.array([[1.0], [2.0], [3.0]], dtype=np.float32),
+            },
+        },
+        gain_long=np.array([0.1, 0.2, 0.3], dtype=np.float32),
+        gain_short=np.array([-0.1, -0.2, -0.3], dtype=np.float32),
+        batch_size=2,
+    )
+    loader2 = DummyLoader(
+        features={
+            "1min": {
+                "close": np.array(
+                    [[-1.0], [-2.0], [-3.0], [-4.0], [-5.0]], dtype=np.float32
+                ),
+            },
+        },
+        gain_long=np.array([-0.1, -0.2, -0.3, -0.4, -0.5], dtype=np.float32),
+        gain_short=np.array([0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float32),
+        batch_size=2,
+    )
+
+    expected_key_idx_list = [
+        np.array([1, 1, 2, 2], dtype=np.int64),
+        np.array([1, 2, 2], dtype=np.int64),
+        np.array([2], dtype=np.int64),
+    ]
+    expected_features_list = [
+        {"1min": {"close": np.array([[1.0], [2.0], [-1.0], [-2.0]], dtype=np.float32)}},
+        {"1min": {"close": np.array([[3.0], [-3.0], [-4.0]], dtype=np.float32)}},
+        {"1min": {"close": np.array([[-5.0]], dtype=np.float32)}},
+    ]
+    expected_gain_long_list = [
+        np.array([0.1, 0.2, -0.1, -0.2], dtype=np.float32),
+        np.array([0.3, -0.3, -0.4], dtype=np.float32),
+        np.array([-0.5], dtype=np.float32),
+    ]
+    expected_gain_short_list = [
+        np.array([-0.1, -0.2, 0.1, 0.2], dtype=np.float32),
+        np.array([-0.3, 0.3, 0.4], dtype=np.float32),
+        np.array([0.5], dtype=np.float32),
+    ]
+
+    loader_combined = data.CombinedLoader(
+        loaders={
+            "key1": cast(data.DataLoader, loader1),
+            "key2": cast(data.DataLoader, loader2),
+        },
+        key_map={"key1": 1, "key2": 2},
+    )
+    assert len(loader_combined) == 3
+    assert loader_combined.size == 3 + 5
+
+    # iterator のテスト
+    for batch_idx, (actual_key_idx, actual_features, actual_gains) in enumerate(
+        loader_combined
+    ):
+        np.testing.assert_array_equal(actual_key_idx, expected_key_idx_list[batch_idx])
+        np.testing.assert_allclose(
+            actual_features["1min"]["close"],
+            expected_features_list[batch_idx]["1min"]["close"],
+        )
+        np.testing.assert_allclose(actual_gains[0], expected_gain_long_list[batch_idx])
+        np.testing.assert_allclose(actual_gains[1], expected_gain_short_list[batch_idx])
+
     # get_feature_info のテスト
-    feature_info, (gain_long_info, gain_short_info) = data.get_feature_info(loader)
-
-    for timeframe in ["1min", "2min"]:
-        for feature_name in ["sma5", "x", "sigma"]:
-            values = [f[timeframe][feature_name] for f in expected_features_list]
-            assert feature_info[timeframe][feature_name].mean == approx(
-                np.mean(values)
-            ), f"{timeframe} {feature_name}"
-            assert feature_info[timeframe][feature_name].var == approx(
-                np.var(values)
-            ), f"{timeframe} {feature_name}"
-
-        for feature_name in ["minute"]:
-            values = [f[timeframe][feature_name] for f in expected_features_list]
-            assert feature_info[timeframe][feature_name].max == np.max(
-                values
-            ), f"{timeframe} {feature_name}"
-
-    assert gain_long_info.mean == approx(np.mean(expected_gain_long_list))
-    assert gain_long_info.var == approx(np.var(expected_gain_long_list))
-    assert gain_short_info.mean == approx(np.mean(expected_gain_short_list))
-    assert gain_short_info.var == approx(np.var(expected_gain_short_list))
+    feature_info, (gain_long_info, gain_short_info) = data.get_feature_info(
+        loader_combined
+    )
+    expected_feature_values = np.concatenate(
+        [f["1min"]["close"] for f in expected_features_list], axis=0
+    )
+    expected_gain_long = np.concatenate(expected_gain_long_list, axis=0)
+    expected_gain_short = np.concatenate(expected_gain_short_list, axis=0)
+    assert feature_info["1min"]["close"].mean == approx(expected_feature_values.mean())
+    assert feature_info["1min"]["close"].var == approx(expected_feature_values.var())
+    assert gain_long_info.mean == approx(np.mean(expected_gain_long))
+    assert gain_long_info.var == approx(np.var(expected_gain_long))
+    assert gain_short_info.mean == approx(np.mean(expected_gain_short))
+    assert gain_short_info.var == approx(np.var(expected_gain_short))

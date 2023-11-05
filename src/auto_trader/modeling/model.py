@@ -213,14 +213,14 @@ class BaseNet(nn.Module):
         super().__init__()
 
         self.normalize_funs: dict[str, Callable[[torch.Tensor], torch.Tensor]] = {}
-        self.embed_layers = nn.ModuleDict()
+        self.emb_layers = nn.ModuleDict()
         emb_total_dim = 0
         for name, info in feature_info.items():
             if info.dtype == np.float32:
                 self.normalize_funs[name] = NumericalNormalizer(
                     info.mean, info.var**0.5
                 )
-                self.embed_layers[name] = nn.Sequential(
+                self.emb_layers[name] = nn.Sequential(
                     PeriodicActivation(
                         periodic_activation_num_coefs, periodic_activation_sigma
                     ),
@@ -230,14 +230,14 @@ class BaseNet(nn.Module):
                 emb_total_dim += numerical_emb_dim
             elif info.dtype == np.int64:
                 self.normalize_funs[name] = CategoricalNormalizer(info.max)
-                self.embed_layers[name] = nn.Embedding(
+                self.emb_layers[name] = nn.Embedding(
                     # max + 1 を OOV token とする
                     num_embeddings=info.max + 2,
                     embedding_dim=categorical_emb_dim,
                 )
                 emb_total_dim += categorical_emb_dim
 
-        self.fc_embed = nn.Linear(emb_total_dim, emb_output_dim)
+        self.fc_emb = nn.Linear(emb_total_dim, emb_output_dim)
 
         self.extractor: nn.Module
         if net_type == "attention":
@@ -273,10 +273,10 @@ class BaseNet(nn.Module):
         embeddings = []
         for name, value in features.items():
             value_norm = self.normalize_funs[name](value)
-            embeddings.append(self.embed_layers[name](value_norm))
+            embeddings.append(self.emb_layers[name](value_norm))
 
         # (batch, length, emb_output_dim)
-        x = self.fc_embed(torch.cat(embeddings, dim=2))
+        x = self.fc_emb(torch.cat(embeddings, dim=2))
         # (batch, extractor_output_dim)
         x = self.extractor(x)
         # (batch, output_dim)
@@ -287,6 +287,7 @@ class BaseNet(nn.Module):
 class Net(nn.Module):
     def __init__(
         self,
+        symbol_num: int,
         feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
         hist_len: int,
         numerical_emb_dim: int,
@@ -339,21 +340,24 @@ class Net(nn.Module):
                 output_dim=base_fc_output_dim,
             )
 
+        self.symbol_emb = nn.Embedding(symbol_num, categorical_emb_dim)
         self.head = build_fc_layer(
-            input_dim=base_fc_output_dim * len(feature_info),
+            input_dim=base_fc_output_dim * len(feature_info) + categorical_emb_dim,
             hidden_dims=head_hidden_dims,
             batchnorm=head_batchnorm,
             dropout=head_dropout,
             output_dim=head_output_dim,
         )
 
-    def forward(self, features: dict[str, dict[str, torch.Tensor]]) -> torch.Tensor:
+    def forward(
+        self, symbol_idx: torch.Tensor, features: dict[str, dict[str, torch.Tensor]]
+    ) -> torch.Tensor:
         base_outputs = []
         for timeframe, base_net in self.base_nets.items():
             base_outputs.append(base_net(features[timeframe]))
 
-        x = torch.cat(base_outputs, dim=1)
-        x = F.relu(x)
+        x = F.relu(torch.cat(base_outputs, dim=1))
+        x = torch.cat([x, self.symbol_emb(symbol_idx)], dim=1)
         return cast(torch.Tensor, self.head(x))
 
 
@@ -362,6 +366,7 @@ class Model(pl.LightningModule):
         self,
         net: nn.Module,
         bucket_boundaries: list[float],
+        canonical_batch_size: int = 1000,
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
         log_stdout: bool = False,
@@ -376,6 +381,7 @@ class Model(pl.LightningModule):
         bucket_centers.append(bucket_boundaries[-1])
         self.bucket_centers = torch.tensor(bucket_centers, dtype=torch.float32)
 
+        self.canonical_batch_size = canonical_batch_size
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
         self.log_stdout = log_stdout
@@ -416,20 +422,21 @@ class Model(pl.LightningModule):
 
         return features_torch
 
-    def _to_torch_gain(self, gain: NDArray[np.float32]) -> torch.Tensor:
-        return torch.from_numpy(gain).to(self.device)
-
     def _predict_logits(
-        self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
+        self,
+        symbol_idx: torch.Tensor,
+        features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        pred = self.net(features_torch)
+        pred = self.net(symbol_idx, features)
         return cast(tuple[torch.Tensor, torch.Tensor], torch.chunk(pred, 2, dim=1))
 
     def _predict_probs(
-        self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
+        self,
+        symbol_idx: torch.Tensor,
+        features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
     ) -> Predictions:
         self.bucket_centers = self.bucket_centers.to(self.device)
-        logits_long, logits_short = self._predict_logits(features_torch)
+        logits_long, logits_short = self._predict_logits(symbol_idx, features)
         probs_long = torch.softmax(logits_long, dim=1)
         probs_short = torch.softmax(logits_short, dim=1)
         pred_gain_long = (probs_long * self.bucket_centers).sum(dim=1)
@@ -471,22 +478,26 @@ class Model(pl.LightningModule):
             batch_size=logits_long.shape[0],
         )
 
-        return loss
+        # バッチサイズに合わせて gradient をスケーリングする
+        batch_size_ratio = logits_long.shape[0] / self.canonical_batch_size
+        return loss * batch_size_ratio
 
     def training_step(
         self,
         batch: tuple[
+            NDArray[np.int64],
             dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
             tuple[NDArray[np.float32], NDArray[np.float32]],
         ],
         batch_idx: int,
     ) -> torch.Tensor:
-        features_np, (gain_long_np, gain_short_np) = batch
+        symbol_idx_np, features_np, (gain_long_np, gain_short_np) = batch
+        symbol_idx_torch = torch.from_numpy(symbol_idx_np).to(self.device)
         features_torch = self._to_torch_features(features_np)
-        gain_long_torch = self._to_torch_gain(gain_long_np)
-        gain_short_torch = self._to_torch_gain(gain_short_np)
+        gain_long_torch = torch.from_numpy(gain_long_np).to(self.device)
+        gain_short_torch = torch.from_numpy(gain_short_np).to(self.device)
         return self._calc_loss(
-            *self._predict_logits(features_torch),
+            *self._predict_logits(symbol_idx_torch, features_torch),
             gain_long_torch,
             gain_short_torch,
             log_prefix="train",
@@ -495,18 +506,20 @@ class Model(pl.LightningModule):
     def validation_step(
         self,
         batch: tuple[
+            NDArray[np.int64],
             dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
             NDArray[np.float32],
         ],
         batch_idx: int,
     ) -> None:
-        features_np, (gain_long_np, gain_short_np) = batch
+        symbol_idx_np, features_np, (gain_long_np, gain_short_np) = batch
+        symbol_idx_torch = torch.from_numpy(symbol_idx_np).to(self.device)
         features_torch = self._to_torch_features(features_np)
-        gain_long_torch = self._to_torch_gain(gain_long_np)
-        gain_short_torch = self._to_torch_gain(gain_short_np)
+        gain_long_torch = torch.from_numpy(gain_long_np).to(self.device)
+        gain_short_torch = torch.from_numpy(gain_short_np).to(self.device)
         # ロギング目的
         _ = self._calc_loss(
-            *self._predict_logits(features_torch),
+            *self._predict_logits(symbol_idx_torch, features_torch),
             gain_long_torch,
             gain_short_torch,
             log_prefix="valid",
@@ -515,15 +528,18 @@ class Model(pl.LightningModule):
     def predict_step(
         self,
         batch: tuple[
-            dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]], None
+            NDArray[np.int64],
+            dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
+            None,
         ],
         batch_idx: int,
     ) -> Predictions:
-        features_np, _ = batch
+        symbol_idx_np, features_np, _ = batch
+        symbol_idx_torch = torch.from_numpy(symbol_idx_np).to(self.device)
         features_torch = self._to_torch_features(features_np)
-        return self._predict_probs(features_torch)
+        return self._predict_probs(symbol_idx_torch, features_torch)
 
-    def on_trainput_epoch_end(self) -> None:
+    def on_train_epoch_end(self) -> None:
         if self.log_stdout:
             metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
             print(f"Training metrics: {metrics}")
