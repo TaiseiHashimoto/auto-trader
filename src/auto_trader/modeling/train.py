@@ -102,6 +102,15 @@ def main(config: TrainConfig) -> None:
         loaders_train[symbol] = normalized_loader_train
         loaders_valid[symbol] = normalized_loader_valid
 
+        logger.experiment[f"data/{symbol}/feature_info"] = yaml.dump(
+            {
+                t: {n: str(feature_info[t][n]) for n in feature_info[t]}
+                for t in feature_info
+            }
+        )
+        logger.experiment[f"data/{symbol}/gain_long_info"] = str(gain_long_info)
+        logger.experiment[f"data/{symbol}/gain_short_info"] = str(gain_short_info)
+
     size_train = sum(loader.size for loader in loaders_train.values())
     size_valid = sum(loader.size for loader in loaders_valid.values())
     logger.experiment["data/size/train"] = size_train
@@ -127,12 +136,6 @@ def main(config: TrainConfig) -> None:
         loaders=loaders_valid,
         key_map=symbol_idxs,
     )
-
-    logger.experiment["data/feature_info"] = yaml.dump(
-        {t: {n: str(feature_info[t][n]) for n in feature_info[t]} for t in feature_info}
-    )
-    logger.experiment["data/gain_long_info"] = str(gain_long_info)
-    logger.experiment["data/gain_short_info"] = str(gain_short_info)
 
     net = model.Net(
         symbol_num=len(config.symbols),
