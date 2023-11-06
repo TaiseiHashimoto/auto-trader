@@ -575,21 +575,17 @@ def test_normalized_loader() -> None:
             batch_size=4,
         ),
     )
-    feature_info, (gain_long_info, gain_short_info) = data.get_feature_info(raw_loader)
+    feature_info, _ = data.get_feature_info(raw_loader)
 
     normalized_loader = data.NormalizedLoader(
         loader=raw_loader,
         feature_info=feature_info,
-        gain_long_info=gain_long_info,
-        gain_short_info=gain_short_info,
     )
     features, (gain_long, gain_short) = next(iter(normalized_loader))
     features["1min"]["close"].mean() == approx(0.0)
     features["1min"]["close"].std() == approx(1.0)
-    gain_long.mean() == approx(0.0)
-    gain_long.std() == approx(1.0)
-    gain_short.mean() == approx(0.0)
-    gain_short.std() == approx(1.0)
+    np.testing.assert_allclose(gain_long, np.array([0.1, 0.2, 0.3, 0.4]))
+    np.testing.assert_allclose(gain_short, np.array([-0.1, -0.2, -0.3, -0.4]))
 
 
 def test_combined_loader() -> None:

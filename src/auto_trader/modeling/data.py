@@ -432,13 +432,9 @@ class NormalizedLoader:
         self,
         loader: RawLoader,
         feature_info: dict[Timeframe, dict[FeatureName, FeatureInfo]],
-        gain_long_info: Optional[FeatureInfo] = None,
-        gain_short_info: Optional[FeatureInfo] = None,
     ):
         self._loader = loader
         self._feature_info = feature_info
-        self._gain_long_info = gain_long_info
-        self._gain_short_info = gain_short_info
 
     def set_batch_size(self, batch_size: int) -> None:
         self._loader.set_batch_size(batch_size)
@@ -475,21 +471,7 @@ class NormalizedLoader:
                         feature_value_norm = np.clip(feature_value, 0, feature_info.max)
                     features_norm[timeframe][feature_name] = feature_value_norm
 
-            if self._gain_long_info is not None:
-                gain_long_norm = (gain_long - self._gain_long_info.mean) / (
-                    self._gain_long_info.var**0.5 + 1e-6
-                )
-            else:
-                gain_long_norm = gain_long
-
-            if self._gain_short_info is not None:
-                gain_short_norm = (gain_short - self._gain_short_info.mean) / (
-                    self._gain_short_info.var**0.5 + 1e-6
-                )
-            else:
-                gain_short_norm = gain_short
-
-            yield features_norm, (gain_long_norm, gain_short_norm)
+            yield features_norm, (gain_long, gain_short)
 
 
 class CombinedLoader:

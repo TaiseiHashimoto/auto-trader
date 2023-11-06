@@ -94,14 +94,10 @@ def main(config: TrainConfig) -> None:
         normalized_loader_train = data.NormalizedLoader(
             loader=raw_loader_train,
             feature_info=feature_info,
-            gain_long_info=gain_long_info,
-            gain_short_info=gain_short_info,
         )
         normalized_loader_valid = data.NormalizedLoader(
             loader=raw_loader_valid,
             feature_info=feature_info,
-            gain_long_info=gain_long_info,
-            gain_short_info=gain_short_info,
         )
         loaders_train[symbol] = normalized_loader_train
         loaders_valid[symbol] = normalized_loader_valid
