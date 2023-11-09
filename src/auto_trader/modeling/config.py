@@ -106,6 +106,7 @@ class NetConfig:
 @dataclass
 class LossConfig:
     bucket_boundaries: list[float] = field(default_factory=lambda: [0.0, 2.0])
+    label_smoothing: float = 0.0
 
 
 @dataclass

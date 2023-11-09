@@ -139,7 +139,7 @@ def main(config: TrainConfig) -> None:
 
     net = model.Net(
         symbol_num=len(config.symbols),
-        # symbol ごとに特徴量は変わらないので、どれを渡しても良い
+        # symbol ごとに特徴量の型式は変わらないので、どれを渡しても良い
         feature_info=feature_info_all[config.symbols[0]],
         hist_len=config.feature.hist_len,
         numerical_emb_dim=config.net.numerical_emb_dim,
@@ -168,6 +168,7 @@ def main(config: TrainConfig) -> None:
     model_ = model.Model(
         net,
         bucket_boundaries=config.loss.bucket_boundaries,
+        label_smoothing=config.loss.label_smoothing,
         canonical_batch_size=config.batch_size,
         learning_rate=config.optim.learning_rate,
         weight_decay=config.optim.weight_decay,
