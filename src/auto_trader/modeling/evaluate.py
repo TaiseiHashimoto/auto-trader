@@ -192,8 +192,8 @@ def main(config: EvalConfig) -> None:
         features[timeframe] = data.create_features(
             df_resampled,
             base_timing=train_config.feature.base_timing,
-            sma_window_sizes=train_config.feature.sma_window_sizes,
-            sma_window_size_center=train_config.feature.sma_window_size_center,
+            moving_window_sizes=train_config.feature.moving_window_sizes,
+            moving_window_size_center=train_config.feature.moving_window_size_center,
             sigma_window_sizes=train_config.feature.sigma_window_sizes,
             sma_frac_unit=train_config.feature.sma_frac_unit,
         )
@@ -218,7 +218,7 @@ def main(config: EvalConfig) -> None:
         gain_long=gain_long,
         gain_short=gain_short,
         hist_len=train_config.feature.hist_len,
-        sma_window_size_center=train_config.feature.sma_window_size_center,
+        moving_window_size_center=train_config.feature.moving_window_size_center,
         batch_size=train_config.batch_size,
     )
     normalized_loader = data.NormalizedLoader(

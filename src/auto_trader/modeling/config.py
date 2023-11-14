@@ -29,8 +29,8 @@ YYYYMM_BEGIN_MAP = {
 class FeatureConfig:
     timeframes: list[str] = field(default_factory=lambda: ["1min", "5min", "1h"])
     base_timing: str = "close"
-    sma_window_sizes: list[int] = field(default_factory=lambda: [5, 8, 13])
-    sma_window_size_center: int = 5
+    moving_window_sizes: list[int] = field(default_factory=lambda: [5, 8, 13])
+    moving_window_size_center: int = 5
     sigma_window_sizes: list[int] = field(default_factory=lambda: [9])
     sma_frac_unit: int = 100
     hist_len: int = 10
@@ -39,10 +39,10 @@ class FeatureConfig:
         if "1min" not in self.timeframes:
             raise ValueError(f"timeframes {self.timeframes} must include '1min'")
 
-        if self.sma_window_size_center not in self.sma_window_sizes:
+        if self.moving_window_size_center not in self.moving_window_sizes:
             raise ValueError(
-                f"sma_window_sizes {self.sma_window_sizes} "
-                f"must include sma_window_size_center {self.sma_window_size_center}"
+                f"sma_window_sizes {self.moving_window_sizes} must include "
+                f"moving_window_size_center {self.moving_window_size_center}"
             )
 
 

@@ -117,6 +117,44 @@ def test_calc_sma() -> None:
     pd.testing.assert_series_equal(expected_result, actual_result)
 
 
+def test_calc_moving_max() -> None:
+    s = pd.Series([0.0, 4.0, 2.0, 3.0, 6.0, 4.0, 6.0, 9.0], dtype=np.float32)
+    actual_result = data.calc_moving_max(s, window_size=4)
+    expected_result = pd.Series(
+        [
+            np.nan,
+            np.nan,
+            np.nan,
+            max(0.0, 4.0, 2.0, 3.0),
+            max(4.0, 2.0, 3.0, 6.0),
+            max(2.0, 3.0, 6.0, 4.0),
+            max(3.0, 6.0, 4.0, 6.0),
+            max(6.0, 4.0, 6.0, 9.0),
+        ],
+        dtype=np.float32,
+    )
+    pd.testing.assert_series_equal(expected_result, actual_result)
+
+
+def test_calc_moving_min() -> None:
+    s = pd.Series([0.0, 4.0, 2.0, 3.0, 6.0, 4.0, 6.0, 9.0], dtype=np.float32)
+    actual_result = data.calc_moving_min(s, window_size=4)
+    expected_result = pd.Series(
+        [
+            np.nan,
+            np.nan,
+            np.nan,
+            min(0.0, 4.0, 2.0, 3.0),
+            min(4.0, 2.0, 3.0, 6.0),
+            min(2.0, 3.0, 6.0, 4.0),
+            min(3.0, 6.0, 4.0, 6.0),
+            min(6.0, 4.0, 6.0, 9.0),
+        ],
+        dtype=np.float32,
+    )
+    pd.testing.assert_series_equal(expected_result, actual_result)
+
+
 def test_calc_sigma() -> None:
     s = pd.Series([0.0, 4.0, 2.0, 3.0, 6.0, 4.0, 6.0, 9.0], dtype=np.float32)
     actual_result = data.calc_sigma(s, window_size=4)
@@ -166,8 +204,8 @@ def test_create_features() -> None:
     actual = data.create_features(
         values=values,
         base_timing="close",
-        sma_window_sizes=[5, 10],
-        sma_window_size_center=5,
+        moving_window_sizes=[5, 10],
+        moving_window_size_center=5,
         sigma_window_sizes=[6, 12],
         sma_frac_unit=100,
     )
@@ -179,7 +217,11 @@ def test_create_features() -> None:
                 "low": values["low"],
                 "close": values["close"],
                 "sma5": data.calc_sma(values["close"], window_size=5),
+                "moving_max5": data.calc_moving_max(values["close"], window_size=5),
+                "moving_min5": data.calc_moving_min(values["close"], window_size=5),
                 "sma10": data.calc_sma(values["close"], window_size=10),
+                "moving_max10": data.calc_moving_max(values["close"], window_size=10),
+                "moving_min10": data.calc_moving_min(values["close"], window_size=10),
             }
         ),
         "abs": pd.DataFrame(
@@ -423,7 +465,7 @@ def test_raw_loader() -> None:
         gain_long=gain_long,
         gain_short=gain_short,
         hist_len=2,
-        sma_window_size_center=5,
+        moving_window_size_center=5,
         batch_size=2,
     )
 

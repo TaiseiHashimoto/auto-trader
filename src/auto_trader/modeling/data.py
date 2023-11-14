@@ -78,6 +78,14 @@ def calc_sma(s: "pd.Series[float]", window_size: int) -> "pd.Series[float]":
     return s.rolling(window_size).mean().astype(np.float32)
 
 
+def calc_moving_max(s: "pd.Series[float]", window_size: int) -> "pd.Series[float]":
+    return s.rolling(window_size).max().astype(np.float32)
+
+
+def calc_moving_min(s: "pd.Series[float]", window_size: int) -> "pd.Series[float]":
+    return s.rolling(window_size).min().astype(np.float32)
+
+
 def calc_sigma(s: "pd.Series[float]", window_size: int) -> "pd.Series[float]":
     return s.rolling(window_size).std(ddof=0).astype(np.float32)
 
@@ -89,15 +97,21 @@ def calc_fraction(values: "pd.Series[float]", unit: int) -> "pd.Series[float]":
 def create_features(
     values: pd.DataFrame,
     base_timing: str,
-    sma_window_sizes: list[int],
-    sma_window_size_center: int,
+    moving_window_sizes: list[int],
+    moving_window_size_center: int,
     sigma_window_sizes: list[int],
     sma_frac_unit: int,
 ) -> dict[FeatureType, pd.DataFrame]:
     features_rel = values.copy()
 
-    for window_size in sma_window_sizes:
+    for window_size in moving_window_sizes:
         features_rel[f"sma{window_size}"] = calc_sma(values[base_timing], window_size)
+        features_rel[f"moving_max{window_size}"] = calc_moving_max(
+            values[base_timing], window_size
+        )
+        features_rel[f"moving_min{window_size}"] = calc_moving_min(
+            values[base_timing], window_size
+        )
 
     features_abs = pd.DataFrame()
 
@@ -106,8 +120,8 @@ def create_features(
             values[base_timing], window_size
         )
 
-    features_abs[f"sma{sma_window_size_center}_frac"] = calc_fraction(
-        features_rel[f"sma{sma_window_size_center}"],
+    features_abs[f"sma{moving_window_size_center}_frac"] = calc_fraction(
+        features_rel[f"sma{moving_window_size_center}"],
         unit=sma_frac_unit,
     )
 
@@ -250,7 +264,7 @@ class RawLoader:
         gain_long: Optional["pd.Series[float]"],
         gain_short: Optional["pd.Series[float]"],
         hist_len: int,
-        sma_window_size_center: int,
+        moving_window_size_center: int,
         batch_size: int,
     ) -> None:
         self.base_index = base_index
@@ -258,7 +272,7 @@ class RawLoader:
         self.gain_long = gain_long
         self.gain_short = gain_short
         self.hist_len = hist_len
-        self.sma_window_size_center = sma_window_size_center
+        self.moving_window_size_center = moving_window_size_center
         self.batch_size = batch_size
 
     def set_batch_size(self, batch_size: int) -> None:
@@ -306,7 +320,7 @@ class RawLoader:
                 idx_expanded = idx_batch[:, np.newaxis] - np.arange(self.hist_len)[::-1]
 
                 sma = self.features[timeframe]["rel"][
-                    f"sma{self.sma_window_size_center}"
+                    f"sma{self.moving_window_size_center}"
                 ].values[idx_batch]
 
                 features[timeframe] = {}

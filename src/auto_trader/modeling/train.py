@@ -45,8 +45,8 @@ def main(config: TrainConfig) -> None:
             features[timeframe] = data.create_features(
                 df_resampled,
                 base_timing=config.feature.base_timing,
-                sma_window_sizes=config.feature.sma_window_sizes,
-                sma_window_size_center=config.feature.sma_window_size_center,
+                moving_window_sizes=config.feature.moving_window_sizes,
+                moving_window_size_center=config.feature.moving_window_size_center,
                 sigma_window_sizes=config.feature.sigma_window_sizes,
                 sma_frac_unit=config.feature.sma_frac_unit,
             )
@@ -75,7 +75,7 @@ def main(config: TrainConfig) -> None:
             gain_long=gain_long,
             gain_short=gain_short,
             hist_len=config.feature.hist_len,
-            sma_window_size_center=config.feature.sma_window_size_center,
+            moving_window_size_center=config.feature.moving_window_size_center,
             batch_size=config.batch_size,
         )
         raw_loader_valid = data.RawLoader(
@@ -84,7 +84,7 @@ def main(config: TrainConfig) -> None:
             gain_long=gain_long,
             gain_short=gain_short,
             hist_len=config.feature.hist_len,
-            sma_window_size_center=config.feature.sma_window_size_center,
+            moving_window_size_center=config.feature.moving_window_size_center,
             batch_size=config.batch_size,
         )
         feature_info, (gain_long_info, gain_short_info) = data.get_feature_info(
