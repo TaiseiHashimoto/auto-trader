@@ -31,7 +31,7 @@ class InceptionBlock(nn.Module):
         in_channels: int,
         out_channels: int,
         bottleneck_channels: int,
-        kernel_sizes: int,
+        kernel_sizes: list[int],
     ):
         super().__init__()
 
@@ -98,7 +98,7 @@ class Extractor(nn.Module):
         in_channels: int,
         out_channels: int,
         bottleneck_channels: int,
-        kernel_sizes: int,
+        kernel_sizes: list[int],
         num_blocks: int,
         residual: bool,
         lstm_hidden_size: int,
@@ -263,7 +263,7 @@ class Net(nn.Module):
         categorical_emb_dim: int,
         inception_out_channels: int,
         inception_bottleneck_channels: int,
-        inception_kernel_sizes: int,
+        inception_kernel_sizes: list[int],
         inception_num_blocks: int,
         inception_residual: bool,
         lstm_hidden_size: int,
