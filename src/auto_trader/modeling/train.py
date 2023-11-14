@@ -147,7 +147,7 @@ def main(config: TrainConfig) -> None:
         categorical_emb_dim=config.net.categorical_emb_dim,
         inception_out_channels=config.net.inception_out_channels,
         inception_bottleneck_channels=config.net.inception_bottleneck_channels,
-        inception_kernel_size_max=config.net.inception_kernel_size_max,
+        inception_kernel_sizes=config.net.inception_kernel_sizes,
         inception_num_blocks=config.net.inception_num_blocks,
         inception_residual=config.net.inception_residual,
         lstm_hidden_size=config.net.lstm_hidden_size,

@@ -8,7 +8,7 @@ def test_extractor() -> None:
         in_channels=2,
         out_channels=3,
         bottleneck_channels=4,
-        kernel_size_max=4,
+        kernel_sizes=[1, 2],
         num_blocks=2,
         residual=True,
         lstm_hidden_size=5,

@@ -31,7 +31,7 @@ class InceptionBlock(nn.Module):
         in_channels: int,
         out_channels: int,
         bottleneck_channels: int,
-        kernel_size_max: int,
+        kernel_sizes: int,
     ):
         super().__init__()
 
@@ -42,14 +42,13 @@ class InceptionBlock(nn.Module):
             padding="same",
         )
 
-        assert kernel_size_max >= 4
         self.convs_main = nn.ModuleList()
-        for i in range(3):
+        for kernel_size in kernel_sizes:
             self.convs_main.append(
                 nn.Conv1d(
                     in_channels=bottleneck_channels,
                     out_channels=out_channels,
-                    kernel_size=kernel_size_max // (2**i),
+                    kernel_size=kernel_size,
                     padding="same",
                 )
             )
@@ -61,7 +60,13 @@ class InceptionBlock(nn.Module):
             padding="same",
         )
 
-        self.batchnorm = nn.BatchNorm1d(out_channels * 4)
+        self.batchnorm = nn.BatchNorm1d(out_channels * (len(kernel_sizes) + 1))
+
+        self._output_channels = out_channels * (len(kernel_sizes) + 1)
+
+    @property
+    def output_channels(self) -> int:
+        return self._output_channels
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x_bottleneck = self.conv_bottleneck(x)
@@ -93,7 +98,7 @@ class Extractor(nn.Module):
         in_channels: int,
         out_channels: int,
         bottleneck_channels: int,
-        kernel_size_max: int,
+        kernel_sizes: int,
         num_blocks: int,
         residual: bool,
         lstm_hidden_size: int,
@@ -104,19 +109,19 @@ class Extractor(nn.Module):
         self.shortcut_layers = nn.ModuleList()
         channels = in_channels
         for i in range(num_blocks):
-            self.blocks.append(
-                InceptionBlock(
-                    in_channels=channels,
-                    out_channels=out_channels,
-                    bottleneck_channels=bottleneck_channels,
-                    kernel_size_max=kernel_size_max,
-                )
+            block = InceptionBlock(
+                in_channels=channels,
+                out_channels=out_channels,
+                bottleneck_channels=bottleneck_channels,
+                kernel_sizes=kernel_sizes,
             )
+            self.blocks.append(block)
+            channels = block.output_channels
+
             if residual and i > 0:
                 self.shortcut_layers.append(
                     ShortcutLayer(in_channels=in_channels, out_channels=channels)
                 )
-            channels = out_channels * 4
 
         self.lstm = nn.LSTM(
             input_size=channels, hidden_size=lstm_hidden_size, batch_first=True
@@ -178,7 +183,7 @@ class BaseNet(nn.Module):
         categorical_emb_dim: int,
         inception_out_channels: int,
         inception_bottleneck_channels: int,
-        inception_kernel_size_max: int,
+        inception_kernel_sizes: list[int],
         inception_num_blocks: int,
         inception_residual: bool,
         lstm_hidden_size: int,
@@ -212,7 +217,7 @@ class BaseNet(nn.Module):
             in_channels=emb_total_dim,
             out_channels=inception_out_channels,
             bottleneck_channels=inception_bottleneck_channels,
-            kernel_size_max=inception_kernel_size_max,
+            kernel_sizes=inception_kernel_sizes,
             num_blocks=inception_num_blocks,
             residual=inception_residual,
             lstm_hidden_size=lstm_hidden_size,
@@ -258,7 +263,7 @@ class Net(nn.Module):
         categorical_emb_dim: int,
         inception_out_channels: int,
         inception_bottleneck_channels: int,
-        inception_kernel_size_max: int,
+        inception_kernel_sizes: int,
         inception_num_blocks: int,
         inception_residual: bool,
         lstm_hidden_size: int,
@@ -283,7 +288,7 @@ class Net(nn.Module):
                 categorical_emb_dim=categorical_emb_dim,
                 inception_out_channels=inception_out_channels,
                 inception_bottleneck_channels=inception_bottleneck_channels,
-                inception_kernel_size_max=inception_kernel_size_max,
+                inception_kernel_sizes=inception_kernel_sizes,
                 inception_num_blocks=inception_num_blocks,
                 inception_residual=inception_residual,
                 lstm_hidden_size=lstm_hidden_size,

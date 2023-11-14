@@ -238,7 +238,7 @@ def main(config: EvalConfig) -> None:
         categorical_emb_dim=train_config.net.categorical_emb_dim,
         inception_out_channels=train_config.net.inception_out_channels,
         inception_bottleneck_channels=train_config.net.inception_bottleneck_channels,
-        inception_kernel_size_max=train_config.net.inception_kernel_size_max,
+        inception_kernel_sizes=train_config.net.inception_kernel_sizes,
         inception_num_blocks=train_config.net.inception_num_blocks,
         inception_residual=train_config.net.inception_residual,
         lstm_hidden_size=train_config.net.lstm_hidden_size,
