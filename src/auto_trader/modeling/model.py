@@ -15,7 +15,7 @@ Predictions = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
 class PeriodicActivation(nn.Module):
     def __init__(self, num_coefs: int, sigma: float) -> None:
         super().__init__()
-        self.params = nn.Parameter(torch.randn(num_coefs) * sigma)
+        self.params = nn.Parameter(cast(torch.Tensor, torch.randn(num_coefs) * sigma))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert x.shape[-1] == 1
@@ -445,7 +445,7 @@ class Model(pl.LightningModule):
 
         # バッチサイズに合わせて gradient をスケーリングする
         batch_size_ratio = logit_long.shape[0] / self.canonical_batch_size
-        return loss * batch_size_ratio
+        return cast(torch.Tensor, loss * batch_size_ratio)
 
     def training_step(
         self,

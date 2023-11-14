@@ -23,7 +23,6 @@ dev = [
     "pyproject-flake8",
     "mypy",
     "pytest",
-    "pytest-mock", # to be deleted?
     "pandas-stubs",
     "types-Pillow",
     "types-PyYAML",
