@@ -1,4 +1,4 @@
-from typing import cast
+from typing import Optional, cast
 
 import lightning.pytorch as pl
 import numpy as np
@@ -25,127 +25,123 @@ class PeriodicActivation(nn.Module):
         return torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
 
 
-class ConvExtractor(nn.Module):
+class InceptionBlock(nn.Module):
     def __init__(
         self,
-        hist_len: int,
-        input_channel: int,
-        out_channels: list[int],
-        kernel_sizes: list[int],
-        batchnorm: bool,
-        dropout: float,
+        in_channels: int,
+        out_channels: int,
+        bottleneck_channels: int,
+        kernel_size_max: int,
     ):
         super().__init__()
 
-        assert len(out_channels) == len(kernel_sizes)
+        self.conv_bottleneck = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=bottleneck_channels,
+            kernel_size=1,
+            padding="same",
+        )
 
-        self.layers = nn.Sequential()
-        size = hist_len
-        for out_channel, kernel_size in zip(out_channels, kernel_sizes):
-            self.layers.append(
-                nn.Conv1d(input_channel, out_channel, kernel_size, padding="same")
+        assert kernel_size_max >= 4
+        self.convs_main = nn.ModuleList()
+        for i in range(3):
+            self.convs_main.append(
+                nn.Conv1d(
+                    in_channels=bottleneck_channels,
+                    out_channels=out_channels,
+                    kernel_size=kernel_size_max // (2**i),
+                    padding="same",
+                )
             )
-            if batchnorm:
-                self.layers.append(nn.BatchNorm1d(out_channel))
-            self.layers.append(nn.ReLU())
-            if dropout > 0:
-                self.layers.append(nn.Dropout(dropout))
-            self.layers.append(nn.MaxPool1d(kernel_size=2))
 
-            size = size // 2
-            input_channel = out_channel
+        self.conv_maxpool = nn.Conv1d(
+            in_channels=in_channels,
+            out_channels=out_channels,
+            kernel_size=1,
+            padding="same",
+        )
 
-        self._output_dim = out_channel * size
+        self.batchnorm = nn.BatchNorm1d(out_channels * 4)
 
-    def get_output_dim(self) -> int:
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x_bottleneck = self.conv_bottleneck(x)
+        x_maxpool = F.max_pool1d(x, kernel_size=3, stride=1, padding=1)
+
+        x_list = []
+        for conv in self.convs_main:
+            x_list.append(conv(x_bottleneck))
+        x_list.append(self.conv_maxpool(x_maxpool))
+
+        return cast(torch.Tensor, self.batchnorm(torch.concat(x_list, dim=1)))
+
+
+class ShortcutLayer(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int):
+        super().__init__()
+        self.conv = nn.Conv1d(
+            in_channels, out_channels=out_channels, kernel_size=1, padding="same"
+        )
+        self.batchnorm = nn.BatchNorm1d(out_channels)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return cast(torch.Tensor, self.batchnorm(self.conv(x)))
+
+
+class Extractor(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        bottleneck_channels: int,
+        kernel_size_max: int,
+        num_blocks: int,
+        lstm_hidden_size: int,
+    ):
+        super().__init__()
+
+        self.blocks = nn.ModuleList()
+        self.shortcut_layers = nn.ModuleList()
+        channels = in_channels
+        for i in range(num_blocks):
+            self.blocks.append(
+                InceptionBlock(
+                    in_channels=channels,
+                    out_channels=out_channels,
+                    bottleneck_channels=bottleneck_channels,
+                    kernel_size_max=kernel_size_max,
+                )
+            )
+            if i > 0:
+                self.shortcut_layers.append(
+                    ShortcutLayer(in_channels=in_channels, out_channels=channels)
+                )
+            channels = out_channels * 4
+
+        self.lstm = nn.LSTM(
+            input_size=channels, hidden_size=lstm_hidden_size, batch_first=True
+        )
+
+        self._output_dim = lstm_hidden_size
+
+    @property
+    def output_dim(self) -> int:
         return self._output_dim
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         # (batch, length, channel) -> (batch, channel, length)
         x = x.permute(0, 2, 1)
-        x = self.layers(x)
-        x = x.reshape(x.shape[0], -1)
+
+        x_ = x
+        for i in range(len(self.blocks)):
+            x_ = F.relu(self.blocks[i](x_))
+            if i > 0:
+                x_ = F.relu(x_ + self.shortcut_layers[i - 1](x))
+
+        # (batch, channel, length) -> (batch, length, channel)
+        x = x_.permute(0, 2, 1)
+        # (batch, length, channel) -> (batch, hidden_size)
+        x = self.lstm(x)[0][:, -1]
         return x
-
-
-def get_positional_encoding(hist_len: int, emb_dim: int) -> torch.Tensor:
-    pe = torch.zeros(hist_len, emb_dim)
-    position = torch.arange(0, hist_len, dtype=torch.float).unsqueeze(dim=1)
-    div_term = torch.exp(
-        torch.arange(0, emb_dim, 2).float() * (-np.log(10000.0) / emb_dim)
-    )
-    pe[:, 0::2] = torch.sin(position * div_term)
-    pe[:, 1::2] = torch.cos(position * div_term)
-    return pe.unsqueeze(dim=0)
-
-
-class AttentionExtractor(nn.Module):
-    def __init__(
-        self,
-        hist_len: int,
-        emb_dim: int,
-        num_layers: int,
-        num_heads: int,
-        feedforward_dim: int,
-        dropout: float,
-    ):
-        super().__init__()
-
-        assert emb_dim % num_heads == 0
-
-        self.attention_layers = nn.ModuleList()
-        self.feedforward_layers = nn.ModuleList()
-        for _ in range(num_layers):
-            self.attention_layers.append(
-                nn.MultiheadAttention(
-                    embed_dim=emb_dim,
-                    num_heads=num_heads,
-                    batch_first=True,
-                ),
-            )
-            self.feedforward_layers.append(
-                nn.Sequential(
-                    nn.Linear(emb_dim, feedforward_dim),
-                    nn.Dropout(dropout),
-                    nn.ReLU(),
-                    nn.Linear(feedforward_dim, emb_dim),
-                )
-            )
-
-        self.positional_encoding: torch.Tensor
-        self.register_buffer(
-            "positional_encoding", get_positional_encoding(hist_len, emb_dim)
-        )
-
-        self.dropout = nn.Dropout(dropout)
-        self.layer_norm = nn.LayerNorm(emb_dim)
-
-        self._output_dim = emb_dim
-
-    def get_output_dim(self) -> int:
-        return self._output_dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # (batch, length, embed)
-        x = x + self.positional_encoding
-
-        for i in range(len(self.attention_layers)):
-            if i < len(self.attention_layers) - 1:
-                q, k, v = x, x, x
-            else:
-                # query last time only
-                q = x[:, -1, :].unsqueeze(dim=1)
-                k, v = x, x
-
-            # (batch, length or 1, embed)
-            x_ = self.attention_layers[i](q, k, v, need_weights=False)[0]
-            x = self.layer_norm(q + self.dropout(x_))
-
-            x_ = self.feedforward_layers[i](x)
-            x = self.layer_norm(x + self.dropout(x_))
-
-        # (batch, embed)
-        return x.squeeze(dim=1)
 
 
 def build_fc_layer(
@@ -153,7 +149,7 @@ def build_fc_layer(
     hidden_dims: list[int],
     batchnorm: bool,
     dropout: float,
-    output_dim: int,
+    output_dim: Optional[int] = None,
 ) -> nn.Sequential:
     layers: list[nn.Module] = []
     for hidden_dim in hidden_dims:
@@ -165,7 +161,9 @@ def build_fc_layer(
             layers.append(nn.Dropout(dropout))
         input_dim = hidden_dim
 
-    layers.append(nn.Linear(input_dim, output_dim))
+    if output_dim is not None:
+        layers.append(nn.Linear(input_dim, output_dim))
+
     return nn.Sequential(*layers)
 
 
@@ -173,25 +171,18 @@ class BaseNet(nn.Module):
     def __init__(
         self,
         feature_info: dict[data.FeatureName, data.FeatureInfo],
-        hist_len: int,
         numerical_emb_dim: int,
         periodic_activation_num_coefs: int,
         periodic_activation_sigma: float,
         categorical_emb_dim: int,
-        emb_output_dim: int,
-        net_type: str,
-        attention_num_layers: int,
-        attention_num_heads: int,
-        attention_feedforward_dim: int,
-        attention_dropout: float,
-        conv_out_channels: list[int],
-        conv_kernel_sizes: list[int],
-        conv_batchnorm: bool,
-        conv_dropout: float,
+        inception_out_channels: int,
+        inception_bottleneck_channels: int,
+        inception_kernel_size_max: int,
+        inception_num_blocks: int,
+        lstm_hidden_size: int,
         fc_hidden_dims: list[int],
         fc_batchnorm: bool,
         fc_dropout: float,
-        output_dim: int,
     ):
         super().__init__()
 
@@ -215,50 +206,42 @@ class BaseNet(nn.Module):
                 )
                 emb_total_dim += categorical_emb_dim
 
-        self.fc_emb = nn.Linear(emb_total_dim, emb_output_dim)
-
-        self.extractor: nn.Module
-        if net_type == "attention":
-            self.extractor = AttentionExtractor(
-                hist_len=hist_len,
-                emb_dim=emb_output_dim,
-                num_layers=attention_num_layers,
-                num_heads=attention_num_heads,
-                feedforward_dim=attention_feedforward_dim,
-                dropout=attention_dropout,
-            )
-        elif net_type == "conv":
-            self.extractor = ConvExtractor(
-                hist_len=hist_len,
-                input_channel=emb_output_dim,
-                out_channels=conv_out_channels,
-                kernel_sizes=conv_kernel_sizes,
-                batchnorm=conv_batchnorm,
-                dropout=conv_dropout,
-            )
-        else:
-            assert False
-
+        self.extractor = Extractor(
+            in_channels=emb_total_dim,
+            out_channels=inception_out_channels,
+            bottleneck_channels=inception_bottleneck_channels,
+            kernel_size_max=inception_kernel_size_max,
+            num_blocks=inception_num_blocks,
+            lstm_hidden_size=lstm_hidden_size,
+        )
         self.fc_layer = build_fc_layer(
-            input_dim=self.extractor.get_output_dim(),
+            input_dim=self.extractor.output_dim,
             hidden_dims=fc_hidden_dims,
             batchnorm=fc_batchnorm,
             dropout=fc_dropout,
-            output_dim=output_dim,
         )
+
+        if len(fc_hidden_dims) > 0:
+            self._output_dim = fc_hidden_dims[-1]
+        else:
+            self._output_dim = self.extractor.output_dim
+
+    @property
+    def output_dim(self) -> int:
+        return self._output_dim
 
     def forward(self, features: dict[data.FeatureName, torch.Tensor]) -> torch.Tensor:
         embeddings = []
         for name, value in features.items():
             embeddings.append(self.emb_layers[name](value))
 
-        # (batch, length, emb_output_dim)
-        x = self.fc_emb(torch.cat(embeddings, dim=2))
-        # (batch, extractor_output_dim)
+        # (batch, length, emb_total_dim)
+        x = torch.cat(embeddings, dim=2)
+        # (batch, extractor.output_dim)
         x = self.extractor(x)
         # (batch, output_dim)
-        x = self.fc_layer(F.relu(x))
-        return cast(torch.Tensor, x)
+        x = self.fc_layer(x)
+        return x
 
 
 class Net(nn.Module):
@@ -266,25 +249,18 @@ class Net(nn.Module):
         self,
         symbol_num: int,
         feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
-        hist_len: int,
         numerical_emb_dim: int,
         periodic_activation_num_coefs: int,
         periodic_activation_sigma: float,
         categorical_emb_dim: int,
-        emb_output_dim: int,
-        base_net_type: str,
-        base_attention_num_layers: int,
-        base_attention_num_heads: int,
-        base_attention_feedforward_dim: int,
-        base_attention_dropout: float,
-        base_conv_out_channels: list[int],
-        base_conv_kernel_sizes: list[int],
-        base_conv_batchnorm: bool,
-        base_conv_dropout: float,
+        inception_out_channels: int,
+        inception_bottleneck_channels: int,
+        inception_kernel_size_max: int,
+        inception_num_blocks: int,
+        lstm_hidden_size: int,
         base_fc_hidden_dims: list[int],
         base_fc_batchnorm: bool,
         base_fc_dropout: float,
-        base_fc_output_dim: int,
         head_hidden_dims: list[int],
         head_batchnorm: bool,
         head_dropout: float,
@@ -293,33 +269,29 @@ class Net(nn.Module):
         super().__init__()
 
         self.base_nets = nn.ModuleDict()
+        base_output_dim_total = 0
         for timeframe in feature_info:
-            self.base_nets[timeframe] = BaseNet(
+            base_net = BaseNet(
                 feature_info=feature_info[timeframe],
-                hist_len=hist_len,
                 numerical_emb_dim=numerical_emb_dim,
                 periodic_activation_num_coefs=periodic_activation_num_coefs,
                 periodic_activation_sigma=periodic_activation_sigma,
                 categorical_emb_dim=categorical_emb_dim,
-                emb_output_dim=emb_output_dim,
-                net_type=base_net_type,
-                attention_num_layers=base_attention_num_layers,
-                attention_num_heads=base_attention_num_heads,
-                attention_feedforward_dim=base_attention_feedforward_dim,
-                attention_dropout=base_attention_dropout,
-                conv_out_channels=base_conv_out_channels,
-                conv_kernel_sizes=base_conv_kernel_sizes,
-                conv_batchnorm=base_conv_batchnorm,
-                conv_dropout=base_conv_dropout,
+                inception_out_channels=inception_out_channels,
+                inception_bottleneck_channels=inception_bottleneck_channels,
+                inception_kernel_size_max=inception_kernel_size_max,
+                inception_num_blocks=inception_num_blocks,
+                lstm_hidden_size=lstm_hidden_size,
                 fc_hidden_dims=base_fc_hidden_dims,
                 fc_batchnorm=base_fc_batchnorm,
                 fc_dropout=base_fc_dropout,
-                output_dim=base_fc_output_dim,
             )
+            self.base_nets[timeframe] = base_net
+            base_output_dim_total += base_net.output_dim
 
         self.symbol_emb = nn.Embedding(symbol_num, categorical_emb_dim)
         self.head = build_fc_layer(
-            input_dim=base_fc_output_dim * len(feature_info) + categorical_emb_dim,
+            input_dim=base_output_dim_total + categorical_emb_dim,
             hidden_dims=head_hidden_dims,
             batchnorm=head_batchnorm,
             dropout=head_dropout,

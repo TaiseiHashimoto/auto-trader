@@ -58,24 +58,16 @@ class NetConfig:
     periodic_activation_num_coefs: int = 8
     periodic_activation_sigma: float = 1.0
     categorical_emb_dim: int = 16
-    emb_output_dim: int = 64
 
-    base_net_type: str = "attention"
-
-    base_attention_num_layers: int = 3
-    base_attention_num_heads: int = 1
-    base_attention_feedforward_dim: int = 128
-    base_attention_dropout: float = 0.1
-
-    base_conv_out_channels: list[int] = field(default_factory=lambda: [20, 40, 20])
-    base_conv_kernel_sizes: list[int] = field(default_factory=lambda: [5, 5, 5])
-    base_conv_batchnorm: bool = True
-    base_conv_dropout: float = 0.0
+    inception_out_channels: int = 20
+    inception_bottleneck_channels: int = 20
+    inception_kernel_size_max: int = 40
+    inception_num_blocks: int = 3
+    lstm_hidden_size: int = 100
 
     base_fc_hidden_dims: list[int] = field(default_factory=lambda: [128])
     base_fc_batchnorm: bool = False
     base_fc_dropout: float = 0.0
-    base_fc_output_dim: int = 128
 
     head_hidden_dims: list[int] = field(default_factory=lambda: [64])
     head_batchnorm: bool = False
@@ -87,19 +79,10 @@ class NetConfig:
                 f"numerical_emb_dim must be a even number: {self.numerical_emb_dim}"
             )
 
-        if self.base_net_type not in ["attention", "conv"]:
-            raise ValueError(f"Unknown base_net_type {self.base_net_type}")
-
-        if self.emb_output_dim % self.base_attention_num_heads != 0:
+        if self.inception_kernel_size_max < 4:
             raise ValueError(
-                f"emb_dim ({self.emb_output_dim}) must be divisible by "
-                f"num_heads ({self.base_attention_num_heads})"
-            )
-
-        if len(self.base_conv_out_channels) != len(self.base_conv_kernel_sizes):
-            raise ValueError(
-                f"Number of conv channels and kernel sizes does not match: "
-                f"{self.base_conv_out_channels} != {self.base_conv_kernel_sizes}"
+                "inception_kernel_size_max must be greater than or equal to 4: "
+                f"{self.inception_kernel_size_max}"
             )
 
 

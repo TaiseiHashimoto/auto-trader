@@ -176,7 +176,6 @@ def main(config: EvalConfig) -> None:
     symbol_idxs = params["symbol_idxs"]
     feature_info_all = params["feature_info_all"]
     net_state = params["net_state"]
-    run["sys/tags"].add(train_config.net.base_net_type)
 
     df = data.read_cleansed_data(
         symbol=config.symbol,
@@ -233,25 +232,18 @@ def main(config: EvalConfig) -> None:
     net = model.Net(
         symbol_num=len(train_config.symbols),
         feature_info=feature_info_all[config.symbol],
-        hist_len=train_config.feature.hist_len,
         numerical_emb_dim=train_config.net.numerical_emb_dim,
         periodic_activation_num_coefs=train_config.net.periodic_activation_num_coefs,
         periodic_activation_sigma=train_config.net.periodic_activation_sigma,
         categorical_emb_dim=train_config.net.categorical_emb_dim,
-        emb_output_dim=train_config.net.emb_output_dim,
-        base_net_type=train_config.net.base_net_type,
-        base_attention_num_layers=train_config.net.base_attention_num_layers,
-        base_attention_num_heads=train_config.net.base_attention_num_heads,
-        base_attention_feedforward_dim=train_config.net.base_attention_feedforward_dim,
-        base_attention_dropout=train_config.net.base_attention_dropout,
-        base_conv_out_channels=train_config.net.base_conv_out_channels,
-        base_conv_kernel_sizes=train_config.net.base_conv_kernel_sizes,
-        base_conv_batchnorm=train_config.net.base_conv_batchnorm,
-        base_conv_dropout=train_config.net.base_conv_dropout,
+        inception_out_channels=train_config.net.inception_out_channels,
+        inception_bottleneck_channels=train_config.net.inception_bottleneck_channels,
+        inception_kernel_size_max=train_config.net.inception_kernel_size_max,
+        inception_num_blocks=train_config.net.inception_num_blocks,
+        lstm_hidden_size=train_config.net.lstm_hidden_size,
         base_fc_hidden_dims=train_config.net.base_fc_hidden_dims,
         base_fc_batchnorm=train_config.net.base_fc_batchnorm,
         base_fc_dropout=train_config.net.base_fc_dropout,
-        base_fc_output_dim=train_config.net.base_fc_output_dim,
         head_hidden_dims=train_config.net.head_hidden_dims,
         head_batchnorm=train_config.net.head_batchnorm,
         head_dropout=train_config.net.head_dropout,
