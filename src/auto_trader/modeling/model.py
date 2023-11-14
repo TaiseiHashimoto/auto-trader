@@ -95,6 +95,7 @@ class Extractor(nn.Module):
         bottleneck_channels: int,
         kernel_size_max: int,
         num_blocks: int,
+        residual: bool,
         lstm_hidden_size: int,
     ):
         super().__init__()
@@ -111,7 +112,7 @@ class Extractor(nn.Module):
                     kernel_size_max=kernel_size_max,
                 )
             )
-            if i > 0:
+            if residual and i > 0:
                 self.shortcut_layers.append(
                     ShortcutLayer(in_channels=in_channels, out_channels=channels)
                 )
@@ -134,7 +135,7 @@ class Extractor(nn.Module):
         x_ = x
         for i in range(len(self.blocks)):
             x_ = F.relu(self.blocks[i](x_))
-            if i > 0:
+            if len(self.shortcut_layers) > 0 and i > 0:
                 x_ = F.relu(x_ + self.shortcut_layers[i - 1](x))
 
         # (batch, channel, length) -> (batch, length, channel)
@@ -179,6 +180,7 @@ class BaseNet(nn.Module):
         inception_bottleneck_channels: int,
         inception_kernel_size_max: int,
         inception_num_blocks: int,
+        inception_residual: bool,
         lstm_hidden_size: int,
         fc_hidden_dims: list[int],
         fc_batchnorm: bool,
@@ -212,6 +214,7 @@ class BaseNet(nn.Module):
             bottleneck_channels=inception_bottleneck_channels,
             kernel_size_max=inception_kernel_size_max,
             num_blocks=inception_num_blocks,
+            residual=inception_residual,
             lstm_hidden_size=lstm_hidden_size,
         )
         self.fc_layer = build_fc_layer(
@@ -257,6 +260,7 @@ class Net(nn.Module):
         inception_bottleneck_channels: int,
         inception_kernel_size_max: int,
         inception_num_blocks: int,
+        inception_residual: bool,
         lstm_hidden_size: int,
         base_fc_hidden_dims: list[int],
         base_fc_batchnorm: bool,
@@ -281,6 +285,7 @@ class Net(nn.Module):
                 inception_bottleneck_channels=inception_bottleneck_channels,
                 inception_kernel_size_max=inception_kernel_size_max,
                 inception_num_blocks=inception_num_blocks,
+                inception_residual=inception_residual,
                 lstm_hidden_size=lstm_hidden_size,
                 fc_hidden_dims=base_fc_hidden_dims,
                 fc_batchnorm=base_fc_batchnorm,

@@ -63,6 +63,7 @@ class NetConfig:
     inception_bottleneck_channels: int = 20
     inception_kernel_size_max: int = 40
     inception_num_blocks: int = 3
+    inception_residual: bool = True
     lstm_hidden_size: int = 100
 
     base_fc_hidden_dims: list[int] = field(default_factory=lambda: [128])

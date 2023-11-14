@@ -240,6 +240,7 @@ def main(config: EvalConfig) -> None:
         inception_bottleneck_channels=train_config.net.inception_bottleneck_channels,
         inception_kernel_size_max=train_config.net.inception_kernel_size_max,
         inception_num_blocks=train_config.net.inception_num_blocks,
+        inception_residual=train_config.net.inception_residual,
         lstm_hidden_size=train_config.net.lstm_hidden_size,
         base_fc_hidden_dims=train_config.net.base_fc_hidden_dims,
         base_fc_batchnorm=train_config.net.base_fc_batchnorm,

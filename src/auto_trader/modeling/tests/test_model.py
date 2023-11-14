@@ -10,6 +10,7 @@ def test_extractor() -> None:
         bottleneck_channels=4,
         kernel_size_max=4,
         num_blocks=2,
+        residual=True,
         lstm_hidden_size=5,
     )
     assert layer.output_dim == 5

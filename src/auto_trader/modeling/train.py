@@ -149,6 +149,7 @@ def main(config: TrainConfig) -> None:
         inception_bottleneck_channels=config.net.inception_bottleneck_channels,
         inception_kernel_size_max=config.net.inception_kernel_size_max,
         inception_num_blocks=config.net.inception_num_blocks,
+        inception_residual=config.net.inception_residual,
         lstm_hidden_size=config.net.lstm_hidden_size,
         base_fc_hidden_dims=config.net.base_fc_hidden_dims,
         base_fc_batchnorm=config.net.base_fc_batchnorm,
