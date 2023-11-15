@@ -62,7 +62,6 @@ class NetConfig:
     inception_kernel_sizes: list[int] = field(default_factory=lambda: [10, 20])
     inception_num_blocks: int = 3
     inception_residual: bool = True
-    lstm_hidden_size: int = 100
 
     base_fc_hidden_dims: list[int] = field(default_factory=lambda: [128])
     base_fc_batchnorm: bool = False

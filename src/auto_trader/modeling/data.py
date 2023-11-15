@@ -337,9 +337,7 @@ class FeatureInfo:
 
 def get_feature_info(
     loader: RawLoader, batch_num: int = 100
-) -> tuple[
-    dict[Timeframe, dict[FeatureName, FeatureInfo]], FeatureInfo,
-]:
+) -> tuple[dict[Timeframe, dict[FeatureName, FeatureInfo]], FeatureInfo]:
     feature_info: dict[Timeframe, dict[FeatureName, FeatureInfo]] = {}
     lift_info = FeatureInfo(np.float32)
     for batch_idx, (features, lift) in enumerate(loader):

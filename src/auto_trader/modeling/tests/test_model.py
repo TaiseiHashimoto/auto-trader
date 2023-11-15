@@ -11,13 +11,12 @@ def test_extractor() -> None:
         kernel_sizes=[1, 2],
         num_blocks=2,
         residual=True,
-        lstm_hidden_size=5,
     )
-    assert layer.output_dim == 5
+    assert layer.output_dim == 3 * (2 + 1)
 
     x = torch.randn(1, 10, 2)
     y = layer(x)
-    assert y.shape == (1, 5)
+    assert y.shape == (1, 9)
 
 
 def test_build_fc_layer() -> None:

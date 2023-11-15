@@ -101,7 +101,6 @@ class Extractor(nn.Module):
         kernel_sizes: list[int],
         num_blocks: int,
         residual: bool,
-        lstm_hidden_size: int,
     ):
         super().__init__()
 
@@ -123,11 +122,7 @@ class Extractor(nn.Module):
                     ShortcutLayer(in_channels=in_channels, out_channels=channels)
                 )
 
-        self.lstm = nn.LSTM(
-            input_size=channels, hidden_size=lstm_hidden_size, batch_first=True
-        )
-
-        self._output_dim = lstm_hidden_size
+        self._output_dim = channels
 
     @property
     def output_dim(self) -> int:
@@ -145,8 +140,8 @@ class Extractor(nn.Module):
 
         # (batch, channel, length) -> (batch, length, channel)
         x = x_.permute(0, 2, 1)
-        # (batch, length, channel) -> (batch, hidden_size)
-        x = self.lstm(x)[0][:, -1]
+        # (batch, length, channel) -> (batch, channel)
+        x = x.mean(dim=1)
         return x
 
 
@@ -186,7 +181,6 @@ class BaseNet(nn.Module):
         inception_kernel_sizes: list[int],
         inception_num_blocks: int,
         inception_residual: bool,
-        lstm_hidden_size: int,
         fc_hidden_dims: list[int],
         fc_batchnorm: bool,
         fc_dropout: float,
@@ -220,7 +214,6 @@ class BaseNet(nn.Module):
             kernel_sizes=inception_kernel_sizes,
             num_blocks=inception_num_blocks,
             residual=inception_residual,
-            lstm_hidden_size=lstm_hidden_size,
         )
         self.fc_layer = build_fc_layer(
             input_dim=self.extractor.output_dim,
@@ -266,7 +259,6 @@ class Net(nn.Module):
         inception_kernel_sizes: list[int],
         inception_num_blocks: int,
         inception_residual: bool,
-        lstm_hidden_size: int,
         base_fc_hidden_dims: list[int],
         base_fc_batchnorm: bool,
         base_fc_dropout: float,
@@ -291,7 +283,6 @@ class Net(nn.Module):
                 inception_kernel_sizes=inception_kernel_sizes,
                 inception_num_blocks=inception_num_blocks,
                 inception_residual=inception_residual,
-                lstm_hidden_size=lstm_hidden_size,
                 fc_hidden_dims=base_fc_hidden_dims,
                 fc_batchnorm=base_fc_batchnorm,
                 fc_dropout=base_fc_dropout,

@@ -26,7 +26,6 @@ def test_main(tmp_path: Path) -> None:
             "net.inception_out_channels=5",
             "net.inception_bottleneck_channels=5",
             "net.inception_kernel_sizes=[2,4]",
-            "net.lstm_hidden_size=10",
             "net.base_fc_hidden_dims=[4]",
             "net.head_hidden_dims=[2]",
             "feature.timeframes=[1min]",
