@@ -39,8 +39,7 @@ def calc_stats(values: NDArray[np.float32]) -> dict[str, float]:
 
 def log_metrics(
     config: EvalConfig,
-    gain_long: "pd.Series[float]",
-    gain_short: "pd.Series[float]",
+    lift: "pd.Series[float]",
     preds: pd.DataFrame,
     run: neptune.Run,
 ) -> None:
@@ -49,13 +48,13 @@ def log_metrics(
         run[f"stats/prob/{label_name}"] = calc_stats(pred)
 
         if label_name == "long_entry":
-            label = (gain_long.loc[preds.index] > config.simulation.spread).values
+            label = (lift.loc[preds.index] > config.simulation.spread).values
         elif label_name == "long_exit":
-            label = (gain_long.loc[preds.index] < 0).values
+            label = (lift.loc[preds.index] < 0).values
         elif label_name == "short_entry":
-            label = (gain_short.loc[preds.index] > config.simulation.spread).values
+            label = (lift.loc[preds.index] < -config.simulation.spread).values
         elif label_name == "short_exit":
-            label = (gain_short.loc[preds.index] < 0).values
+            label = (lift.loc[preds.index] > 0).values
         else:
             assert False
 
@@ -196,9 +195,7 @@ def main(config: EvalConfig) -> None:
             sma_frac_unit=train_config.feature.sma_frac_unit,
         )
 
-    gain_long, gain_short = data.calc_gains(
-        df_base["close"], train_config.gain.alpha, train_config.gain.thresh_losscut
-    )
+    lift = data.calc_lift(df_base["close"], train_config.lift.alpha)
 
     base_index = data.calc_available_index(
         features=features,
@@ -213,8 +210,7 @@ def main(config: EvalConfig) -> None:
     raw_loader = data.RawLoader(
         base_index=base_index,
         features=features,
-        gain_long=gain_long,
-        gain_short=gain_short,
+        lift=lift,
         hist_len=train_config.feature.hist_len,
         moving_window_size_center=train_config.feature.moving_window_size_center,
         batch_size=train_config.batch_size,
@@ -247,7 +243,7 @@ def main(config: EvalConfig) -> None:
         head_hidden_dims=train_config.net.head_hidden_dims,
         head_batchnorm=train_config.net.head_batchnorm,
         head_dropout=train_config.net.head_dropout,
-        head_output_dim=(len(train_config.loss.bucket_boundaries) + 1) * 2,
+        head_output_dim=len(train_config.loss.bucket_boundaries) + 1,
     )
     net.load_state_dict(net_state)
     model_ = model.Model(net, bucket_boundaries=train_config.loss.bucket_boundaries)
@@ -270,8 +266,7 @@ def main(config: EvalConfig) -> None:
     rates = df_base.loc[base_index, config.simulation.timing]
     log_metrics(
         config=config,
-        gain_long=gain_long,
-        gain_short=gain_short,
+        lift=lift,
         preds=preds,
         run=run,
     )

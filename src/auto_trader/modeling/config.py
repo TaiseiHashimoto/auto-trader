@@ -46,9 +46,8 @@ class FeatureConfig:
 
 
 @dataclass
-class GainConfig:
+class LiftConfig:
     alpha: float = 0.1
-    thresh_losscut: float = 5.0
 
 
 @dataclass
@@ -82,7 +81,7 @@ class NetConfig:
 
 @dataclass
 class LossConfig:
-    bucket_boundaries: list[float] = field(default_factory=lambda: [0.0, 2.0])
+    bucket_boundaries: list[float] = field(default_factory=lambda: [-2.0, 2.0])
     label_smoothing: float = 0.0
 
 
@@ -108,7 +107,7 @@ class TrainConfig:
 
     neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
     feature: FeatureConfig = field(default_factory=FeatureConfig)
-    gain: GainConfig = field(default_factory=GainConfig)
+    lift: LiftConfig = field(default_factory=LiftConfig)
     net: NetConfig = field(default_factory=NetConfig)
     loss: LossConfig = field(default_factory=LossConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)

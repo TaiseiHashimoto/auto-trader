@@ -50,9 +50,7 @@ def main(config: TrainConfig) -> None:
                 sma_frac_unit=config.feature.sma_frac_unit,
             )
 
-        gain_long, gain_short = data.calc_gains(
-            df_base["close"], config.gain.alpha, config.gain.thresh_losscut
-        )
+        lift = data.calc_lift(df_base["close"], config.lift.alpha)
 
         base_index = data.calc_available_index(
             features=features,
@@ -71,8 +69,7 @@ def main(config: TrainConfig) -> None:
         raw_loader_train = data.RawLoader(
             base_index=base_index_train,
             features=features,
-            gain_long=gain_long,
-            gain_short=gain_short,
+            lift=lift,
             hist_len=config.feature.hist_len,
             moving_window_size_center=config.feature.moving_window_size_center,
             batch_size=config.batch_size,
@@ -80,15 +77,12 @@ def main(config: TrainConfig) -> None:
         raw_loader_valid = data.RawLoader(
             base_index=base_index_valid,
             features=features,
-            gain_long=gain_long,
-            gain_short=gain_short,
+            lift=lift,
             hist_len=config.feature.hist_len,
             moving_window_size_center=config.feature.moving_window_size_center,
             batch_size=config.batch_size,
         )
-        feature_info, (gain_long_info, gain_short_info) = data.get_feature_info(
-            raw_loader_train
-        )
+        feature_info, lift_info = data.get_feature_info(raw_loader_train)
         feature_info_all[symbol] = feature_info
         normalized_loader_train = data.NormalizedLoader(
             loader=raw_loader_train,
@@ -107,8 +101,7 @@ def main(config: TrainConfig) -> None:
                 for t in feature_info
             }
         )
-        logger.experiment[f"data/{symbol}/gain_long_info"] = str(gain_long_info)
-        logger.experiment[f"data/{symbol}/gain_short_info"] = str(gain_short_info)
+        logger.experiment[f"data/{symbol}/lift_info"] = str(lift_info)
 
     size_train = sum(loader.size for loader in loaders_train.values())
     size_valid = sum(loader.size for loader in loaders_valid.values())
@@ -156,7 +149,7 @@ def main(config: TrainConfig) -> None:
         head_hidden_dims=config.net.head_hidden_dims,
         head_batchnorm=config.net.head_batchnorm,
         head_dropout=config.net.head_dropout,
-        head_output_dim=(len(config.loss.bucket_boundaries) + 1) * 2,
+        head_output_dim=len(config.loss.bucket_boundaries) + 1,
     )
     model_ = model.Model(
         net,
