@@ -47,7 +47,6 @@ def main(config: TrainConfig) -> None:
                 base_timing=config.feature.base_timing,
                 moving_window_sizes=config.feature.moving_window_sizes,
                 moving_window_size_center=config.feature.moving_window_size_center,
-                sigma_window_sizes=config.feature.sigma_window_sizes,
                 sma_frac_unit=config.feature.sma_frac_unit,
             )
 

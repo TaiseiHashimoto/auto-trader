@@ -99,10 +99,10 @@ def create_features(
     base_timing: str,
     moving_window_sizes: list[int],
     moving_window_size_center: int,
-    sigma_window_sizes: list[int],
     sma_frac_unit: int,
 ) -> dict[FeatureType, pd.DataFrame]:
     features_rel = values.copy()
+    features_abs = pd.DataFrame()
 
     for window_size in moving_window_sizes:
         features_rel[f"sma{window_size}"] = calc_sma(values[base_timing], window_size)
@@ -112,10 +112,6 @@ def create_features(
         features_rel[f"moving_min{window_size}"] = calc_moving_min(
             values[base_timing], window_size
         )
-
-    features_abs = pd.DataFrame()
-
-    for window_size in sigma_window_sizes:
         features_abs[f"sigma{window_size}"] = calc_sigma(
             values[base_timing], window_size
         )

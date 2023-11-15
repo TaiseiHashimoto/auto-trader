@@ -31,7 +31,6 @@ class FeatureConfig:
     base_timing: str = "close"
     moving_window_sizes: list[int] = field(default_factory=lambda: [5, 8, 13])
     moving_window_size_center: int = 5
-    sigma_window_sizes: list[int] = field(default_factory=lambda: [9])
     sma_frac_unit: int = 100
     hist_len: int = 10
 

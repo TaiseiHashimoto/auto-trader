@@ -206,7 +206,6 @@ def test_create_features() -> None:
         base_timing="close",
         moving_window_sizes=[5, 10],
         moving_window_size_center=5,
-        sigma_window_sizes=[6, 12],
         sma_frac_unit=100,
     )
     expected = {
@@ -226,8 +225,8 @@ def test_create_features() -> None:
         ),
         "abs": pd.DataFrame(
             {
-                "sigma6": data.calc_sigma(values["close"], window_size=6),
-                "sigma12": data.calc_sigma(values["close"], window_size=12),
+                "sigma5": data.calc_sigma(values["close"], window_size=5),
+                "sigma10": data.calc_sigma(values["close"], window_size=10),
                 "sma5_frac": data.calc_fraction(
                     data.calc_sma(values["close"], window_size=5), unit=100
                 ),

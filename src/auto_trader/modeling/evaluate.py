@@ -193,7 +193,6 @@ def main(config: EvalConfig) -> None:
             base_timing=train_config.feature.base_timing,
             moving_window_sizes=train_config.feature.moving_window_sizes,
             moving_window_size_center=train_config.feature.moving_window_size_center,
-            sigma_window_sizes=train_config.feature.sigma_window_sizes,
             sma_frac_unit=train_config.feature.sma_frac_unit,
         )
 
