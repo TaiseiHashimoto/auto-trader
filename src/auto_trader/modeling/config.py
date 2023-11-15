@@ -59,7 +59,7 @@ class NetConfig:
 
     inception_out_channels: int = 20
     inception_bottleneck_channels: int = 20
-    inception_kernel_sizes: list[int] = field(default_factory=lambda: [10, 20])
+    inception_kernel_sizes: list[int] = field(default_factory=lambda: [5, 9])
     inception_num_blocks: int = 3
     inception_residual: bool = True
 
@@ -75,6 +75,12 @@ class NetConfig:
         if self.numerical_emb_dim % 2 != 0:
             raise ValueError(
                 f"numerical_emb_dim must be a even number: {self.numerical_emb_dim}"
+            )
+
+        if any([s % 2 != 1 for s in self.inception_kernel_sizes]):
+            raise ValueError(
+                "inception_kernel_sizes must be odd numbers: "
+                f"{self.inception_kernel_sizes}"
             )
 
 
