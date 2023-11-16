@@ -159,6 +159,8 @@ def main(config: TrainConfig) -> None:
         canonical_batch_size=config.batch_size,
         learning_rate=config.optim.learning_rate,
         weight_decay=config.optim.weight_decay,
+        cosine_decay_steps=config.optim.cosine_decay_steps,
+        cosine_decay_min=config.optim.cosine_decay_min,
         log_stdout=config.neptune.mode == "debug",
     )
 

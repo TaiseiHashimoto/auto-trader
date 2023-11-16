@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import Any, Optional, cast
 
 import lightning.pytorch as pl
 import numpy as np
@@ -353,6 +353,8 @@ class Model(pl.LightningModule):
         canonical_batch_size: int = 1000,
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
+        cosine_decay_steps: int = 0,
+        cosine_decay_min: float = 0.01,
         log_stdout: bool = False,
     ):
         super().__init__()
@@ -369,15 +371,28 @@ class Model(pl.LightningModule):
         self.canonical_batch_size = canonical_batch_size
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
+        self.cosine_decay_steps = cosine_decay_steps
+        self.cosine_decay_min = cosine_decay_min
         self.log_stdout = log_stdout
 
-    def configure_optimizers(self) -> torch.optim.Optimizer:
+    def configure_optimizers(
+        self,
+    ) -> tuple[list[torch.optim.Optimizer], list[torch.optim.lr_scheduler.LRScheduler]]:
+        optimizer: torch.optim.Optimizer
         if self.weight_decay == 0:
-            return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+            optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         else:
-            return torch.optim.AdamW(
+            optimizer = torch.optim.AdamW(
                 self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay
             )
+
+        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
+            optimizer=optimizer,
+            T_max=self.cosine_decay_steps if self.cosine_decay_steps > 0 else 1,
+            eta_min=self.cosine_decay_min if self.cosine_decay_steps > 0 else 1.0,
+        )
+
+        return [optimizer], [scheduler]
 
     def _to_torch_features(
         self,
@@ -470,7 +485,8 @@ class Model(pl.LightningModule):
             dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
             NDArray[np.float32],
         ],
-        batch_idx: int,
+        *args: Any,
+        **kwargs: Any,
     ) -> torch.Tensor:
         symbol_idx_np, features_np, lift_np = batch
         symbol_idx_torch = torch.from_numpy(symbol_idx_np).to(self.device)
@@ -489,7 +505,8 @@ class Model(pl.LightningModule):
             dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
             NDArray[np.float32],
         ],
-        batch_idx: int,
+        *args: Any,
+        **kwargs: Any,
     ) -> None:
         symbol_idx_np, features_np, lift_np = batch
         symbol_idx_torch = torch.from_numpy(symbol_idx_np).to(self.device)
@@ -509,12 +526,17 @@ class Model(pl.LightningModule):
             dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
             None,
         ],
-        batch_idx: int,
+        *args: Any,
+        **kwargs: Any,
     ) -> Predictions:
         symbol_idx_np, features_np, _ = batch
         symbol_idx_torch = torch.from_numpy(symbol_idx_np).to(self.device)
         features_torch = self._to_torch_features(features_np)
         return self._predict_probs(symbol_idx_torch, features_torch)
+
+    def on_train_batch_end(self, *args: Any, **kwargs: Any) -> None:
+        scheduler = self.lr_schedulers()
+        scheduler.step()
 
     def on_train_epoch_end(self) -> None:
         if self.log_stdout:

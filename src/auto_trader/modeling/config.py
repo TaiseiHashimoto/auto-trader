@@ -96,6 +96,8 @@ class LossConfig:
 class OptimConfig:
     learning_rate: float = 1e-3
     weight_decay: float = 0.0
+    cosine_decay_steps: int = 0
+    cosine_decay_min: float = 0.01
 
 
 @dataclass
