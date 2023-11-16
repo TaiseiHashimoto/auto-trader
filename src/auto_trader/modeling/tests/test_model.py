@@ -4,13 +4,15 @@ from auto_trader.modeling import model
 
 
 def test_extractor() -> None:
-    layer = model.Extractor(
+    layer = model.InceptionExtractor(
         in_channels=2,
         out_channels=3,
         bottleneck_channels=4,
         kernel_sizes=[1, 2],
         num_blocks=2,
         residual=True,
+        batchnorm=True,
+        dropout=0.1,
     )
     assert layer.output_dim == 3 * (2 + 1)
 

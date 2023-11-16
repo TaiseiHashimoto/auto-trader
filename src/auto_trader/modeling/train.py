@@ -142,6 +142,8 @@ def main(config: TrainConfig) -> None:
         inception_kernel_sizes=config.net.inception_kernel_sizes,
         inception_num_blocks=config.net.inception_num_blocks,
         inception_residual=config.net.inception_residual,
+        inception_batchnorm=config.net.inception_batchnorm,
+        inception_dropout=config.net.inception_dropout,
         base_fc_hidden_dims=config.net.base_fc_hidden_dims,
         base_fc_batchnorm=config.net.base_fc_batchnorm,
         base_fc_dropout=config.net.base_fc_dropout,

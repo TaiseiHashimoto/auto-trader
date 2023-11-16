@@ -32,6 +32,8 @@ class InceptionBlock(nn.Module):
         out_channels: int,
         bottleneck_channels: int,
         kernel_sizes: list[int],
+        batchnorm: bool,
+        dropout: float,
     ):
         super().__init__()
 
@@ -60,7 +62,13 @@ class InceptionBlock(nn.Module):
             padding="same",
         )
 
-        self.batchnorm = nn.BatchNorm1d(out_channels * (len(kernel_sizes) + 1))
+        self.batchnorm_dropout = nn.Sequential()
+        if batchnorm:
+            self.batchnorm_dropout.append(
+                nn.BatchNorm1d(out_channels * (len(kernel_sizes) + 1))
+            )
+        if dropout > 0:
+            self.batchnorm_dropout.append(nn.Dropout(dropout))
 
         self._output_channels = out_channels * (len(kernel_sizes) + 1)
 
@@ -77,22 +85,28 @@ class InceptionBlock(nn.Module):
             x_list.append(conv(x_bottleneck))
         x_list.append(self.conv_maxpool(x_maxpool))
 
-        return cast(torch.Tensor, self.batchnorm(torch.concat(x_list, dim=1)))
+        return cast(torch.Tensor, self.batchnorm_dropout(torch.concat(x_list, dim=1)))
 
 
 class ShortcutLayer(nn.Module):
-    def __init__(self, in_channels: int, out_channels: int):
+    def __init__(
+        self, in_channels: int, out_channels: int, batchnorm: bool, dropout: float
+    ):
         super().__init__()
         self.conv = nn.Conv1d(
             in_channels, out_channels=out_channels, kernel_size=1, padding="same"
         )
-        self.batchnorm = nn.BatchNorm1d(out_channels)
+        self.batchnorm_dropout = nn.Sequential()
+        if batchnorm:
+            self.batchnorm_dropout.append(nn.BatchNorm1d(out_channels))
+        if dropout > 0:
+            self.batchnorm_dropout.append(nn.Dropout(dropout))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return cast(torch.Tensor, self.batchnorm(self.conv(x)))
+        return cast(torch.Tensor, self.batchnorm_dropout(self.conv(x)))
 
 
-class Extractor(nn.Module):
+class InceptionExtractor(nn.Module):
     def __init__(
         self,
         in_channels: int,
@@ -101,6 +115,8 @@ class Extractor(nn.Module):
         kernel_sizes: list[int],
         num_blocks: int,
         residual: bool,
+        batchnorm: bool,
+        dropout: float,
     ):
         super().__init__()
 
@@ -113,13 +129,20 @@ class Extractor(nn.Module):
                 out_channels=out_channels,
                 bottleneck_channels=bottleneck_channels,
                 kernel_sizes=kernel_sizes,
+                batchnorm=batchnorm,
+                dropout=dropout,
             )
             self.blocks.append(block)
             channels = block.output_channels
 
             if residual and i > 0:
                 self.shortcut_layers.append(
-                    ShortcutLayer(in_channels=in_channels, out_channels=channels)
+                    ShortcutLayer(
+                        in_channels=in_channels,
+                        out_channels=channels,
+                        batchnorm=batchnorm,
+                        dropout=dropout,
+                    )
                 )
 
         self._output_dim = channels
@@ -181,6 +204,8 @@ class BaseNet(nn.Module):
         inception_kernel_sizes: list[int],
         inception_num_blocks: int,
         inception_residual: bool,
+        inception_batchnorm: bool,
+        inception_dropout: float,
         fc_hidden_dims: list[int],
         fc_batchnorm: bool,
         fc_dropout: float,
@@ -207,13 +232,15 @@ class BaseNet(nn.Module):
                 )
                 emb_total_dim += categorical_emb_dim
 
-        self.extractor = Extractor(
+        self.extractor = InceptionExtractor(
             in_channels=emb_total_dim,
             out_channels=inception_out_channels,
             bottleneck_channels=inception_bottleneck_channels,
             kernel_sizes=inception_kernel_sizes,
             num_blocks=inception_num_blocks,
             residual=inception_residual,
+            batchnorm=inception_batchnorm,
+            dropout=inception_dropout,
         )
         self.fc_layer = build_fc_layer(
             input_dim=self.extractor.output_dim,
@@ -259,6 +286,8 @@ class Net(nn.Module):
         inception_kernel_sizes: list[int],
         inception_num_blocks: int,
         inception_residual: bool,
+        inception_batchnorm: bool,
+        inception_dropout: float,
         base_fc_hidden_dims: list[int],
         base_fc_batchnorm: bool,
         base_fc_dropout: float,
@@ -283,6 +312,8 @@ class Net(nn.Module):
                 inception_kernel_sizes=inception_kernel_sizes,
                 inception_num_blocks=inception_num_blocks,
                 inception_residual=inception_residual,
+                inception_batchnorm=inception_batchnorm,
+                inception_dropout=inception_dropout,
                 fc_hidden_dims=base_fc_hidden_dims,
                 fc_batchnorm=base_fc_batchnorm,
                 fc_dropout=base_fc_dropout,
