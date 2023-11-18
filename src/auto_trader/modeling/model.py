@@ -450,10 +450,20 @@ class Model(pl.LightningModule):
         log_prefix: str,
     ) -> torch.Tensor:
         score_diff = score[:-1] - score[1:]
+        pred = torch.sigmoid(score_diff)
         lift_diff = lift[:-1] - lift[1:]
         label = torch.sigmoid(lift_diff / self.temperature)
-        loss = -(
-            label * F.logsigmoid(score_diff) + (1 - label) * F.logsigmoid(-score_diff)
+        # KL divergence
+        EPS = torch.tensor(1e-6, device=self.device)
+        loss = (
+            (
+                label * torch.log(label + EPS)
+                + (1 - label) * torch.log(1 - label + EPS)
+            )
+            - (
+                label * torch.log(pred + EPS)
+                + (1 - label) * torch.log(1 - pred + EPS)
+            )
         ).mean()
         accuracy = ((lift_diff > 0.0) == (score_diff > 0.0)).float().mean()
 
