@@ -5,6 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from lightning.pytorch.utilities.types import LRSchedulerConfig
 from numpy.typing import NDArray
 
 from auto_trader.modeling import data
@@ -377,7 +378,7 @@ class Model(pl.LightningModule):
 
     def configure_optimizers(
         self,
-    ) -> tuple[list[torch.optim.Optimizer], list[torch.optim.lr_scheduler.LRScheduler]]:
+    ) -> tuple[list[torch.optim.Optimizer], list[LRSchedulerConfig]]:
         optimizer: torch.optim.Optimizer
         if self.weight_decay == 0:
             optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
@@ -386,13 +387,21 @@ class Model(pl.LightningModule):
                 self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay
             )
 
-        scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(
-            optimizer=optimizer,
-            T_max=self.cosine_decay_steps if self.cosine_decay_steps > 0 else 1,
-            eta_min=self.cosine_decay_min if self.cosine_decay_steps > 0 else 1.0,
+        scheduler_config = cast(
+            LRSchedulerConfig,
+            {
+                "scheduler": torch.optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer=optimizer,
+                    T_max=self.cosine_decay_steps if self.cosine_decay_steps > 0 else 1,
+                    eta_min=self.learning_rate
+                    * (self.cosine_decay_min if self.cosine_decay_steps > 0 else 1.0),
+                ),
+                "interval": "step",
+                "frequency": 1,
+            },
         )
 
-        return [optimizer], [scheduler]
+        return [optimizer], [scheduler_config]
 
     def _to_torch_features(
         self,
@@ -534,9 +543,11 @@ class Model(pl.LightningModule):
         features_torch = self._to_torch_features(features_np)
         return self._predict_probs(symbol_idx_torch, features_torch)
 
-    def on_train_batch_end(self, *args: Any, **kwargs: Any) -> None:
-        scheduler = self.lr_schedulers()
-        scheduler.step()
+    # def on_train_batch_end(self, *args: Any, **kwargs: Any) -> None:
+    #     schedulers = self.lr_schedulers()
+    #     assert schedulers is not None
+    #     scheduler = schedulers[0]
+    #     scheduler.step()
 
     def on_train_epoch_end(self) -> None:
         if self.log_stdout:
