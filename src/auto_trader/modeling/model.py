@@ -146,7 +146,7 @@ class InceptionExtractor(nn.Module):
                     )
                 )
 
-        self._output_dim = channels
+        self._output_dim = channels * 2
 
     @property
     def output_dim(self) -> int:
@@ -164,8 +164,8 @@ class InceptionExtractor(nn.Module):
 
         # (batch, channel, length) -> (batch, length, channel)
         x = x_.permute(0, 2, 1)
-        # (batch, length, channel) -> (batch, channel)
-        x = x.mean(dim=1)
+        # (batch, length, channel) -> (batch, channel * 2)
+        x = torch.cat([x.mean(dim=1), x.max(dim=1).values], dim=1)
         return x
 
 
@@ -196,6 +196,7 @@ class BaseNet(nn.Module):
     def __init__(
         self,
         feature_info: dict[data.FeatureName, data.FeatureInfo],
+        hist_len: int,
         numerical_emb_dim: int,
         periodic_activation_num_coefs: int,
         periodic_activation_sigma: float,
@@ -233,6 +234,11 @@ class BaseNet(nn.Module):
                 )
                 emb_total_dim += categorical_emb_dim
 
+        self.position_embedding = nn.Parameter(
+            torch.randn(hist_len, categorical_emb_dim)
+        )
+        emb_total_dim += categorical_emb_dim
+
         self.extractor = InceptionExtractor(
             in_channels=emb_total_dim,
             out_channels=inception_out_channels,
@@ -266,6 +272,9 @@ class BaseNet(nn.Module):
 
         # (batch, length, emb_total_dim)
         x = torch.cat(embeddings, dim=2)
+        x = torch.cat(
+            (x, torch.tile(self.position_embedding, (x.shape[0], 1, 1))), dim=2
+        )
         # (batch, extractor.output_dim)
         x = self.extractor(x)
         # (batch, output_dim)
@@ -278,6 +287,7 @@ class Net(nn.Module):
         self,
         symbol_num: int,
         feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
+        hist_len: int,
         numerical_emb_dim: int,
         periodic_activation_num_coefs: int,
         periodic_activation_sigma: float,
@@ -304,6 +314,7 @@ class Net(nn.Module):
         for timeframe in feature_info:
             base_net = BaseNet(
                 feature_info=feature_info[timeframe],
+                hist_len=hist_len,
                 numerical_emb_dim=numerical_emb_dim,
                 periodic_activation_num_coefs=periodic_activation_num_coefs,
                 periodic_activation_sigma=periodic_activation_sigma,
@@ -456,14 +467,8 @@ class Model(pl.LightningModule):
         # KL divergence
         EPS = torch.tensor(1e-6, device=self.device)
         loss = (
-            (
-                label * torch.log(label + EPS)
-                + (1 - label) * torch.log(1 - label + EPS)
-            )
-            - (
-                label * torch.log(pred + EPS)
-                + (1 - label) * torch.log(1 - pred + EPS)
-            )
+            (label * torch.log(label + EPS) + (1 - label) * torch.log(1 - label + EPS))
+            - (label * torch.log(pred + EPS) + (1 - label) * torch.log(1 - pred + EPS))
         ).mean()
         accuracy = ((lift_diff > 0.0) == (score_diff > 0.0)).float().mean()
 

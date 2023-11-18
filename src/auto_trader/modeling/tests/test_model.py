@@ -14,11 +14,11 @@ def test_extractor() -> None:
         batchnorm=True,
         dropout=0.1,
     )
-    assert layer.output_dim == 3 * (2 + 1)
+    assert layer.output_dim == 3 * (2 + 1) * 2
 
     x = torch.randn(1, 10, 2)
     y = layer(x)
-    assert y.shape == (1, 9)
+    assert y.shape == (1, 18)
 
 
 def test_build_fc_layer() -> None:

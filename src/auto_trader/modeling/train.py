@@ -133,6 +133,7 @@ def main(config: TrainConfig) -> None:
         symbol_num=len(config.symbols),
         # symbol ごとに特徴量の型式は変わらないので、どれを渡しても良い
         feature_info=feature_info_all[config.symbols[0]],
+        hist_len=config.feature.hist_len,
         numerical_emb_dim=config.net.numerical_emb_dim,
         periodic_activation_num_coefs=config.net.periodic_activation_num_coefs,
         periodic_activation_sigma=config.net.periodic_activation_sigma,
