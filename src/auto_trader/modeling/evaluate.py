@@ -152,7 +152,7 @@ def main(config: EvalConfig) -> None:
     run = neptune.init_run(
         project=config.neptune.project,
         mode=config.neptune.mode,
-        tags=["classification", "eval", "inception"],
+        tags=["ordering", "eval", "inception"],
     )
     run["config"] = OmegaConf.to_yaml(config)
 
@@ -244,10 +244,10 @@ def main(config: EvalConfig) -> None:
         head_hidden_dims=train_config.net.head_hidden_dims,
         head_batchnorm=train_config.net.head_batchnorm,
         head_dropout=train_config.net.head_dropout,
-        head_output_dim=len(train_config.loss.bucket_boundaries) + 1,
+        head_output_dim=1,
     )
     net.load_state_dict(net_state)
-    model_ = model.Model(net, bucket_boundaries=train_config.loss.bucket_boundaries)
+    model_ = model.Model(net)
     trainer = pl.Trainer(logger=False)
 
     preds_torch = cast(

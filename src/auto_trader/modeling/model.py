@@ -349,8 +349,7 @@ class Model(pl.LightningModule):
     def __init__(
         self,
         net: nn.Module,
-        bucket_boundaries: list[float],
-        label_smoothing: float = 0.0,
+        temperature: float = 0.5,
         canonical_batch_size: int = 1000,
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
@@ -360,15 +359,7 @@ class Model(pl.LightningModule):
     ):
         super().__init__()
         self.net = net
-
-        self.bucket_boundaries = torch.tensor(bucket_boundaries, dtype=torch.float32)
-        bucket_centers = [bucket_boundaries[0]]
-        for left, right in zip(bucket_boundaries[:-1], bucket_boundaries[1:]):
-            bucket_centers.append((left + right) / 2)
-        bucket_centers.append(bucket_boundaries[-1])
-        self.bucket_centers = torch.tensor(bucket_centers, dtype=torch.float32)
-
-        self.label_smoothing = label_smoothing
+        self.temperature = temperature
         self.canonical_batch_size = canonical_batch_size
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
@@ -431,60 +422,52 @@ class Model(pl.LightningModule):
 
         return features_torch
 
-    def _predict_logits(
+    def _predict_score(
         self,
         symbol_idx: torch.Tensor,
         features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
     ) -> torch.Tensor:
-        return cast(torch.Tensor, self.net(symbol_idx, features))
+        return cast(torch.Tensor, self.net(symbol_idx, features)[:, 0])
 
     def _predict_probs(
         self,
         symbol_idx: torch.Tensor,
         features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
     ) -> Predictions:
-        self.bucket_centers = self.bucket_centers.to(self.device)
-        logit = self._predict_logits(symbol_idx, features)
-        prob = torch.softmax(logit, dim=1)
-        pred_lift = (prob * self.bucket_centers).sum(dim=1)
+        score = self._predict_score(symbol_idx, features)
         return (
             # 順番が変わらなければ sigmoid でなくてもよい
-            torch.sigmoid(pred_lift),
-            torch.sigmoid(-pred_lift),
-            torch.sigmoid(-pred_lift),
-            torch.sigmoid(pred_lift),
+            torch.sigmoid(score),
+            torch.sigmoid(-score),
+            torch.sigmoid(-score),
+            torch.sigmoid(score),
         )
 
     def _calc_loss(
         self,
-        logit: torch.Tensor,
+        score: torch.Tensor,
         lift: torch.Tensor,
         log_prefix: str,
     ) -> torch.Tensor:
-        self.bucket_boundaries = self.bucket_boundaries.to(self.device)
-        loss = F.cross_entropy(
-            input=logit,
-            target=torch.bucketize(lift, self.bucket_boundaries),
-            label_smoothing=self.label_smoothing,
-        )
-
-        with torch.no_grad():
-            prob = torch.softmax(logit, dim=1)
+        score_diff = score[:-1] - score[1:]
+        lift_diff = lift[:-1] - lift[1:]
+        label = torch.sigmoid(lift_diff / self.temperature)
+        loss = -(
+            label * F.logsigmoid(score_diff) + (1 - label) * F.logsigmoid(-score_diff)
+        ).mean()
 
         self.log_dict(
             {
                 f"{log_prefix}/loss": loss,
-                f"{log_prefix}/prob_lowest": prob[:, 0].mean(),
-                f"{log_prefix}/prob_highest": prob[:, -1].mean(),
             },
             # Accumulate metrics on epoch level
             on_step=False,
             on_epoch=True,
-            batch_size=logit.shape[0],
+            batch_size=score_diff.shape[0],
         )
 
         # バッチサイズに合わせて gradient をスケーリングする
-        batch_size_ratio = logit.shape[0] / self.canonical_batch_size
+        batch_size_ratio = score_diff.shape[0] / (self.canonical_batch_size - 1)
         return cast(torch.Tensor, loss * batch_size_ratio)
 
     def training_step(
@@ -502,7 +485,7 @@ class Model(pl.LightningModule):
         features_torch = self._to_torch_features(features_np)
         lift_torch = torch.from_numpy(lift_np).to(self.device)
         return self._calc_loss(
-            self._predict_logits(symbol_idx_torch, features_torch),
+            self._predict_score(symbol_idx_torch, features_torch),
             lift_torch,
             log_prefix="train",
         )
@@ -523,7 +506,7 @@ class Model(pl.LightningModule):
         lift_torch = torch.from_numpy(lift_np).to(self.device)
         # ロギング目的
         _ = self._calc_loss(
-            self._predict_logits(symbol_idx_torch, features_torch),
+            self._predict_score(symbol_idx_torch, features_torch),
             lift_torch,
             log_prefix="valid",
         )
@@ -542,12 +525,6 @@ class Model(pl.LightningModule):
         symbol_idx_torch = torch.from_numpy(symbol_idx_np).to(self.device)
         features_torch = self._to_torch_features(features_np)
         return self._predict_probs(symbol_idx_torch, features_torch)
-
-    # def on_train_batch_end(self, *args: Any, **kwargs: Any) -> None:
-    #     schedulers = self.lr_schedulers()
-    #     assert schedulers is not None
-    #     scheduler = schedulers[0]
-    #     scheduler.step()
 
     def on_train_epoch_end(self) -> None:
         if self.log_stdout:

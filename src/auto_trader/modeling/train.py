@@ -17,7 +17,7 @@ def main(config: TrainConfig) -> None:
     logger = NeptuneLogger(
         project=config.neptune.project,
         mode=config.neptune.mode,
-        tags=["classification", "train", "inception"],
+        tags=["ordering", "train", "inception"],
         prefix="",
     )
     logger.experiment["config"] = OmegaConf.to_yaml(config)
@@ -150,12 +150,11 @@ def main(config: TrainConfig) -> None:
         head_hidden_dims=config.net.head_hidden_dims,
         head_batchnorm=config.net.head_batchnorm,
         head_dropout=config.net.head_dropout,
-        head_output_dim=len(config.loss.bucket_boundaries) + 1,
+        head_output_dim=1,
     )
     model_ = model.Model(
         net,
-        bucket_boundaries=config.loss.bucket_boundaries,
-        label_smoothing=config.loss.label_smoothing,
+        temperature=config.loss.temperature,
         canonical_batch_size=config.batch_size,
         learning_rate=config.optim.learning_rate,
         weight_decay=config.optim.weight_decay,
@@ -196,7 +195,6 @@ def main(config: TrainConfig) -> None:
     model.Model.load_from_checkpoint(
         checkpoint_path=checkpoint_callback.best_model_path,
         net=net,
-        bucket_boundaries=config.loss.bucket_boundaries,
     )
     os.makedirs(config.output_dir, exist_ok=True)
     params_file = os.path.join(config.output_dir, "params.pt")
