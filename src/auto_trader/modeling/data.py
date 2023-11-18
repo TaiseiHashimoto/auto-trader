@@ -120,10 +120,6 @@ def create_features(
         unit=sma_frac_unit,
     )
 
-    datetime_index = cast(pd.DatetimeIndex, values.index)
-    features_abs["hour"] = datetime_index.hour.astype(np.int64)
-    features_abs["dow"] = datetime_index.day_of_week.astype(np.int64)
-
     return {"rel": features_rel, "abs": features_abs}
 
 

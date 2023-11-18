@@ -1,4 +1,3 @@
-from datetime import date
 from pathlib import Path
 from typing import Generator, cast
 
@@ -230,8 +229,6 @@ def test_create_features() -> None:
                 "sma5_frac": data.calc_fraction(
                     data.calc_sma(values["close"], window_size=5), unit=100
                 ),
-                "hour": np.full(12, 0),
-                "dow": np.full(12, date(2023, 1, 1).weekday()),
             }
         ),
     }
