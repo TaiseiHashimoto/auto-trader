@@ -455,10 +455,12 @@ class Model(pl.LightningModule):
         loss = -(
             label * F.logsigmoid(score_diff) + (1 - label) * F.logsigmoid(-score_diff)
         ).mean()
+        accuracy = ((lift_diff > 0.0) == (score_diff > 0.0)).float().mean()
 
         self.log_dict(
             {
                 f"{log_prefix}/loss": loss,
+                f"{log_prefix}/accuracy": accuracy,
             },
             # Accumulate metrics on epoch level
             on_step=False,
