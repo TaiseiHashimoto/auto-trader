@@ -41,22 +41,19 @@ def log_metrics(
     score: "pd.Series[float]",
     run: neptune.Run,
 ) -> None:
-    score_np = cast(NDArray[np.float32], score.values)
+    score_np = score.to_numpy()
     run["stats/score"] = calc_stats(score_np)
 
-    label_long_entry = (lift.loc[score.index] > config.simulation.spread).values
-    label_short_entry = (lift.loc[score.index] < -config.simulation.spread).values
+    label_long_entry = (lift.loc[score.index] > config.simulation.spread).to_numpy()
+    label_short_entry = (lift.loc[score.index] < -config.simulation.spread).to_numpy()
     run["stats/roc_auc/long_entry"] = roc_auc_score(label_long_entry, score)
     run["stats/roc_auc/short_entry"] = roc_auc_score(label_short_entry, -score)
     run["stats/pr_auc/long_entry"] = average_precision_score(label_long_entry, score)
     run["stats/pr_auc/short_entry"] = average_precision_score(label_short_entry, -score)
 
-    pred_long_entry = score_np > np.percentile(
-        score_np, config.strategy.percentile_entry
-    )
-    pred_short_entry = score_np < np.percentile(
-        score_np, 100 - config.strategy.percentile_entry
-    )
+    thresh_entry = np.percentile(np.abs(score_np), config.strategy.percentile_entry)
+    pred_long_entry = score_np > thresh_entry
+    pred_short_entry = score_np < -thresh_entry
     run["stats/precision/long_entry"] = precision_score(
         label_long_entry, pred_long_entry
     )
@@ -66,12 +63,8 @@ def log_metrics(
     run["stats/recall/long_entry"] = recall_score(label_long_entry, pred_long_entry)
     run["stats/recall/short_entry"] = recall_score(label_short_entry, pred_short_entry)
 
-    lift_long_entry = cast(
-        NDArray[np.float32], lift.loc[score.index].loc[pred_long_entry].values
-    )
-    lift_short_entry = cast(
-        NDArray[np.float32], lift.loc[score.index].loc[pred_short_entry].values
-    )
+    lift_long_entry = lift.loc[score.index].loc[pred_long_entry].to_numpy()
+    lift_short_entry = lift.loc[score.index].loc[pred_short_entry].to_numpy()
     if len(lift_long_entry) > 0:
         run["stats/lift/long_entry"] = calc_stats(lift_long_entry)
     if len(lift_short_entry) > 0:
@@ -84,15 +77,12 @@ def run_simulations(
     score: "pd.Series[float]",
     run: neptune.Run,
 ) -> None:
-    os.makedirs(config.output_dir, exist_ok=True)
-
+    thresh_entry = cast(
+        float, np.percentile(np.abs(score.to_numpy()), config.strategy.percentile_entry)
+    )
     strategy_ = strategy.TimeLimitStrategy(
-        thresh_long_entry=cast(
-            float, np.percentile(score, config.strategy.percentile_entry)
-        ),
-        thresh_short_entry=cast(
-            float, np.percentile(score, 100 - config.strategy.percentile_entry)
-        ),
+        thresh_long_entry=thresh_entry,
+        thresh_short_entry=-thresh_entry,
         max_entry_time=config.strategy.max_entry_time,
     )
     simulator = order.OrderSimulator(
@@ -118,6 +108,7 @@ def run_simulations(
             pred_short_exit,
         )
 
+    os.makedirs(config.output_dir, exist_ok=True)
     results = simulator.export_results()
     results_path = os.path.join(config.output_dir, "results.csv")
     results.to_csv(results_path, index=False)
@@ -125,27 +116,18 @@ def run_simulations(
 
     if len(results) > 0:
         profit = pd.Series(
-            cast(NDArray[np.float32], results["gain"].values)
-            - config.simulation.spread,
+            results["gain"].to_numpy() - config.simulation.spread,
             index=results["entry_time"],
         )
         profit_per_day = profit.resample("1d").sum()
         num_order_per_day = profit.resample("1d").count()
-        run["simulation/num_order_per_day"] = calc_stats(
-            cast(NDArray[np.float32], num_order_per_day.values)
-        )
-        run["simulation/profit_per_trade"] = calc_stats(
-            cast(NDArray[np.float32], profit.values)
-        )
-        run["simulation/profit_per_day"] = calc_stats(
-            cast(NDArray[np.float32], profit_per_day.values)
-        )
+        run["simulation/num_order_per_day"] = calc_stats(num_order_per_day.to_numpy())
+        run["simulation/profit_per_trade"] = calc_stats(profit.to_numpy())
+        run["simulation/profit_per_day"] = calc_stats(profit_per_day.to_numpy())
         duration = (
             results["exit_time"] - results["entry_time"]
         ).dt.total_seconds() / 60
-        run["simulation/duration"] = calc_stats(
-            cast(NDArray[np.float32], duration.values)
-        )
+        run["simulation/duration"] = calc_stats(duration.to_numpy())
 
 
 def main(config: EvalConfig) -> None:
