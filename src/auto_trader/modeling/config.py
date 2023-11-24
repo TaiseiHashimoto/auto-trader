@@ -127,6 +127,12 @@ class TrainConfig:
 
 
 @dataclass
+class StrategyConfig:
+    percentile_entry: float = 95.0
+    max_entry_time: int = 10
+
+
+@dataclass
 class SimulationConfig:
     timing: str = "open"
     spread: float = 2.0
@@ -145,10 +151,9 @@ class EvalConfig:
     train_run_id: str = ""
     params_file: str = ""
     batch_size: int = 1000
-    percentile_entry_list: list[float] = field(default_factory=lambda: [90, 95])
-    percentile_exit_list: list[float] = field(default_factory=lambda: [90, 95])
 
     neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
+    strategy: StrategyConfig = field(default_factory=StrategyConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
 
     def __post_init__(self) -> None:

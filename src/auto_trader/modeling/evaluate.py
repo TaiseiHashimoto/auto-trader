@@ -1,4 +1,3 @@
-import itertools
 import os
 from typing import cast
 
@@ -15,10 +14,9 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from tqdm import tqdm
 
 from auto_trader.common import utils
-from auto_trader.modeling import data, model, order
+from auto_trader.modeling import data, model, order, strategy
 from auto_trader.modeling.config import EvalConfig, TrainConfig
 
 
@@ -40,115 +38,114 @@ def calc_stats(values: NDArray[np.float32]) -> dict[str, float]:
 def log_metrics(
     config: EvalConfig,
     lift: "pd.Series[float]",
-    preds: pd.DataFrame,
+    score: "pd.Series[float]",
     run: neptune.Run,
 ) -> None:
-    for label_name in preds.columns:
-        pred = cast(NDArray[np.float32], preds[label_name].values)
-        run[f"stats/prob/{label_name}"] = calc_stats(pred)
+    score_np = cast(NDArray[np.float32], score.values)
+    run["stats/score"] = calc_stats(score_np)
 
-        if label_name == "long_entry":
-            label = (lift.loc[preds.index] > config.simulation.spread).values
-        elif label_name == "long_exit":
-            label = (lift.loc[preds.index] < 0).values
-        elif label_name == "short_entry":
-            label = (lift.loc[preds.index] < -config.simulation.spread).values
-        elif label_name == "short_exit":
-            label = (lift.loc[preds.index] > 0).values
-        else:
-            assert False
+    label_long_entry = (lift.loc[score.index] > config.simulation.spread).values
+    label_short_entry = (lift.loc[score.index] < -config.simulation.spread).values
+    run["stats/roc_auc/long_entry"] = roc_auc_score(label_long_entry, score)
+    run["stats/roc_auc/short_entry"] = roc_auc_score(label_short_entry, -score)
+    run["stats/pr_auc/long_entry"] = average_precision_score(label_long_entry, score)
+    run["stats/pr_auc/short_entry"] = average_precision_score(label_short_entry, -score)
 
-        run[f"stats/roc_auc/{label_name}"] = roc_auc_score(label, pred)
-        run[f"stats/pr_auc/{label_name}"] = average_precision_score(label, pred)
+    pred_long_entry = score_np > np.percentile(
+        score_np, config.strategy.percentile_entry
+    )
+    pred_short_entry = score_np < np.percentile(
+        score_np, 100 - config.strategy.percentile_entry
+    )
+    run["stats/precision/long_entry"] = precision_score(
+        label_long_entry, pred_long_entry
+    )
+    run["stats/precision/short_entry"] = precision_score(
+        label_short_entry, pred_short_entry
+    )
+    run["stats/recall/long_entry"] = recall_score(label_long_entry, pred_long_entry)
+    run["stats/recall/short_entry"] = recall_score(label_short_entry, pred_short_entry)
 
-        if "entry" in label_name:
-            percentile_list = config.percentile_entry_list
-        elif "exit" in label_name:
-            percentile_list = config.percentile_exit_list
-        else:
-            assert False
-
-        for percentile in percentile_list:
-            pred_binary = get_binary_pred(pred, percentile)
-            run[f"stats/precision/{label_name}/{percentile}"] = precision_score(
-                label, pred_binary
-            )
-            run[f"stats/recall/{label_name}/{percentile}"] = recall_score(
-                label, pred_binary
-            )
-            lift_positive = lift.loc[preds.index].loc[pred_binary].values
-            if len(lift_positive) > 0:
-                run[f"stats/lift/{label_name}/{percentile}"] = calc_stats(lift_positive)
+    lift_long_entry = cast(
+        NDArray[np.float32], lift.loc[score.index].loc[pred_long_entry].values
+    )
+    lift_short_entry = cast(
+        NDArray[np.float32], lift.loc[score.index].loc[pred_short_entry].values
+    )
+    if len(lift_long_entry) > 0:
+        run["stats/lift/long_entry"] = calc_stats(lift_long_entry)
+    if len(lift_short_entry) > 0:
+        run["stats/lift/short_entry"] = calc_stats(lift_short_entry)
 
 
 def run_simulations(
-    config: EvalConfig, rates: "pd.Series[float]", preds: pd.DataFrame, run: neptune.Run
+    config: EvalConfig,
+    rates: "pd.Series[float]",
+    score: "pd.Series[float]",
+    run: neptune.Run,
 ) -> None:
     os.makedirs(config.output_dir, exist_ok=True)
 
-    params_list = list(
-        itertools.product(config.percentile_entry_list, config.percentile_exit_list)
+    strategy_ = strategy.BasicStrategy(
+        thresh_long_entry=cast(
+            float, np.percentile(score, config.strategy.percentile_entry)
+        ),
+        thresh_short_entry=cast(
+            float, np.percentile(score, 100 - config.strategy.percentile_entry)
+        ),
+        max_entry_time=config.strategy.max_entry_time,
     )
-    for percentile_entry, percentile_exit in tqdm(params_list):
-        pred_binary_long_entry = get_binary_pred(
-            cast(NDArray[np.float32], preds["long_entry"].values), percentile_entry
-        )
-        pred_binary_long_exit = get_binary_pred(
-            cast(NDArray[np.float32], preds["long_exit"].values), percentile_exit
-        )
-        pred_binary_short_entry = get_binary_pred(
-            cast(NDArray[np.float32], preds["short_entry"].values), percentile_entry
-        )
-        pred_binary_short_exit = get_binary_pred(
-            cast(NDArray[np.float32], preds["short_exit"].values), percentile_exit
+    simulator = order.OrderSimulator(
+        config.simulation.start_hour,
+        config.simulation.end_hour,
+        config.simulation.thresh_losscut,
+    )
+    for i, timestamp in enumerate(rates.index):
+        (
+            pred_long_entry,
+            pred_long_exit,
+            pred_short_entry,
+            pred_short_exit,
+        ) = strategy_.make_decision(timestamp, score.values[i])
+
+        # TODO: 戦略 (e.g. n 回連続で long 選択の場合に実際に long する) を導入
+        simulator.step(
+            timestamp,
+            rates.iloc[i],
+            pred_long_entry,
+            pred_long_exit,
+            pred_short_entry,
+            pred_short_exit,
         )
 
-        simulator = order.OrderSimulator(
-            config.simulation.start_hour,
-            config.simulation.end_hour,
-            config.simulation.thresh_losscut,
+    results = simulator.export_results()
+    results_path = os.path.join(config.output_dir, "results.csv")
+    results.to_csv(results_path, index=False)
+    run["simulation/results"].upload(results_path)
+
+    if len(results) > 0:
+        profit = pd.Series(
+            cast(NDArray[np.float32], results["gain"].values)
+            - config.simulation.spread,
+            index=results["entry_time"],
         )
-        for i, timestamp in enumerate(rates.index):
-            # TODO: 戦略 (e.g. n 回連続で long 選択の場合に実際に long する) を導入
-            simulator.step(
-                timestamp,
-                rates.iloc[i],
-                pred_binary_long_entry[i],
-                pred_binary_long_exit[i],
-                pred_binary_short_entry[i],
-                pred_binary_short_exit[i],
-            )
-
-        PARAM_STR = f"{percentile_entry},{percentile_exit}"
-
-        results = simulator.export_results()
-        results_path = f"{config.output_dir}/results_{PARAM_STR}.csv"
-        results.to_csv(results_path, index=False)
-        run[f"simulation/{PARAM_STR}/results"].upload(results_path)
-
-        if len(results) > 0:
-            profit = pd.Series(
-                cast(NDArray[np.float32], results["gain"].values)
-                - config.simulation.spread,
-                index=results["entry_time"],
-            )
-            profit_per_day = profit.resample("1d").sum()
-            num_order_per_day = profit.resample("1d").count()
-            run[f"simulation/{PARAM_STR}/num_order_per_day"] = calc_stats(
-                cast(NDArray[np.float32], num_order_per_day.values)
-            )
-            run[f"simulation/{PARAM_STR}/profit_per_trade"] = calc_stats(
-                cast(NDArray[np.float32], profit.values)
-            )
-            run[f"simulation/{PARAM_STR}/profit_per_day"] = calc_stats(
-                cast(NDArray[np.float32], profit_per_day.values)
-            )
-            duration = (
-                results["exit_time"] - results["entry_time"]
-            ).dt.total_seconds() / 60
-            run[f"simulation/{PARAM_STR}/duration"] = calc_stats(
-                cast(NDArray[np.float32], duration.values)
-            )
+        profit_per_day = profit.resample("1d").sum()
+        num_order_per_day = profit.resample("1d").count()
+        run["simulation/num_order_per_day"] = calc_stats(
+            cast(NDArray[np.float32], num_order_per_day.values)
+        )
+        run["simulation/profit_per_trade"] = calc_stats(
+            cast(NDArray[np.float32], profit.values)
+        )
+        run["simulation/profit_per_day"] = calc_stats(
+            cast(NDArray[np.float32], profit_per_day.values)
+        )
+        duration = (
+            results["exit_time"] - results["entry_time"]
+        ).dt.total_seconds() / 60
+        run["simulation/duration"] = calc_stats(
+            cast(NDArray[np.float32], duration.values)
+        )
 
 
 def main(config: EvalConfig) -> None:
@@ -251,16 +248,9 @@ def main(config: EvalConfig) -> None:
     model_ = model.Model(net, bucket_boundaries=train_config.loss.bucket_boundaries)
     trainer = pl.Trainer(logger=False)
 
-    preds_torch = cast(
-        list[model.Predictions], trainer.predict(model_, combined_loader)
-    )
-    preds = pd.DataFrame(
-        {
-            "long_entry": np.concatenate([p[0].numpy() for p in preds_torch]),
-            "long_exit": np.concatenate([p[1].numpy() for p in preds_torch]),
-            "short_entry": np.concatenate([p[2].numpy() for p in preds_torch]),
-            "short_exit": np.concatenate([p[3].numpy() for p in preds_torch]),
-        },
+    scores_torch = cast(list[torch.Tensor], trainer.predict(model_, combined_loader))
+    score = pd.Series(
+        np.concatenate([s.numpy() for s in scores_torch]),
         index=base_index,
         dtype=np.float32,
     )
@@ -269,13 +259,13 @@ def main(config: EvalConfig) -> None:
     log_metrics(
         config=config,
         lift=lift,
-        preds=preds,
+        score=score,
         run=run,
     )
     run_simulations(
         config=config,
         rates=rates,
-        preds=preds,
+        score=score,
         run=run,
     )
 

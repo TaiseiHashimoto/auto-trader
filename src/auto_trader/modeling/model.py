@@ -10,8 +10,6 @@ from numpy.typing import NDArray
 
 from auto_trader.modeling import data
 
-Predictions = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-
 
 class PeriodicActivation(nn.Module):
     def __init__(self, num_coefs: int, sigma: float) -> None:
@@ -353,22 +351,15 @@ class Model(pl.LightningModule):
     ) -> torch.Tensor:
         return cast(torch.Tensor, self.net(symbol_idx, features))
 
-    def _predict_probs(
+    def _predict_score(
         self,
         symbol_idx: torch.Tensor,
         features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
-    ) -> Predictions:
+    ) -> torch.Tensor:
         self.bucket_centers = self.bucket_centers.to(self.device)
         logit = self._predict_logits(symbol_idx, features)
         prob = torch.softmax(logit, dim=1)
-        pred_lift = (prob * self.bucket_centers).sum(dim=1)
-        return (
-            # 順番が変わらなければ sigmoid でなくてもよい
-            torch.sigmoid(pred_lift),
-            torch.sigmoid(-pred_lift),
-            torch.sigmoid(-pred_lift),
-            torch.sigmoid(pred_lift),
-        )
+        return cast(torch.Tensor, (prob * self.bucket_centers).sum(dim=1))
 
     def _calc_loss(
         self,
@@ -452,11 +443,11 @@ class Model(pl.LightningModule):
         ],
         *args: Any,
         **kwargs: Any,
-    ) -> Predictions:
+    ) -> torch.Tensor:
         symbol_idx_np, features_np, _ = batch
         symbol_idx_torch = torch.from_numpy(symbol_idx_np).to(self.device)
         features_torch = self._to_torch_features(features_np)
-        return self._predict_probs(symbol_idx_torch, features_torch)
+        return self._predict_score(symbol_idx_torch, features_torch)
 
     def on_train_epoch_end(self) -> None:
         if self.log_stdout:
