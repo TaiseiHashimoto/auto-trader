@@ -193,6 +193,7 @@ class RawLoader:
         hist_len: int,
         moving_window_size_center: int,
         batch_size: int,
+        shuffle: bool = False,
     ) -> None:
         self.base_index = base_index
         self.features = features
@@ -200,6 +201,7 @@ class RawLoader:
         self.hist_len = hist_len
         self.moving_window_size_center = moving_window_size_center
         self.batch_size = batch_size
+        self.shuffle = shuffle
 
     def set_batch_size(self, batch_size: int) -> None:
         self.batch_size = batch_size
@@ -222,6 +224,9 @@ class RawLoader:
         None,
     ]:
         index = self.base_index
+        if self.shuffle:
+            index = index[np.random.permutation(len(index))]
+
         timeframes = list(self.features.keys())
 
         # それぞれの timeframe に対応する idx を予め計算しておく

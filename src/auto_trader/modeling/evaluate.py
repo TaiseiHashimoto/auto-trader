@@ -86,7 +86,7 @@ def run_simulations(
 ) -> None:
     os.makedirs(config.output_dir, exist_ok=True)
 
-    strategy_ = strategy.BasicStrategy(
+    strategy_ = strategy.TimeLimitStrategy(
         thresh_long_entry=cast(
             float, np.percentile(score, config.strategy.percentile_entry)
         ),

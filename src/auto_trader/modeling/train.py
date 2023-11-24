@@ -73,6 +73,7 @@ def main(config: TrainConfig) -> None:
             hist_len=config.feature.hist_len,
             moving_window_size_center=config.feature.moving_window_size_center,
             batch_size=config.batch_size,
+            shuffle=True,
         )
         raw_loader_valid = data.RawLoader(
             base_index=base_index_valid,
