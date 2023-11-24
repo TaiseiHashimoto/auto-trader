@@ -107,7 +107,7 @@ class BlockNet(nn.Module):
             key_dict[timeframe] = k
             value_dict[timeframe] = v
 
-        # (batch, num_timeframes * length, out_channels)
+        # (batch, num_timeframes * length, channels)
         query = torch.cat(list(query_dict.values()), dim=1)
         key = torch.cat(list(key_dict.values()), dim=1)
         value = torch.cat(list(value_dict.values()), dim=1)
@@ -115,9 +115,9 @@ class BlockNet(nn.Module):
         # (batch, num_timeframes * length, num_timeframes * length)
         attn_logits = torch.matmul(query, key.transpose(1, 2)) / np.sqrt(query.shape[2])
         attention = F.softmax(attn_logits, dim=1)
-        # (batch, num_timeframes * length, out_channels)
+        # (batch, num_timeframes * length, channels)
         attn_out = torch.matmul(attention, value)
-        # (batch, length, out_channels) * num_timeframes
+        # (batch, length, channels) * num_timeframes
         attn_out_dict = dict(zip(inp.keys(), torch.chunk(attn_out, len(inp), dim=1)))
 
         result = {}
@@ -217,9 +217,9 @@ class Net(nn.Module):
                 for _ in range(num_blocks)
             ]
         )
-        self.symbol_emb = nn.Embedding(symbol_num, categorical_emb_dim)
+        self.symbol_emb = nn.Embedding(symbol_num, block_channels)
         self.head = build_fc_layer(
-            input_dim=block_channels + categorical_emb_dim,
+            input_dim=block_channels,
             hidden_dims=head_hidden_dims,
             batchnorm=head_batchnorm,
             dropout=head_dropout,
@@ -252,9 +252,8 @@ class Net(nn.Module):
         for net in self.block_nets:
             y = net(y)
 
-        # (batch, out_channels)
-        y_1min_last = y["1min"][:, :, -1]
-        z = torch.cat([y_1min_last, self.symbol_emb(symbol_idx)], dim=1)
+        # (batch, block_channels)
+        z = y["1min"][:, :, -1] + self.symbol_emb(symbol_idx)
         return cast(torch.Tensor, self.head(z))
 
 
