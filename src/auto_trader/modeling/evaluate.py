@@ -164,7 +164,7 @@ def main(config: EvalConfig) -> None:
         train_run = neptune.init_run(
             project=config.neptune.project,
             with_id=config.train_run_id,
-            mode=config.neptune.mode,
+            mode="read-only",
         )
         os.makedirs(config.output_dir, exist_ok=True)
         params_file = os.path.join(config.output_dir, "params.pt")
