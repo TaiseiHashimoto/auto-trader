@@ -27,7 +27,7 @@ YYYYMM_BEGIN_MAP = {
 
 @dataclass
 class FeatureConfig:
-    timeframes: list[str] = field(default_factory=lambda: ["1min", "5min", "1h"])
+    timeframes: list[str] = field(default_factory=lambda: ["1min"])
     base_timing: str = "close"
     moving_window_sizes: list[int] = field(default_factory=lambda: [5, 8, 13])
     moving_window_size_center: int = 5
@@ -56,18 +56,12 @@ class NetConfig:
     periodic_activation_num_coefs: int = 8
     periodic_activation_sigma: float = 1.0
     categorical_emb_dim: int = 16
+    kernel_size: int = 5
 
-    inception_out_channels: int = 20
-    inception_bottleneck_channels: int = 20
-    inception_kernel_sizes: list[int] = field(default_factory=lambda: [5, 9])
-    inception_num_blocks: int = 3
-    inception_residual: bool = True
-    inception_batchnorm: bool = True
-    inception_dropout: float = 0.0
-
-    base_fc_hidden_dims: list[int] = field(default_factory=lambda: [128])
-    base_fc_batchnorm: bool = False
-    base_fc_dropout: float = 0.0
+    num_blocks: int = 3
+    block_channels: int = 20
+    block_ff_channels: int = 40
+    block_dropout: float = 0.0
 
     head_hidden_dims: list[int] = field(default_factory=lambda: [64])
     head_batchnorm: bool = False
@@ -79,11 +73,8 @@ class NetConfig:
                 f"numerical_emb_dim must be a even number: {self.numerical_emb_dim}"
             )
 
-        if any([s % 2 != 1 for s in self.inception_kernel_sizes]):
-            raise ValueError(
-                "inception_kernel_sizes must be odd numbers: "
-                f"{self.inception_kernel_sizes}"
-            )
+        if self.kernel_size % 2 != 1:
+            raise ValueError(f"kernel must be odd numbers: {self.kernel_size}")
 
 
 @dataclass

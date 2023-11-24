@@ -152,7 +152,7 @@ def main(config: EvalConfig) -> None:
     run = neptune.init_run(
         project=config.neptune.project,
         mode=config.neptune.mode,
-        tags=["classification", "eval", "inception"],
+        tags=["classification", "eval", "conv-transformer"],
     )
     run["config"] = OmegaConf.to_yaml(config)
 
@@ -227,20 +227,16 @@ def main(config: EvalConfig) -> None:
     net = model.Net(
         symbol_num=len(train_config.symbols),
         feature_info=feature_info_all[config.symbol],
+        hist_len=train_config.feature.hist_len,
         numerical_emb_dim=train_config.net.numerical_emb_dim,
         periodic_activation_num_coefs=train_config.net.periodic_activation_num_coefs,
         periodic_activation_sigma=train_config.net.periodic_activation_sigma,
         categorical_emb_dim=train_config.net.categorical_emb_dim,
-        inception_out_channels=train_config.net.inception_out_channels,
-        inception_bottleneck_channels=train_config.net.inception_bottleneck_channels,
-        inception_kernel_sizes=train_config.net.inception_kernel_sizes,
-        inception_num_blocks=train_config.net.inception_num_blocks,
-        inception_residual=train_config.net.inception_residual,
-        inception_batchnorm=train_config.net.inception_batchnorm,
-        inception_dropout=train_config.net.inception_dropout,
-        base_fc_hidden_dims=train_config.net.base_fc_hidden_dims,
-        base_fc_batchnorm=train_config.net.base_fc_batchnorm,
-        base_fc_dropout=train_config.net.base_fc_dropout,
+        kernel_size=train_config.net.kernel_size,
+        num_blocks=train_config.net.num_blocks,
+        block_channels=train_config.net.block_channels,
+        block_ff_channels=train_config.net.block_ff_channels,
+        block_dropout=train_config.net.block_dropout,
         head_hidden_dims=train_config.net.head_hidden_dims,
         head_batchnorm=train_config.net.head_batchnorm,
         head_dropout=train_config.net.head_dropout,

@@ -21,13 +21,14 @@ def test_main(tmp_path: Path) -> None:
             "cleansed_data_dir=" + str(tmp_path / "cleansed"),
             "yyyymm_begin=202301",
             "yyyymm_end=202301",
+            "feature.timeframes=[1min,2min]",
             "net.numerical_emb_dim=2",
             "net.categorical_emb_dim=1",
-            "net.inception_out_channels=3",
-            "net.inception_bottleneck_channels=3",
-            "net.base_fc_hidden_dims=[4]",
+            "net.kernel_size=3",
+            "net.num_blocks=1",
+            "net.block_channels=2",
+            "net.block_ff_channels=4",
             "net.head_hidden_dims=[2]",
-            "feature.timeframes=[1min]",
         ],
     )
 

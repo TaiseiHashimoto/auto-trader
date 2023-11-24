@@ -1,24 +1,7 @@
+import numpy as np
 import torch
 
-from auto_trader.modeling import model
-
-
-def test_extractor() -> None:
-    layer = model.InceptionExtractor(
-        in_channels=2,
-        out_channels=3,
-        bottleneck_channels=4,
-        kernel_sizes=[1, 2],
-        num_blocks=2,
-        residual=True,
-        batchnorm=True,
-        dropout=0.1,
-    )
-    assert layer.output_dim == 3 * (2 + 1)
-
-    x = torch.randn(1, 10, 2)
-    y = layer(x)
-    assert y.shape == (1, 9)
+from auto_trader.modeling import data, model
 
 
 def test_build_fc_layer() -> None:
@@ -28,3 +11,52 @@ def test_build_fc_layer() -> None:
     x = torch.randn(3, 8)
     y = layer(x)
     assert y.shape == (3, 2)
+
+
+def test_block_net() -> None:
+    layer = model.BlockNet(
+        feature_info={"1min": {}, "2min": {}},
+        kernel_size=5,
+        channels=2,
+        ff_channels=4,
+        dropout=True,
+    )
+    x = {
+        "1min": torch.randn(1, 2, 10),
+        "2min": torch.randn(1, 2, 10),
+    }
+    actual = layer(x)
+    assert list(actual.keys()) == ["1min", "2min"]
+    assert actual["1min"].shape == (1, 2, 10)
+    assert actual["2min"].shape == (1, 2, 10)
+
+
+def test_net() -> None:
+    layer = model.Net(
+        symbol_num=2,
+        feature_info={
+            "1min": {"sma5": data.FeatureInfo(np.float32)},
+            "2min": {"sma5": data.FeatureInfo(np.float32)},
+        },
+        hist_len=10,
+        numerical_emb_dim=4,
+        periodic_activation_num_coefs=3,
+        periodic_activation_sigma=1.0,
+        categorical_emb_dim=4,
+        kernel_size=5,
+        num_blocks=1,
+        block_channels=4,
+        block_ff_channels=6,
+        block_dropout=0.1,
+        head_hidden_dims=[10],
+        head_batchnorm=True,
+        head_dropout=0.1,
+        head_output_dim=3,
+    )
+    symbol_idx = torch.tensor([0, 1], dtype=torch.int64)
+    features = {
+        "1min": {"sma5": torch.randn(2, 10, 1)},
+        "2min": {"sma5": torch.randn(2, 10, 1)},
+    }
+    actual = layer(symbol_idx, features)
+    assert actual.shape == (2, 3)

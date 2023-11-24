@@ -26,149 +26,6 @@ class PeriodicActivation(nn.Module):
         return torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
 
 
-class InceptionBlock(nn.Module):
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        bottleneck_channels: int,
-        kernel_sizes: list[int],
-        batchnorm: bool,
-        dropout: float,
-    ):
-        super().__init__()
-
-        self.conv_bottleneck = nn.Conv1d(
-            in_channels=in_channels,
-            out_channels=bottleneck_channels,
-            kernel_size=1,
-            padding="same",
-        )
-
-        self.convs_main = nn.ModuleList()
-        for kernel_size in kernel_sizes:
-            self.convs_main.append(
-                nn.Conv1d(
-                    in_channels=bottleneck_channels,
-                    out_channels=out_channels,
-                    kernel_size=kernel_size,
-                    padding="same",
-                )
-            )
-
-        self.conv_maxpool = nn.Conv1d(
-            in_channels=in_channels,
-            out_channels=out_channels,
-            kernel_size=1,
-            padding="same",
-        )
-
-        self.batchnorm_dropout = nn.Sequential()
-        if batchnorm:
-            self.batchnorm_dropout.append(
-                nn.BatchNorm1d(out_channels * (len(kernel_sizes) + 1))
-            )
-        if dropout > 0:
-            self.batchnorm_dropout.append(nn.Dropout(dropout))
-
-        self._output_channels = out_channels * (len(kernel_sizes) + 1)
-
-    @property
-    def output_channels(self) -> int:
-        return self._output_channels
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        x_bottleneck = self.conv_bottleneck(x)
-        x_maxpool = F.max_pool1d(x, kernel_size=3, stride=1, padding=1)
-
-        x_list = []
-        for conv in self.convs_main:
-            x_list.append(conv(x_bottleneck))
-        x_list.append(self.conv_maxpool(x_maxpool))
-
-        return cast(torch.Tensor, self.batchnorm_dropout(torch.concat(x_list, dim=1)))
-
-
-class ShortcutLayer(nn.Module):
-    def __init__(
-        self, in_channels: int, out_channels: int, batchnorm: bool, dropout: float
-    ):
-        super().__init__()
-        self.conv = nn.Conv1d(
-            in_channels, out_channels=out_channels, kernel_size=1, padding="same"
-        )
-        self.batchnorm_dropout = nn.Sequential()
-        if batchnorm:
-            self.batchnorm_dropout.append(nn.BatchNorm1d(out_channels))
-        if dropout > 0:
-            self.batchnorm_dropout.append(nn.Dropout(dropout))
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        return cast(torch.Tensor, self.batchnorm_dropout(self.conv(x)))
-
-
-class InceptionExtractor(nn.Module):
-    def __init__(
-        self,
-        in_channels: int,
-        out_channels: int,
-        bottleneck_channels: int,
-        kernel_sizes: list[int],
-        num_blocks: int,
-        residual: bool,
-        batchnorm: bool,
-        dropout: float,
-    ):
-        super().__init__()
-
-        self.blocks = nn.ModuleList()
-        self.shortcut_layers = nn.ModuleList()
-        channels = in_channels
-        for i in range(num_blocks):
-            block = InceptionBlock(
-                in_channels=channels,
-                out_channels=out_channels,
-                bottleneck_channels=bottleneck_channels,
-                kernel_sizes=kernel_sizes,
-                batchnorm=batchnorm,
-                dropout=dropout,
-            )
-            self.blocks.append(block)
-            channels = block.output_channels
-
-            if residual and i > 0:
-                self.shortcut_layers.append(
-                    ShortcutLayer(
-                        in_channels=in_channels,
-                        out_channels=channels,
-                        batchnorm=batchnorm,
-                        dropout=dropout,
-                    )
-                )
-
-        self._output_dim = channels
-
-    @property
-    def output_dim(self) -> int:
-        return self._output_dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # (batch, length, channel) -> (batch, channel, length)
-        x = x.permute(0, 2, 1)
-
-        x_ = x
-        for i in range(len(self.blocks)):
-            x_ = F.relu(self.blocks[i](x_))
-            if len(self.shortcut_layers) > 0 and i > 0:
-                x_ = F.relu(x_ + self.shortcut_layers[i - 1](x))
-
-        # (batch, channel, length) -> (batch, length, channel)
-        x = x_.permute(0, 2, 1)
-        # (batch, length, channel) -> (batch, channel)
-        x = x.mean(dim=1)
-        return x
-
-
 def build_fc_layer(
     input_dim: int,
     hidden_dims: list[int],
@@ -192,84 +49,93 @@ def build_fc_layer(
     return nn.Sequential(*layers)
 
 
-class BaseNet(nn.Module):
+class BlockNet(nn.Module):
     def __init__(
         self,
-        feature_info: dict[data.FeatureName, data.FeatureInfo],
-        numerical_emb_dim: int,
-        periodic_activation_num_coefs: int,
-        periodic_activation_sigma: float,
-        categorical_emb_dim: int,
-        inception_out_channels: int,
-        inception_bottleneck_channels: int,
-        inception_kernel_sizes: list[int],
-        inception_num_blocks: int,
-        inception_residual: bool,
-        inception_batchnorm: bool,
-        inception_dropout: float,
-        fc_hidden_dims: list[int],
-        fc_batchnorm: bool,
-        fc_dropout: float,
+        feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
+        kernel_size: int,
+        channels: int,
+        ff_channels: int,
+        dropout: float,
     ):
         super().__init__()
 
-        self.emb_layers = nn.ModuleDict()
-        emb_total_dim = 0
-        for name, info in feature_info.items():
-            if info.dtype == np.float32:
-                self.emb_layers[name] = nn.Sequential(
-                    PeriodicActivation(
-                        periodic_activation_num_coefs, periodic_activation_sigma
-                    ),
-                    nn.Linear(periodic_activation_num_coefs * 2, numerical_emb_dim),
+        padding = kernel_size // 2
+        self.conv_qkv = nn.ModuleDict(
+            {
+                timeframe: nn.Conv1d(
+                    channels, channels * 3, kernel_size, padding=padding
+                )
+                for timeframe in feature_info
+            }
+        )
+        self.conv_ff = nn.ModuleDict(
+            {
+                timeframe: nn.Sequential(
+                    nn.Conv1d(channels, ff_channels, kernel_size, padding=padding),
                     nn.ReLU(),
+                    nn.Conv1d(ff_channels, channels, kernel_size, padding=padding),
                 )
-                emb_total_dim += numerical_emb_dim
-            elif info.dtype == np.int64:
-                self.emb_layers[name] = nn.Embedding(
-                    # max + 1 を OOV token とする
-                    num_embeddings=info.max + 2,
-                    embedding_dim=categorical_emb_dim,
-                )
-                emb_total_dim += categorical_emb_dim
-
-        self.extractor = InceptionExtractor(
-            in_channels=emb_total_dim,
-            out_channels=inception_out_channels,
-            bottleneck_channels=inception_bottleneck_channels,
-            kernel_sizes=inception_kernel_sizes,
-            num_blocks=inception_num_blocks,
-            residual=inception_residual,
-            batchnorm=inception_batchnorm,
-            dropout=inception_dropout,
-        )
-        self.fc_layer = build_fc_layer(
-            input_dim=self.extractor.output_dim,
-            hidden_dims=fc_hidden_dims,
-            batchnorm=fc_batchnorm,
-            dropout=fc_dropout,
+                for timeframe in feature_info
+            }
         )
 
-        if len(fc_hidden_dims) > 0:
-            self._output_dim = fc_hidden_dims[-1]
-        else:
-            self._output_dim = self.extractor.output_dim
+        self.dropout = nn.Dropout(dropout)
+        self.layernorm1 = nn.LayerNorm(channels)
+        self.layernorm2 = nn.LayerNorm(channels)
 
-    @property
-    def output_dim(self) -> int:
-        return self._output_dim
+    def forward(
+        self, inp: dict[data.Timeframe, torch.Tensor]
+    ) -> dict[data.Timeframe, torch.Tensor]:
+        query_dict = {}
+        key_dict = {}
+        value_dict = {}
+        for timeframe in inp:
+            q, k, v = torch.chunk(self.conv_qkv[timeframe](inp[timeframe]), 3, dim=1)
+            query_dict[timeframe] = q
+            key_dict[timeframe] = k
+            value_dict[timeframe] = v
 
-    def forward(self, features: dict[data.FeatureName, torch.Tensor]) -> torch.Tensor:
-        embeddings = []
-        for name, value in features.items():
-            embeddings.append(self.emb_layers[name](value))
+        # (batch, length * num_timeframes, out_channels)
+        query = torch.cat(list(query_dict.values()), dim=1)
+        key = torch.cat(list(key_dict.values()), dim=1)
+        value = torch.cat(list(value_dict.values()), dim=1)
 
-        # (batch, length, emb_total_dim)
-        x = torch.cat(embeddings, dim=2)
-        # (batch, extractor.output_dim)
-        x = self.extractor(x)
-        # (batch, output_dim)
-        x = self.fc_layer(x)
+        # (batch, length * num_timeframes, length * num_timeframes)
+        attn_logits = torch.matmul(query, key.transpose(1, 2)) / np.sqrt(query.shape[2])
+        attention = F.softmax(attn_logits, dim=1)
+        # (batch, length * num_timeframes, out_channels)
+        attn_out = torch.matmul(attention, value)
+        # (batch, length, out_channels) * num_timeframes
+        attn_out_dict = dict(zip(inp.keys(), torch.chunk(attn_out, len(inp), dim=1)))
+
+        result = {}
+        for timeframe in inp:
+            x = inp[timeframe] + self.dropout(attn_out_dict[timeframe])
+            x = self.layernorm1(x.transpose(1, 2)).transpose(1, 2)
+            x = x + self.dropout(self.conv_ff[timeframe](x))
+            x = self.layernorm2(x.transpose(1, 2)).transpose(1, 2)
+            result[timeframe] = x
+
+        return result
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, dim: int, length: int):
+        super().__init__()
+        assert dim % 2 == 0
+
+        pe = torch.zeros(dim, length)
+        position = torch.arange(0, length, dtype=torch.float32)
+        div_term = torch.exp(torch.arange(0, dim, 2).float() * (-np.log(10000.0) / dim))
+        pe[0::2] = torch.sin(position * div_term.unsqueeze(dim=1))
+        pe[1::2] = torch.cos(position * div_term.unsqueeze(dim=1))
+
+        self.pe: torch.Tensor
+        self.register_buffer("pe", pe, persistent=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x + self.pe
         return x
 
 
@@ -278,20 +144,16 @@ class Net(nn.Module):
         self,
         symbol_num: int,
         feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
+        hist_len: int,
         numerical_emb_dim: int,
         periodic_activation_num_coefs: int,
         periodic_activation_sigma: float,
         categorical_emb_dim: int,
-        inception_out_channels: int,
-        inception_bottleneck_channels: int,
-        inception_kernel_sizes: list[int],
-        inception_num_blocks: int,
-        inception_residual: bool,
-        inception_batchnorm: bool,
-        inception_dropout: float,
-        base_fc_hidden_dims: list[int],
-        base_fc_batchnorm: bool,
-        base_fc_dropout: float,
+        kernel_size: int,
+        num_blocks: int,
+        block_channels: int,
+        block_ff_channels: int,
+        block_dropout: float,
         head_hidden_dims: list[int],
         head_batchnorm: bool,
         head_dropout: float,
@@ -299,32 +161,48 @@ class Net(nn.Module):
     ):
         super().__init__()
 
-        self.base_nets = nn.ModuleDict()
-        base_output_dim_total = 0
+        self.emb_featurewise = nn.ModuleDict()
+        self.emb_conv = nn.ModuleDict()
         for timeframe in feature_info:
-            base_net = BaseNet(
-                feature_info=feature_info[timeframe],
-                numerical_emb_dim=numerical_emb_dim,
-                periodic_activation_num_coefs=periodic_activation_num_coefs,
-                periodic_activation_sigma=periodic_activation_sigma,
-                categorical_emb_dim=categorical_emb_dim,
-                inception_out_channels=inception_out_channels,
-                inception_bottleneck_channels=inception_bottleneck_channels,
-                inception_kernel_sizes=inception_kernel_sizes,
-                inception_num_blocks=inception_num_blocks,
-                inception_residual=inception_residual,
-                inception_batchnorm=inception_batchnorm,
-                inception_dropout=inception_dropout,
-                fc_hidden_dims=base_fc_hidden_dims,
-                fc_batchnorm=base_fc_batchnorm,
-                fc_dropout=base_fc_dropout,
-            )
-            self.base_nets[timeframe] = base_net
-            base_output_dim_total += base_net.output_dim
+            emb_total_dim = 0
+            for name, info in feature_info[timeframe].items():
+                if info.dtype == np.float32:
+                    self.emb_featurewise[f"{timeframe}_{name}"] = nn.Sequential(
+                        PeriodicActivation(
+                            periodic_activation_num_coefs, periodic_activation_sigma
+                        ),
+                        nn.Linear(periodic_activation_num_coefs * 2, numerical_emb_dim),
+                        nn.ReLU(),
+                    )
+                    emb_total_dim += numerical_emb_dim
+                elif info.dtype == np.int64:
+                    self.emb_featurewise[f"{timeframe}_{name}"] = nn.Embedding(
+                        # max + 1 を OOV token とする
+                        num_embeddings=info.max + 2,
+                        embedding_dim=categorical_emb_dim,
+                    )
+                    emb_total_dim += categorical_emb_dim
 
+            self.emb_conv[timeframe] = nn.Conv1d(
+                emb_total_dim, block_channels, kernel_size, padding=kernel_size // 2
+            )
+
+        self.positional_encoding = PositionalEncoding(block_channels, hist_len)
+        self.block_nets = nn.ModuleList(
+            [
+                BlockNet(
+                    feature_info=feature_info,
+                    kernel_size=kernel_size,
+                    channels=block_channels,
+                    ff_channels=block_ff_channels,
+                    dropout=block_dropout,
+                )
+                for _ in range(num_blocks)
+            ]
+        )
         self.symbol_emb = nn.Embedding(symbol_num, categorical_emb_dim)
         self.head = build_fc_layer(
-            input_dim=base_output_dim_total + categorical_emb_dim,
+            input_dim=block_channels + categorical_emb_dim,
             hidden_dims=head_hidden_dims,
             batchnorm=head_batchnorm,
             dropout=head_dropout,
@@ -336,13 +214,31 @@ class Net(nn.Module):
         symbol_idx: torch.Tensor,
         features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
     ) -> torch.Tensor:
-        base_outputs = []
-        for timeframe, base_net in self.base_nets.items():
-            base_outputs.append(base_net(features[timeframe]))
+        emb_dict = {}
+        for timeframe in features:
+            # (batch, length, emb_total_dim)
+            x = torch.cat(
+                [
+                    self.emb_featurewise[f"{timeframe}_{feature_name}"](
+                        features[timeframe][feature_name]
+                    )
+                    for feature_name in features[timeframe]
+                ],
+                dim=2,
+            )
+            # (batch, block_channels, length)
+            x = self.emb_conv[timeframe](x.transpose(1, 2))
+            x = self.positional_encoding(x)
+            emb_dict[timeframe] = x
 
-        x = F.relu(torch.cat(base_outputs, dim=1))
-        x = torch.cat([x, self.symbol_emb(symbol_idx)], dim=1)
-        return cast(torch.Tensor, self.head(x))
+        y = emb_dict
+        for net in self.block_nets:
+            y = net(y)
+
+        # (batch, out_channels)
+        y_1min_last = y["1min"][:, :, -1]
+        z = torch.cat([y_1min_last, self.symbol_emb(symbol_idx)], dim=1)
+        return cast(torch.Tensor, self.head(z))
 
 
 class Model(pl.LightningModule):
