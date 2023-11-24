@@ -53,18 +53,21 @@ class BlockNet(nn.Module):
     def __init__(
         self,
         feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
-        kernel_size: int,
+        qkv_kernel_size: int,
+        ff_kernel_size: int,
         channels: int,
         ff_channels: int,
         dropout: float,
     ):
         super().__init__()
 
-        padding = kernel_size // 2
         self.conv_qkv = nn.ModuleDict(
             {
                 timeframe: nn.Conv1d(
-                    channels, channels * 3, kernel_size, padding=padding
+                    channels,
+                    channels * 3,
+                    qkv_kernel_size,
+                    padding=qkv_kernel_size // 2,
                 )
                 for timeframe in feature_info
             }
@@ -72,9 +75,19 @@ class BlockNet(nn.Module):
         self.conv_ff = nn.ModuleDict(
             {
                 timeframe: nn.Sequential(
-                    nn.Conv1d(channels, ff_channels, kernel_size, padding=padding),
+                    nn.Conv1d(
+                        channels,
+                        ff_channels,
+                        ff_kernel_size,
+                        padding=ff_kernel_size // 2,
+                    ),
                     nn.ReLU(),
-                    nn.Conv1d(ff_channels, channels, kernel_size, padding=padding),
+                    nn.Conv1d(
+                        ff_channels,
+                        channels,
+                        ff_kernel_size,
+                        padding=ff_kernel_size // 2,
+                    ),
                 )
                 for timeframe in feature_info
             }
@@ -96,15 +109,15 @@ class BlockNet(nn.Module):
             key_dict[timeframe] = k
             value_dict[timeframe] = v
 
-        # (batch, length * num_timeframes, out_channels)
+        # (batch, num_timeframes * length, out_channels)
         query = torch.cat(list(query_dict.values()), dim=1)
         key = torch.cat(list(key_dict.values()), dim=1)
         value = torch.cat(list(value_dict.values()), dim=1)
 
-        # (batch, length * num_timeframes, length * num_timeframes)
+        # (batch, num_timeframes * length, num_timeframes * length)
         attn_logits = torch.matmul(query, key.transpose(1, 2)) / np.sqrt(query.shape[2])
         attention = F.softmax(attn_logits, dim=1)
-        # (batch, length * num_timeframes, out_channels)
+        # (batch, num_timeframes * length, out_channels)
         attn_out = torch.matmul(attention, value)
         # (batch, length, out_channels) * num_timeframes
         attn_out_dict = dict(zip(inp.keys(), torch.chunk(attn_out, len(inp), dim=1)))
@@ -149,8 +162,10 @@ class Net(nn.Module):
         periodic_activation_num_coefs: int,
         periodic_activation_sigma: float,
         categorical_emb_dim: int,
-        kernel_size: int,
+        emb_kernel_size: int,
         num_blocks: int,
+        block_qkv_kernel_size: int,
+        block_ff_kernel_size: int,
         block_channels: int,
         block_ff_channels: int,
         block_dropout: float,
@@ -184,7 +199,10 @@ class Net(nn.Module):
                     emb_total_dim += categorical_emb_dim
 
             self.emb_conv[timeframe] = nn.Conv1d(
-                emb_total_dim, block_channels, kernel_size, padding=kernel_size // 2
+                emb_total_dim,
+                block_channels,
+                emb_kernel_size,
+                padding=emb_kernel_size // 2,
             )
 
         self.positional_encoding = PositionalEncoding(block_channels, hist_len)
@@ -192,7 +210,8 @@ class Net(nn.Module):
             [
                 BlockNet(
                     feature_info=feature_info,
-                    kernel_size=kernel_size,
+                    qkv_kernel_size=block_qkv_kernel_size,
+                    ff_kernel_size=block_ff_kernel_size,
                     channels=block_channels,
                     ff_channels=block_ff_channels,
                     dropout=block_dropout,

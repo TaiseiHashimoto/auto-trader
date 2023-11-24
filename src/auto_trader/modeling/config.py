@@ -56,9 +56,11 @@ class NetConfig:
     periodic_activation_num_coefs: int = 8
     periodic_activation_sigma: float = 1.0
     categorical_emb_dim: int = 16
-    kernel_size: int = 5
+    emb_kernel_size: int = 5
 
     num_blocks: int = 3
+    block_qkv_kernel_size: int = 5
+    block_ff_kernel_size: int = 5
     block_channels: int = 20
     block_ff_channels: int = 40
     block_dropout: float = 0.0
@@ -73,8 +75,14 @@ class NetConfig:
                 f"numerical_emb_dim must be a even number: {self.numerical_emb_dim}"
             )
 
-        if self.kernel_size % 2 != 1:
-            raise ValueError(f"kernel must be odd numbers: {self.kernel_size}")
+        if self.emb_kernel_size % 2 != 1:
+            raise ValueError(f"kernel must be odd numbers: {self.emb_kernel_size}")
+        if self.block_qkv_kernel_size % 2 != 1:
+            raise ValueError(
+                f"kernel must be odd numbers: {self.block_qkv_kernel_size}"
+            )
+        if self.block_ff_kernel_size % 2 != 1:
+            raise ValueError(f"kernel must be odd numbers: {self.block_ff_kernel_size}")
 
 
 @dataclass

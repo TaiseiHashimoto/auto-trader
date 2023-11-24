@@ -24,7 +24,6 @@ def test_main(tmp_path: Path) -> None:
             "feature.timeframes=[1min,2min]",
             "net.numerical_emb_dim=2",
             "net.categorical_emb_dim=1",
-            "net.kernel_size=3",
             "net.num_blocks=1",
             "net.block_channels=2",
             "net.block_ff_channels=4",

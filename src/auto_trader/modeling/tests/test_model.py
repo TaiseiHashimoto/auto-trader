@@ -16,7 +16,8 @@ def test_build_fc_layer() -> None:
 def test_block_net() -> None:
     layer = model.BlockNet(
         feature_info={"1min": {}, "2min": {}},
-        kernel_size=5,
+        qkv_kernel_size=5,
+        ff_kernel_size=1,
         channels=2,
         ff_channels=4,
         dropout=True,
@@ -43,8 +44,10 @@ def test_net() -> None:
         periodic_activation_num_coefs=3,
         periodic_activation_sigma=1.0,
         categorical_emb_dim=4,
-        kernel_size=5,
+        emb_kernel_size=3,
         num_blocks=1,
+        block_qkv_kernel_size=5,
+        block_ff_kernel_size=5,
         block_channels=4,
         block_ff_channels=6,
         block_dropout=0.1,
