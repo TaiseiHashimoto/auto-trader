@@ -458,12 +458,6 @@ class Model(pl.LightningModule):
         features_torch = self._to_torch_features(features_np)
         return self._predict_probs(symbol_idx_torch, features_torch)
 
-    # def on_train_batch_end(self, *args: Any, **kwargs: Any) -> None:
-    #     schedulers = self.lr_schedulers()
-    #     assert schedulers is not None
-    #     scheduler = schedulers[0]
-    #     scheduler.step()
-
     def on_train_epoch_end(self) -> None:
         if self.log_stdout:
             metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}

@@ -76,6 +76,9 @@ def log_metrics(
             run[f"stats/recall/{label_name}/{percentile}"] = recall_score(
                 label, pred_binary
             )
+            lift_positive = lift.loc[preds.index].loc[pred_binary].values
+            if len(lift_positive) > 0:
+                run[f"stats/lift/{label_name}/{percentile}"] = calc_stats(lift_positive)
 
 
 def run_simulations(
