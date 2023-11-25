@@ -404,9 +404,9 @@ class Model(pl.LightningModule):
         soft_label = F.softmax(
             torch.stack(
                 [
-                    cast(torch.Tensor, -lift - self.boundary),
+                    cast(torch.Tensor, (-lift - self.boundary) / self.temperature),
                     torch.zeros_like(lift),
-                    cast(torch.Tensor, lift - self.boundary),
+                    cast(torch.Tensor, (lift - self.boundary) / self.temperature),
                 ],
                 dim=1,
             ),
