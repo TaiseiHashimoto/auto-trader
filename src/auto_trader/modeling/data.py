@@ -98,7 +98,10 @@ def create_features(
     base_timing: str,
     moving_window_sizes: list[int],
     moving_window_size_center: int,
+    use_sma_frac: bool,
     sma_frac_unit: int,
+    use_hour: bool,
+    use_dow: bool,
 ) -> dict[FeatureType, pd.DataFrame]:
     features_rel = values.copy()
     features_abs = pd.DataFrame()
@@ -115,14 +118,17 @@ def create_features(
             values[base_timing], window_size
         )
 
-    features_abs[f"sma{moving_window_size_center}_frac"] = calc_fraction(
-        features_rel[f"sma{moving_window_size_center}"],
-        unit=sma_frac_unit,
-    )
+    if use_sma_frac:
+        features_abs[f"sma{moving_window_size_center}_frac"] = calc_fraction(
+            features_rel[f"sma{moving_window_size_center}"],
+            unit=sma_frac_unit,
+        )
 
     datetime_index = cast(pd.DatetimeIndex, values.index)
-    features_abs["hour"] = datetime_index.hour.astype(np.int64)
-    features_abs["dow"] = datetime_index.day_of_week.astype(np.int64)
+    if use_hour:
+        features_abs["hour"] = datetime_index.hour.astype(np.int64)
+    if use_dow:
+        features_abs["dow"] = datetime_index.day_of_week.astype(np.int64)
 
     return {"rel": features_rel, "abs": features_abs}
 

@@ -31,7 +31,10 @@ class FeatureConfig:
     base_timing: str = "close"
     moving_window_sizes: list[int] = field(default_factory=lambda: [5, 8, 13])
     moving_window_size_center: int = 5
+    use_sma_frac: bool = True
     sma_frac_unit: int = 100
+    use_hour: bool = True
+    use_dow: bool = True
     hist_len: int = 10
 
     def __post_init__(self) -> None:

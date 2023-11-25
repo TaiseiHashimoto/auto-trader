@@ -206,7 +206,10 @@ def test_create_features() -> None:
         base_timing="close",
         moving_window_sizes=[5, 10],
         moving_window_size_center=5,
+        use_sma_frac=True,
         sma_frac_unit=100,
+        use_hour=True,
+        use_dow=True,
     )
     expected = {
         "rel": pd.DataFrame(

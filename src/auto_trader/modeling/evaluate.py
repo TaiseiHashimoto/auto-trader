@@ -174,7 +174,10 @@ def main(config: EvalConfig) -> None:
             base_timing=train_config.feature.base_timing,
             moving_window_sizes=train_config.feature.moving_window_sizes,
             moving_window_size_center=train_config.feature.moving_window_size_center,
+            use_sma_frac=train_config.feature.use_sma_frac,
             sma_frac_unit=train_config.feature.sma_frac_unit,
+            use_hour=train_config.feature.use_hour,
+            use_dow=train_config.feature.use_dow,
         )
 
     lift = data.calc_lift(df_base["close"], train_config.lift.alpha)
