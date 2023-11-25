@@ -25,8 +25,9 @@ def test_main(tmp_path: Path) -> None:
             "net.numerical_emb_dim=2",
             "net.categorical_emb_dim=1",
             "net.num_blocks=1",
-            "net.block_channels=2",
-            "net.block_ff_channels=4",
+            "net.block_num_heads=2",
+            "net.block_channels=4",
+            "net.block_ff_channels=6",
             "net.head_hidden_dims=[2]",
         ],
     )

@@ -412,10 +412,11 @@ class Model(pl.LightningModule):
             ),
             dim=1,
         )
-        loss = -(logit * soft_label).sum(dim=1).mean()
+        log_prob = F.log_softmax(logit, dim=1)
+        loss = -(log_prob * soft_label).sum(dim=1).mean()
 
         with torch.no_grad():
-            prob = torch.softmax(logit, dim=1)
+            prob = torch.exp(log_prob)
 
         self.log_dict(
             {

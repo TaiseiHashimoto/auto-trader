@@ -84,7 +84,7 @@ class NetConfig:
 
         if self.block_channels % self.block_num_heads != 0:
             raise ValueError(
-                "block_num_heads must be divisible by block_channels: "
+                "block_channels must be divisible by block_num_heads: "
                 f"{self.block_channels} % {self.block_num_heads} != 0"
             )
 
