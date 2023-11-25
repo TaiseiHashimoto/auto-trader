@@ -261,8 +261,8 @@ class Model(pl.LightningModule):
     def __init__(
         self,
         net: nn.Module,
-        bucket_boundaries: list[float],
-        label_smoothing: float = 0.0,
+        boundary: float,
+        temperature: float = 0.1,
         canonical_batch_size: int = 1000,
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
@@ -273,14 +273,8 @@ class Model(pl.LightningModule):
         super().__init__()
         self.net = net
 
-        self.bucket_boundaries = torch.tensor(bucket_boundaries, dtype=torch.float32)
-        bucket_centers = [bucket_boundaries[0]]
-        for left, right in zip(bucket_boundaries[:-1], bucket_boundaries[1:]):
-            bucket_centers.append((left + right) / 2)
-        bucket_centers.append(bucket_boundaries[-1])
-        self.bucket_centers = torch.tensor(bucket_centers, dtype=torch.float32)
-
-        self.label_smoothing = label_smoothing
+        self.boundary = boundary
+        self.temperature = temperature
         self.canonical_batch_size = canonical_batch_size
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
@@ -355,10 +349,11 @@ class Model(pl.LightningModule):
         symbol_idx: torch.Tensor,
         features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
     ) -> torch.Tensor:
-        self.bucket_centers = self.bucket_centers.to(self.device)
         logit = self._predict_logits(symbol_idx, features)
         prob = torch.softmax(logit, dim=1)
-        return cast(torch.Tensor, (prob * self.bucket_centers).sum(dim=1))
+        return cast(
+            torch.Tensor, prob[:, 0] * -self.boundary + prob[:, 2] * self.boundary
+        )
 
     def _calc_loss(
         self,
@@ -366,12 +361,18 @@ class Model(pl.LightningModule):
         lift: torch.Tensor,
         log_prefix: str,
     ) -> torch.Tensor:
-        self.bucket_boundaries = self.bucket_boundaries.to(self.device)
-        loss = F.cross_entropy(
-            input=logit,
-            target=torch.bucketize(lift, self.bucket_boundaries),
-            label_smoothing=self.label_smoothing,
+        soft_label = F.softmax(
+            torch.stack(
+                [
+                    cast(torch.Tensor, -lift - self.boundary),
+                    torch.zeros_like(lift),
+                    cast(torch.Tensor, lift - self.boundary),
+                ],
+                dim=1,
+            ),
+            dim=1,
         )
+        loss = -(logit * soft_label).sum(dim=1).mean()
 
         with torch.no_grad():
             prob = torch.softmax(logit, dim=1)
