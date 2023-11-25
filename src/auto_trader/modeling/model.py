@@ -70,6 +70,7 @@ class BlockNet(nn.Module):
                 for timeframe in feature_info
             }
         )
+        self.linear_q = nn.Linear(channels, channels)
         self.conv_ff = nn.ModuleDict(
             {
                 timeframe: nn.Sequential(
@@ -90,45 +91,68 @@ class BlockNet(nn.Module):
                 for timeframe in feature_info
             }
         )
+        self.linear_ff = nn.Sequential(
+            nn.Linear(channels, ff_channels),
+            nn.ReLU(),
+            nn.Linear(ff_channels, channels),
+        )
 
         self.dropout = nn.Dropout(dropout)
         self.layernorm1 = nn.LayerNorm(channels)
         self.layernorm2 = nn.LayerNorm(channels)
+        self.layernorm1_cls = nn.LayerNorm(channels)
+        self.layernorm2_cls = nn.LayerNorm(channels)
 
     def forward(
-        self, inp: dict[data.Timeframe, torch.Tensor]
-    ) -> dict[data.Timeframe, torch.Tensor]:
+        self,
+        inp: dict[data.Timeframe, torch.Tensor],
+        cls: torch.Tensor,
+    ) -> tuple[dict[data.Timeframe, torch.Tensor], torch.Tensor]:
         query_dict = {}
         key_dict = {}
         value_dict = {}
         for timeframe in inp:
             q, k, v = torch.chunk(self.conv_qkv[timeframe](inp[timeframe]), 3, dim=1)
+            # (batch, channel, hist_len)
             query_dict[timeframe] = q
             key_dict[timeframe] = k
             value_dict[timeframe] = v
 
-        # (batch, num_timeframes * length, channels)
-        query = torch.cat(list(query_dict.values()), dim=1)
-        key = torch.cat(list(key_dict.values()), dim=1)
-        value = torch.cat(list(value_dict.values()), dim=1)
+        query_dict["cls"] = self.linear_q(cls).unsqueeze(dim=2)
 
-        # (batch, num_timeframes * length, num_timeframes * length)
-        attn_logits = torch.matmul(query, key.transpose(1, 2)) / np.sqrt(query.shape[2])
-        attention = F.softmax(attn_logits, dim=1)
-        # (batch, num_timeframes * length, channels)
-        attn_out = torch.matmul(attention, value)
-        # (batch, length, channels) * num_timeframes
-        attn_out_dict = dict(zip(inp.keys(), torch.chunk(attn_out, len(inp), dim=1)))
+        # (batch, channels, num_timeframes * hist_len + 1)
+        query = torch.cat(list(query_dict.values()), dim=2)
+        # (batch, channels, num_timeframes * hist_len)
+        key = torch.cat(list(key_dict.values()), dim=2)
+        value = torch.cat(list(value_dict.values()), dim=2)
 
-        result = {}
+        # (batch, num_timeframes * hist_len + 1, num_timeframes * hist_len)
+        attn_logits = torch.matmul(query.transpose(1, 2), key) / np.sqrt(query.shape[1])
+        attention = F.softmax(attn_logits, dim=2)
+        # (batch, num_timeframes * hist_len + 1, channels)
+        attn_out = torch.matmul(attention, value.transpose(1, 2))
+        # (batch, channels, num_timeframes * hist_len + 1)
+        attn_out = attn_out.transpose(1, 2)
+        # num_timeframes * (batch, channels, hist_len)
+        attn_out_dict = dict(
+            zip(inp.keys(), torch.chunk(attn_out[:, :, :-1], len(inp), dim=2))
+        )
+        # (batch, channels)
+        attn_out_cls = attn_out[:, :, -1]
+
+        y = {}
         for timeframe in inp:
             x = inp[timeframe] + self.dropout(attn_out_dict[timeframe])
             x = self.layernorm1(x.transpose(1, 2)).transpose(1, 2)
             x = x + self.dropout(self.conv_ff[timeframe](x))
-            x = self.layernorm2(x.transpose(1, 2)).transpose(1, 2)
-            result[timeframe] = x
+            y[timeframe] = self.layernorm2(x.transpose(1, 2)).transpose(1, 2)
 
-        return result
+        x = cls + self.dropout(attn_out_cls)
+        x = self.layernorm1_cls(x)
+        x = x + self.dropout(self.linear_ff(x))
+        y_cls = self.layernorm2_cls(x)
+
+        return y, y_cls
 
 
 class PositionalEncoding(nn.Module):
@@ -204,6 +228,7 @@ class Net(nn.Module):
             )
 
         self.positional_encoding = PositionalEncoding(block_channels, hist_len)
+        self.emb_cls = nn.Parameter(torch.randn(block_channels))
         self.block_nets = nn.ModuleList(
             [
                 BlockNet(
@@ -232,8 +257,9 @@ class Net(nn.Module):
         features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
     ) -> torch.Tensor:
         emb_dict = {}
+        batch_size = 0
         for timeframe in features:
-            # (batch, length, emb_total_dim)
+            # (batch, hist_len, emb_total_dim)
             x = torch.cat(
                 [
                     self.emb_featurewise[f"{timeframe}_{feature_name}"](
@@ -243,18 +269,18 @@ class Net(nn.Module):
                 ],
                 dim=2,
             )
-            # (batch, block_channels, length)
+            # (batch, block_channels, hist_len)
             x = self.emb_conv[timeframe](x.transpose(1, 2))
-            x = self.positional_encoding(x)
-            emb_dict[timeframe] = x
+            emb_dict[timeframe] = self.positional_encoding(x)
+            batch_size = x.shape[0]
 
-        y = emb_dict
+        emb_cls = torch.tile(self.emb_cls, dims=(batch_size, 1))
         for net in self.block_nets:
-            y = net(y)
+            emb_dict, emb_cls = net(emb_dict, emb_cls)
 
         # (batch, block_channels)
-        z = y["1min"][:, :, -1] + self.symbol_emb(symbol_idx)
-        return cast(torch.Tensor, self.head(z))
+        x = emb_cls + self.symbol_emb(symbol_idx)
+        return cast(torch.Tensor, self.head(x))
 
 
 class Model(pl.LightningModule):
@@ -319,13 +345,13 @@ class Model(pl.LightningModule):
             features_torch[timeframe] = {}
             for feature_name, value_np in features_np[timeframe].items():
                 if value_np.dtype == np.float32:
-                    # shape: (batch, length, feature=1)
+                    # shape: (batch, hist_len, feature=1)
                     features_torch[timeframe][feature_name] = torch.unsqueeze(
                         torch.from_numpy(features_np[timeframe][feature_name]),
                         dim=2,
                     ).to(self.device)
                 elif value_np.dtype == np.int64:
-                    # shape: (batch, length)
+                    # shape: (batch, hist_len)
                     features_torch[timeframe][feature_name] = torch.from_numpy(
                         features_np[timeframe][feature_name]
                     ).to(self.device)

@@ -26,10 +26,12 @@ def test_block_net() -> None:
         "1min": torch.randn(1, 2, 10),
         "2min": torch.randn(1, 2, 10),
     }
-    actual = layer(x)
-    assert list(actual.keys()) == ["1min", "2min"]
-    assert actual["1min"].shape == (1, 2, 10)
-    assert actual["2min"].shape == (1, 2, 10)
+    cls = torch.randn(1, 2)
+    actual = layer(x, cls)
+    assert list(actual[0].keys()) == ["1min", "2min"]
+    assert actual[0]["1min"].shape == (1, 2, 10)
+    assert actual[0]["2min"].shape == (1, 2, 10)
+    assert actual[1].shape == (1, 2)
 
 
 def test_net() -> None:
