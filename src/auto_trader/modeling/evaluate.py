@@ -219,6 +219,7 @@ def main(config: EvalConfig) -> None:
         categorical_emb_dim=train_config.net.categorical_emb_dim,
         emb_kernel_size=train_config.net.emb_kernel_size,
         num_blocks=train_config.net.num_blocks,
+        block_num_heads=train_config.net.block_num_heads,
         block_qkv_kernel_size=train_config.net.block_qkv_kernel_size,
         block_ff_kernel_size=train_config.net.block_ff_kernel_size,
         block_channels=train_config.net.block_channels,

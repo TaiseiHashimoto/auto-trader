@@ -51,6 +51,7 @@ class BlockNet(nn.Module):
     def __init__(
         self,
         feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
+        num_heads: int,
         qkv_kernel_size: int,
         ff_kernel_size: int,
         channels: int,
@@ -59,6 +60,7 @@ class BlockNet(nn.Module):
     ):
         super().__init__()
 
+        self.num_heads = num_heads
         self.conv_qkv = nn.ModuleDict(
             {
                 timeframe: nn.Conv1d(
@@ -91,12 +93,12 @@ class BlockNet(nn.Module):
                 for timeframe in feature_info
             }
         )
+        self.linear_out = nn.Linear(channels, channels)
         self.linear_ff = nn.Sequential(
             nn.Linear(channels, ff_channels),
             nn.ReLU(),
             nn.Linear(ff_channels, channels),
         )
-
         self.dropout = nn.Dropout(dropout)
         self.layernorm1 = nn.LayerNorm(channels)
         self.layernorm2 = nn.LayerNorm(channels)
@@ -126,13 +128,23 @@ class BlockNet(nn.Module):
         key = torch.cat(list(key_dict.values()), dim=2)
         value = torch.cat(list(value_dict.values()), dim=2)
 
-        # (batch, num_timeframes * hist_len + 1, num_timeframes * hist_len)
-        attn_logits = torch.matmul(query.transpose(1, 2), key) / np.sqrt(query.shape[1])
-        attention = F.softmax(attn_logits, dim=2)
+        # (batch, num_heads, channels / num_heads, num_timeframes * hist_len + 1)
+        query = query.reshape(query.shape[0], self.num_heads, -1, query.shape[2])
+        # (batch, num_heads, channels / num_heads, num_timeframes * hist_len)
+        key = key.reshape(key.shape[0], self.num_heads, -1, key.shape[2])
+        value = value.reshape(value.shape[0], self.num_heads, -1, value.shape[2])
+
+        # (batch, num_heads, num_timeframes * hist_len + 1, num_timeframes * hist_len)
+        attn_logits = torch.matmul(query.transpose(2, 3), key) / np.sqrt(query.shape[2])
+        attention = F.softmax(attn_logits, dim=3)
+        # (batch, num_heads, num_timeframes * hist_len + 1, channels / num_heads)
+        attn_val = torch.matmul(attention, value.transpose(2, 3))
         # (batch, num_timeframes * hist_len + 1, channels)
-        attn_out = torch.matmul(attention, value.transpose(1, 2))
+        attn_val = attn_val.transpose(1, 2).reshape(
+            attn_val.shape[0], attn_val.shape[2], -1
+        )
         # (batch, channels, num_timeframes * hist_len + 1)
-        attn_out = attn_out.transpose(1, 2)
+        attn_out = self.linear_out(attn_val).transpose(1, 2)
         # num_timeframes * (batch, channels, hist_len)
         attn_out_dict = dict(
             zip(inp.keys(), torch.chunk(attn_out[:, :, :-1], len(inp), dim=2))
@@ -186,6 +198,7 @@ class Net(nn.Module):
         categorical_emb_dim: int,
         emb_kernel_size: int,
         num_blocks: int,
+        block_num_heads: int,
         block_qkv_kernel_size: int,
         block_ff_kernel_size: int,
         block_channels: int,
@@ -233,6 +246,7 @@ class Net(nn.Module):
             [
                 BlockNet(
                     feature_info=feature_info,
+                    num_heads=block_num_heads,
                     qkv_kernel_size=block_qkv_kernel_size,
                     ff_kernel_size=block_ff_kernel_size,
                     channels=block_channels,

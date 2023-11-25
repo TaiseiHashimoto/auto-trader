@@ -62,6 +62,7 @@ class NetConfig:
     emb_kernel_size: int = 5
 
     num_blocks: int = 3
+    block_num_heads: int = 4
     block_qkv_kernel_size: int = 5
     block_ff_kernel_size: int = 5
     block_channels: int = 20
@@ -80,10 +81,18 @@ class NetConfig:
 
         if self.emb_kernel_size % 2 != 1:
             raise ValueError(f"kernel must be odd numbers: {self.emb_kernel_size}")
+
+        if self.block_channels % self.block_num_heads != 0:
+            raise ValueError(
+                "block_num_heads must be divisible by block_channels: "
+                f"{self.block_channels} % {self.block_num_heads} != 0"
+            )
+
         if self.block_qkv_kernel_size % 2 != 1:
             raise ValueError(
                 f"kernel must be odd numbers: {self.block_qkv_kernel_size}"
             )
+
         if self.block_ff_kernel_size % 2 != 1:
             raise ValueError(f"kernel must be odd numbers: {self.block_ff_kernel_size}")
 

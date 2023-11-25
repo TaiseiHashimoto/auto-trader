@@ -144,6 +144,7 @@ def main(config: TrainConfig) -> None:
         categorical_emb_dim=config.net.categorical_emb_dim,
         emb_kernel_size=config.net.emb_kernel_size,
         num_blocks=config.net.num_blocks,
+        block_num_heads=config.net.block_num_heads,
         block_qkv_kernel_size=config.net.block_qkv_kernel_size,
         block_ff_kernel_size=config.net.block_ff_kernel_size,
         block_channels=config.net.block_channels,
