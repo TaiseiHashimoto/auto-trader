@@ -24,6 +24,45 @@ class PeriodicActivation(nn.Module):
         return torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
 
 
+class SeparableConv1d(nn.Module):
+    def __init__(
+        self,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int = 1,
+        padding: int = 0,
+    ):
+        super().__init__()
+        self.layers = nn.Sequential(
+            nn.Conv1d(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                groups=in_channels,
+            ),
+            nn.BatchNorm1d(in_channels),
+            nn.ReLU(),
+            nn.Conv1d(
+                in_channels=in_channels, out_channels=out_channels, kernel_size=1
+            ),
+        )
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return cast(torch.Tensor, self.layers(x))
+
+
+class ChannelFirstLayernorm(nn.Module):
+    def __init__(self, normalized_dim: int):
+        super().__init__()
+        self.layer = nn.LayerNorm(normalized_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return cast(torch.Tensor, self.layer(x.transpose(1, 2)).transpose(1, 2))
+
+
 def build_fc_layer(
     input_dim: int,
     hidden_dims: list[int],
@@ -61,32 +100,44 @@ class BlockNet(nn.Module):
         super().__init__()
 
         self.num_heads = num_heads
-        self.conv_qkv = nn.ModuleDict(
+        self.conv_q = nn.ModuleDict(
             {
-                timeframe: nn.Conv1d(
-                    channels,
-                    channels * 3,
-                    qkv_kernel_size,
+                timeframe: SeparableConv1d(
+                    in_channels=channels,
+                    out_channels=channels,
+                    kernel_size=qkv_kernel_size,
                     padding=qkv_kernel_size // 2,
                 )
                 for timeframe in feature_info
             }
         )
-        self.linear_q = nn.Linear(channels, channels)
+        self.conv_kv = nn.ModuleDict(
+            {
+                timeframe: SeparableConv1d(
+                    in_channels=channels,
+                    out_channels=channels * 2,
+                    kernel_size=qkv_kernel_size,
+                    padding=qkv_kernel_size // 2,
+                    stride=2,
+                )
+                for timeframe in feature_info
+            }
+        )
+        self.linear_q_cls = nn.Linear(channels, channels)
         self.conv_ff = nn.ModuleDict(
             {
                 timeframe: nn.Sequential(
-                    nn.Conv1d(
-                        channels,
-                        ff_channels,
-                        ff_kernel_size,
+                    SeparableConv1d(
+                        in_channels=channels,
+                        out_channels=ff_channels,
+                        kernel_size=ff_kernel_size,
                         padding=ff_kernel_size // 2,
                     ),
                     nn.ReLU(),
-                    nn.Conv1d(
-                        ff_channels,
-                        channels,
-                        ff_kernel_size,
+                    SeparableConv1d(
+                        in_channels=ff_channels,
+                        out_channels=channels,
+                        kernel_size=ff_kernel_size,
                         padding=ff_kernel_size // 2,
                     ),
                 )
@@ -100,27 +151,40 @@ class BlockNet(nn.Module):
             nn.Linear(ff_channels, channels),
         )
         self.dropout = nn.Dropout(dropout)
-        self.layernorm1 = nn.LayerNorm(channels)
-        self.layernorm2 = nn.LayerNorm(channels)
+        self.layernorm1 = nn.ModuleDict(
+            {timeframe: ChannelFirstLayernorm(channels) for timeframe in feature_info}
+        )
+        self.layernorm2 = nn.ModuleDict(
+            {timeframe: ChannelFirstLayernorm(channels) for timeframe in feature_info}
+        )
         self.layernorm1_cls = nn.LayerNorm(channels)
         self.layernorm2_cls = nn.LayerNorm(channels)
 
     def forward(
         self,
-        inp: dict[data.Timeframe, torch.Tensor],
+        inp_dict: dict[data.Timeframe, torch.Tensor],
         cls: torch.Tensor,
     ) -> tuple[dict[data.Timeframe, torch.Tensor], torch.Tensor]:
+        inp_norm_dict = {}
         query_dict = {}
         key_dict = {}
         value_dict = {}
-        for timeframe in inp:
-            q, k, v = torch.chunk(self.conv_qkv[timeframe](inp[timeframe]), 3, dim=1)
+        for timeframe in inp_dict:
+            inp_norm_dict[timeframe] = self.layernorm1[timeframe](inp_dict[timeframe])
+            q = self.conv_q[timeframe](inp_norm_dict[timeframe])
+            k, v = torch.chunk(
+                self.conv_kv[timeframe](inp_norm_dict[timeframe]), 2, dim=1
+            )
             # (batch, channel, hist_len)
             query_dict[timeframe] = q
+            # (batch, channel, hist_len // 2)
             key_dict[timeframe] = k
             value_dict[timeframe] = v
 
-        query_dict["cls"] = self.linear_q(cls).unsqueeze(dim=2)
+        # (batch, channel)
+        cls_norm = self.layernorm1_cls(cls)
+        # (batch, channel, 1)
+        query_dict["cls"] = self.linear_q_cls(cls_norm).unsqueeze(dim=2)
 
         # (batch, channels, num_timeframes * hist_len + 1)
         query = torch.cat(list(query_dict.values()), dim=2)
@@ -130,11 +194,12 @@ class BlockNet(nn.Module):
 
         # (batch, num_heads, channels / num_heads, num_timeframes * hist_len + 1)
         query = query.reshape(query.shape[0], self.num_heads, -1, query.shape[2])
-        # (batch, num_heads, channels / num_heads, num_timeframes * hist_len)
+        # (batch, num_heads, channels / num_heads, num_timeframes * hist_len // 2)
         key = key.reshape(key.shape[0], self.num_heads, -1, key.shape[2])
         value = value.reshape(value.shape[0], self.num_heads, -1, value.shape[2])
 
-        # (batch, num_heads, num_timeframes * hist_len + 1, num_timeframes * hist_len)
+        # (batch, num_heads, num_timeframes * hist_len + 1,
+        #   num_timeframes * hist_len // 2)
         attn_logits = torch.matmul(query.transpose(2, 3), key) / np.sqrt(query.shape[2])
         attention = F.softmax(attn_logits, dim=3)
         # (batch, num_heads, num_timeframes * hist_len + 1, channels / num_heads)
@@ -147,22 +212,20 @@ class BlockNet(nn.Module):
         attn_out = self.linear_out(attn_val).transpose(1, 2)
         # num_timeframes * (batch, channels, hist_len)
         attn_out_dict = dict(
-            zip(inp.keys(), torch.chunk(attn_out[:, :, :-1], len(inp), dim=2))
+            zip(inp_dict.keys(), torch.chunk(attn_out[:, :, :-1], len(inp_dict), dim=2))
         )
         # (batch, channels)
         attn_out_cls = attn_out[:, :, -1]
 
         y = {}
-        for timeframe in inp:
-            x = inp[timeframe] + self.dropout(attn_out_dict[timeframe])
-            x = self.layernorm1(x.transpose(1, 2)).transpose(1, 2)
-            x = x + self.dropout(self.conv_ff[timeframe](x))
-            y[timeframe] = self.layernorm2(x.transpose(1, 2)).transpose(1, 2)
+        for timeframe in inp_dict:
+            x = inp_norm_dict[timeframe] + self.dropout(attn_out_dict[timeframe])
+            y[timeframe] = x + self.dropout(
+                self.conv_ff[timeframe](self.layernorm2[timeframe](x))
+            )
 
-        x = cls + self.dropout(attn_out_cls)
-        x = self.layernorm1_cls(x)
-        x = x + self.dropout(self.linear_ff(x))
-        y_cls = self.layernorm2_cls(x)
+        x = cls_norm + self.dropout(attn_out_cls)
+        y_cls = x + self.dropout(self.linear_ff(self.layernorm2_cls(x)))
 
         return y, y_cls
 
