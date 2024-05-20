@@ -7,3 +7,5 @@ __pycache__
 .pytest_cache
 .dukascopy-cache
 *.egg-info
+raw/
+cleansed/
