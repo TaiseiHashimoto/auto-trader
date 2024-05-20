@@ -41,7 +41,19 @@ def calc_yyyymm(yyyymm_base: int, month_delta: int) -> int:
 
 
 def get_pip_scale(symbol: str) -> float:
-    return 0.01 if symbol == "usdjpy" else 0.0001
+    if symbol in ("usdjpy"):
+        return 0.01
+    elif symbol in (
+        "eurusd",
+        "gbpusd",
+        "usdcad",
+        "usdchf",
+        "audusd",
+        "nzdusd",
+    ):
+        return 0.0001
+    else:
+        raise ValueError(f"Unknown symbol {symbol}")
 
 
 def set_random_seed(seed: int) -> None:

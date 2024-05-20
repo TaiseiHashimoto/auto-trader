@@ -1,38 +1,20 @@
-from typing import Callable, cast
+from typing import Any, Optional, cast
 
 import lightning.pytorch as pl
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from lightning.pytorch.utilities.types import LRSchedulerConfig
 from numpy.typing import NDArray
 
 from auto_trader.modeling import data
-
-Predictions = tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]
-
-
-class NumericalNormalizer:
-    def __init__(self, mean: float, std: float):
-        self._mean = mean
-        self._std = std
-
-    def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        return (x - self._mean) / (self._std + 1e-6)
-
-
-class CategoricalNormalizer:
-    def __init__(self, max: int):
-        self._max = max
-
-    def __call__(self, x: torch.Tensor) -> torch.Tensor:
-        return torch.clamp(x, max=self._max + 1)
 
 
 class PeriodicActivation(nn.Module):
     def __init__(self, num_coefs: int, sigma: float) -> None:
         super().__init__()
-        self.params = nn.Parameter(torch.randn(num_coefs) * sigma)
+        self.params = nn.Parameter(cast(torch.Tensor, torch.randn(num_coefs) * sigma))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert x.shape[-1] == 1
@@ -42,130 +24,43 @@ class PeriodicActivation(nn.Module):
         return torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
 
 
-class ConvExtractor(nn.Module):
+class SeparableConv1d(nn.Module):
     def __init__(
         self,
-        hist_len: int,
-        input_channel: int,
-        out_channels: list[int],
-        kernel_sizes: list[int],
-        batchnorm: bool,
-        dropout: float,
+        in_channels: int,
+        out_channels: int,
+        kernel_size: int,
+        stride: int = 1,
+        padding: int = 0,
     ):
         super().__init__()
-
-        assert len(out_channels) == len(kernel_sizes)
-
-        self.layers = nn.Sequential()
-        size = hist_len
-        for out_channel, kernel_size in zip(out_channels, kernel_sizes):
-            self.layers.append(
-                nn.Conv1d(input_channel, out_channel, kernel_size, padding="same")
-            )
-            if batchnorm:
-                self.layers.append(nn.BatchNorm1d(out_channel))
-            self.layers.append(nn.ReLU())
-            if dropout > 0:
-                self.layers.append(nn.Dropout(dropout))
-            self.layers.append(nn.MaxPool1d(kernel_size=2))
-
-            size = size // 2
-            input_channel = out_channel
-
-        self._output_dim = out_channel * size
-
-    def get_output_dim(self) -> int:
-        return self._output_dim
-
-    def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # (batch, length, channel) -> (batch, channel, length)
-        x = x.permute(0, 2, 1)
-        x = self.layers(x)
-        x = x.reshape(x.shape[0], -1)
-        return x
-
-
-def get_positional_encoding(hist_len: int, emb_dim: int) -> torch.Tensor:
-    pe = torch.zeros(hist_len, emb_dim)
-    position = torch.arange(0, hist_len, dtype=torch.float).unsqueeze(dim=1)
-    div_term = torch.exp(
-        torch.arange(0, emb_dim, 2).float() * (-np.log(10000.0) / emb_dim)
-    )
-    pe[:, 0::2] = torch.sin(position * div_term)
-    pe[:, 1::2] = torch.cos(position * div_term)
-    return pe.unsqueeze(dim=0)
-
-
-class AttentionExtractor(nn.Module):
-    def __init__(
-        self,
-        hist_len: int,
-        emb_dim: int,
-        num_layers: int,
-        num_heads: int,
-        feedforward_dim: int,
-        dropout: float,
-    ):
-        super().__init__()
-
-        assert emb_dim % num_heads == 0
-
-        self.attention_layers = nn.ModuleList()
-        self.linear_layers = nn.ModuleList()
-        self.feedforward_layers = nn.ModuleList()
-        for _ in range(num_layers):
-            self.attention_layers.append(
-                nn.MultiheadAttention(
-                    embed_dim=emb_dim,
-                    num_heads=num_heads,
-                    batch_first=True,
-                ),
-            )
-            self.linear_layers.append(nn.Linear(emb_dim, emb_dim))
-            self.feedforward_layers.append(
-                nn.Sequential(
-                    nn.Linear(emb_dim, feedforward_dim),
-                    nn.Dropout(dropout),
-                    nn.ReLU(),
-                    nn.Linear(feedforward_dim, emb_dim),
-                )
-            )
-
-        self.positional_encoding: torch.Tensor
-        self.register_buffer(
-            "positional_encoding", get_positional_encoding(hist_len, emb_dim)
+        self.layers = nn.Sequential(
+            nn.Conv1d(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=kernel_size,
+                stride=stride,
+                padding=padding,
+                groups=in_channels,
+            ),
+            nn.BatchNorm1d(in_channels),
+            nn.ReLU(),
+            nn.Conv1d(
+                in_channels=in_channels, out_channels=out_channels, kernel_size=1
+            ),
         )
 
-        self.dropout = nn.Dropout(dropout)
-        self.layer_norm = nn.LayerNorm(emb_dim)
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        return cast(torch.Tensor, self.layers(x))
 
-        self._output_dim = emb_dim
 
-    def get_output_dim(self) -> int:
-        return self._output_dim
+class ChannelFirstLayernorm(nn.Module):
+    def __init__(self, normalized_dim: int):
+        super().__init__()
+        self.layer = nn.LayerNorm(normalized_dim)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        # (batch, length, embed)
-        x = x + self.positional_encoding
-
-        for i in range(len(self.attention_layers)):
-            if i < len(self.attention_layers) - 1:
-                q, k, v = x, x, x
-            else:
-                # query last time only
-                q = x[:, -1, :].unsqueeze(dim=1)
-                k, v = x, x
-
-            # (batch, length or 1, embed)
-            x_ = self.attention_layers[i](q, k, v, need_weights=False)[0]
-            x_ = self.linear_layers[i](x_)
-            x = self.layer_norm(q + self.dropout(x_))
-
-            x_ = self.feedforward_layers[i](x)
-            x = self.layer_norm(x + self.dropout(x_))
-
-        # (batch, embed)
-        return x.squeeze(dim=1)
+        return cast(torch.Tensor, self.layer(x.transpose(1, 2)).transpose(1, 2))
 
 
 def build_fc_layer(
@@ -173,7 +68,7 @@ def build_fc_layer(
     hidden_dims: list[int],
     batchnorm: bool,
     dropout: float,
-    output_dim: int,
+    output_dim: Optional[int] = None,
 ) -> nn.Sequential:
     layers: list[nn.Module] = []
     for hidden_dim in hidden_dims:
@@ -185,177 +80,283 @@ def build_fc_layer(
             layers.append(nn.Dropout(dropout))
         input_dim = hidden_dim
 
-    layers.append(nn.Linear(input_dim, output_dim))
+    if output_dim is not None:
+        layers.append(nn.Linear(input_dim, output_dim))
+
     return nn.Sequential(*layers)
 
 
-class BaseNet(nn.Module):
+class BlockNet(nn.Module):
     def __init__(
         self,
-        feature_info: dict[data.FeatureName, data.FeatureInfo],
-        hist_len: int,
-        numerical_emb_dim: int,
-        periodic_activation_num_coefs: int,
-        periodic_activation_sigma: float,
-        categorical_emb_dim: int,
-        emb_output_dim: int,
-        net_type: str,
-        attention_num_layers: int,
-        attention_num_heads: int,
-        attention_feedforward_dim: int,
-        attention_dropout: float,
-        conv_out_channels: list[int],
-        conv_kernel_sizes: list[int],
-        conv_batchnorm: bool,
-        conv_dropout: float,
-        fc_hidden_dims: list[int],
-        fc_batchnorm: bool,
-        fc_dropout: float,
-        output_dim: int,
+        feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
+        num_heads: int,
+        qkv_kernel_size: int,
+        ff_kernel_size: int,
+        channels: int,
+        ff_channels: int,
+        dropout: float,
     ):
         super().__init__()
 
-        self.normalize_funs: dict[str, Callable[[torch.Tensor], torch.Tensor]] = {}
-        self.embed_layers = nn.ModuleDict()
-        emb_total_dim = 0
-        for name, info in feature_info.items():
-            if info.dtype == np.float32:
-                self.normalize_funs[name] = NumericalNormalizer(
-                    info.mean, info.var**0.5
+        self.num_heads = num_heads
+        self.conv_q = nn.ModuleDict(
+            {
+                timeframe: SeparableConv1d(
+                    in_channels=channels,
+                    out_channels=channels,
+                    kernel_size=qkv_kernel_size,
+                    padding=qkv_kernel_size // 2,
                 )
-                self.embed_layers[name] = nn.Sequential(
-                    PeriodicActivation(
-                        periodic_activation_num_coefs, periodic_activation_sigma
-                    ),
-                    nn.Linear(periodic_activation_num_coefs * 2, numerical_emb_dim),
-                    nn.ReLU(),
-                )
-                emb_total_dim += numerical_emb_dim
-            elif info.dtype == np.int64:
-                self.normalize_funs[name] = CategoricalNormalizer(info.max)
-                self.embed_layers[name] = nn.Embedding(
-                    # max + 1 を OOV token とする
-                    num_embeddings=info.max + 2,
-                    embedding_dim=categorical_emb_dim,
-                )
-                emb_total_dim += categorical_emb_dim
-
-        self.fc_embed = nn.Linear(emb_total_dim, emb_output_dim)
-
-        self.extractor: nn.Module
-        if net_type == "attention":
-            self.extractor = AttentionExtractor(
-                hist_len=hist_len,
-                emb_dim=emb_output_dim,
-                num_layers=attention_num_layers,
-                num_heads=attention_num_heads,
-                feedforward_dim=attention_feedforward_dim,
-                dropout=attention_dropout,
-            )
-        elif net_type == "conv":
-            self.extractor = ConvExtractor(
-                hist_len=hist_len,
-                input_channel=emb_output_dim,
-                out_channels=conv_out_channels,
-                kernel_sizes=conv_kernel_sizes,
-                batchnorm=conv_batchnorm,
-                dropout=conv_dropout,
-            )
-        else:
-            assert False
-
-        self.fc_layer = build_fc_layer(
-            input_dim=self.extractor.get_output_dim(),
-            hidden_dims=fc_hidden_dims,
-            batchnorm=fc_batchnorm,
-            dropout=fc_dropout,
-            output_dim=output_dim,
+                for timeframe in feature_info
+            }
         )
+        self.conv_kv = nn.ModuleDict(
+            {
+                timeframe: SeparableConv1d(
+                    in_channels=channels,
+                    out_channels=channels * 2,
+                    kernel_size=qkv_kernel_size,
+                    padding=qkv_kernel_size // 2,
+                    stride=2,
+                )
+                for timeframe in feature_info
+            }
+        )
+        self.linear_q_cls = nn.Linear(channels, channels)
+        self.conv_ff = nn.ModuleDict(
+            {
+                timeframe: nn.Sequential(
+                    SeparableConv1d(
+                        in_channels=channels,
+                        out_channels=ff_channels,
+                        kernel_size=ff_kernel_size,
+                        padding=ff_kernel_size // 2,
+                    ),
+                    nn.ReLU(),
+                    SeparableConv1d(
+                        in_channels=ff_channels,
+                        out_channels=channels,
+                        kernel_size=ff_kernel_size,
+                        padding=ff_kernel_size // 2,
+                    ),
+                )
+                for timeframe in feature_info
+            }
+        )
+        self.linear_out = nn.Linear(channels, channels)
+        self.linear_ff = nn.Sequential(
+            nn.Linear(channels, ff_channels),
+            nn.ReLU(),
+            nn.Linear(ff_channels, channels),
+        )
+        self.dropout = nn.Dropout(dropout)
+        self.layernorm1 = nn.ModuleDict(
+            {timeframe: ChannelFirstLayernorm(channels) for timeframe in feature_info}
+        )
+        self.layernorm2 = nn.ModuleDict(
+            {timeframe: ChannelFirstLayernorm(channels) for timeframe in feature_info}
+        )
+        self.layernorm1_cls = nn.LayerNorm(channels)
+        self.layernorm2_cls = nn.LayerNorm(channels)
 
-    def forward(self, features: dict[str, torch.Tensor]) -> torch.Tensor:
-        embeddings = []
-        for name, value in features.items():
-            value_norm = self.normalize_funs[name](value)
-            embeddings.append(self.embed_layers[name](value_norm))
+    def forward(
+        self,
+        inp_dict: dict[data.Timeframe, torch.Tensor],
+        cls: torch.Tensor,
+    ) -> tuple[dict[data.Timeframe, torch.Tensor], torch.Tensor]:
+        inp_norm_dict = {}
+        query_dict = {}
+        key_dict = {}
+        value_dict = {}
+        for timeframe in inp_dict:
+            inp_norm_dict[timeframe] = self.layernorm1[timeframe](inp_dict[timeframe])
+            q = self.conv_q[timeframe](inp_norm_dict[timeframe])
+            k, v = torch.chunk(
+                self.conv_kv[timeframe](inp_norm_dict[timeframe]), 2, dim=1
+            )
+            # (batch, channel, hist_len)
+            query_dict[timeframe] = q
+            # (batch, channel, hist_len // 2)
+            key_dict[timeframe] = k
+            value_dict[timeframe] = v
 
-        # (batch, length, emb_output_dim)
-        x = self.fc_embed(torch.cat(embeddings, dim=2))
-        # (batch, extractor_output_dim)
-        x = self.extractor(x)
-        # (batch, output_dim)
-        x = self.fc_layer(F.relu(x))
-        return cast(torch.Tensor, x)
+        # (batch, channel)
+        cls_norm = self.layernorm1_cls(cls)
+        # (batch, channel, 1)
+        query_dict["cls"] = self.linear_q_cls(cls_norm).unsqueeze(dim=2)
+
+        # (batch, channels, num_timeframes * hist_len + 1)
+        query = torch.cat(list(query_dict.values()), dim=2)
+        # (batch, channels, num_timeframes * hist_len)
+        key = torch.cat(list(key_dict.values()), dim=2)
+        value = torch.cat(list(value_dict.values()), dim=2)
+
+        # (batch, num_heads, channels / num_heads, num_timeframes * hist_len + 1)
+        query = query.reshape(query.shape[0], self.num_heads, -1, query.shape[2])
+        # (batch, num_heads, channels / num_heads, num_timeframes * hist_len // 2)
+        key = key.reshape(key.shape[0], self.num_heads, -1, key.shape[2])
+        value = value.reshape(value.shape[0], self.num_heads, -1, value.shape[2])
+
+        # (batch, num_heads, num_timeframes * hist_len + 1,
+        #   num_timeframes * hist_len // 2)
+        attn_logits = torch.matmul(query.transpose(2, 3), key) / np.sqrt(query.shape[2])
+        attention = F.softmax(attn_logits, dim=3)
+        # (batch, num_heads, num_timeframes * hist_len + 1, channels / num_heads)
+        attn_val = torch.matmul(attention, value.transpose(2, 3))
+        # (batch, num_timeframes * hist_len + 1, channels)
+        attn_val = attn_val.transpose(1, 2).reshape(
+            attn_val.shape[0], attn_val.shape[2], -1
+        )
+        # (batch, channels, num_timeframes * hist_len + 1)
+        attn_out = self.linear_out(attn_val).transpose(1, 2)
+        # num_timeframes * (batch, channels, hist_len)
+        attn_out_dict = dict(
+            zip(inp_dict.keys(), torch.chunk(attn_out[:, :, :-1], len(inp_dict), dim=2))
+        )
+        # (batch, channels)
+        attn_out_cls = attn_out[:, :, -1]
+
+        y = {}
+        for timeframe in inp_dict:
+            x = inp_norm_dict[timeframe] + self.dropout(attn_out_dict[timeframe])
+            y[timeframe] = x + self.dropout(
+                self.conv_ff[timeframe](self.layernorm2[timeframe](x))
+            )
+
+        x = cls_norm + self.dropout(attn_out_cls)
+        y_cls = x + self.dropout(self.linear_ff(self.layernorm2_cls(x)))
+
+        return y, y_cls
+
+
+class PositionalEncoding(nn.Module):
+    def __init__(self, dim: int, length: int):
+        super().__init__()
+        assert dim % 2 == 0
+
+        pe = torch.zeros(dim, length)
+        position = torch.arange(0, length, dtype=torch.float32)
+        div_term = torch.exp(torch.arange(0, dim, 2).float() * (-np.log(10000.0) / dim))
+        pe[0::2] = torch.sin(position * div_term.unsqueeze(dim=1))
+        pe[1::2] = torch.cos(position * div_term.unsqueeze(dim=1))
+
+        self.pe: torch.Tensor
+        self.register_buffer("pe", pe, persistent=False)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = x + self.pe
+        return x
 
 
 class Net(nn.Module):
     def __init__(
         self,
+        symbol_num: int,
         feature_info: dict[data.Timeframe, dict[data.FeatureName, data.FeatureInfo]],
         hist_len: int,
         numerical_emb_dim: int,
         periodic_activation_num_coefs: int,
         periodic_activation_sigma: float,
         categorical_emb_dim: int,
-        emb_output_dim: int,
-        base_net_type: str,
-        base_attention_num_layers: int,
-        base_attention_num_heads: int,
-        base_attention_feedforward_dim: int,
-        base_attention_dropout: float,
-        base_conv_out_channels: list[int],
-        base_conv_kernel_sizes: list[int],
-        base_conv_batchnorm: bool,
-        base_conv_dropout: float,
-        base_fc_hidden_dims: list[int],
-        base_fc_batchnorm: bool,
-        base_fc_dropout: float,
-        base_fc_output_dim: int,
+        emb_kernel_size: int,
+        num_blocks: int,
+        block_num_heads: int,
+        block_qkv_kernel_size: int,
+        block_ff_kernel_size: int,
+        block_channels: int,
+        block_ff_channels: int,
+        block_dropout: float,
         head_hidden_dims: list[int],
         head_batchnorm: bool,
         head_dropout: float,
+        head_output_dim: int,
     ):
         super().__init__()
 
-        self.base_nets = nn.ModuleDict()
+        self.emb_featurewise = nn.ModuleDict()
+        self.emb_conv = nn.ModuleDict()
         for timeframe in feature_info:
-            self.base_nets[timeframe] = BaseNet(
-                feature_info=feature_info[timeframe],
-                hist_len=hist_len,
-                numerical_emb_dim=numerical_emb_dim,
-                periodic_activation_num_coefs=periodic_activation_num_coefs,
-                periodic_activation_sigma=periodic_activation_sigma,
-                categorical_emb_dim=categorical_emb_dim,
-                emb_output_dim=emb_output_dim,
-                net_type=base_net_type,
-                attention_num_layers=base_attention_num_layers,
-                attention_num_heads=base_attention_num_heads,
-                attention_feedforward_dim=base_attention_feedforward_dim,
-                attention_dropout=base_attention_dropout,
-                conv_out_channels=base_conv_out_channels,
-                conv_kernel_sizes=base_conv_kernel_sizes,
-                conv_batchnorm=base_conv_batchnorm,
-                conv_dropout=base_conv_dropout,
-                fc_hidden_dims=base_fc_hidden_dims,
-                fc_batchnorm=base_fc_batchnorm,
-                fc_dropout=base_fc_dropout,
-                output_dim=base_fc_output_dim,
+            emb_total_dim = 0
+            for name, info in feature_info[timeframe].items():
+                if info.dtype == np.float32:
+                    self.emb_featurewise[f"{timeframe}_{name}"] = nn.Sequential(
+                        PeriodicActivation(
+                            periodic_activation_num_coefs, periodic_activation_sigma
+                        ),
+                        nn.Linear(periodic_activation_num_coefs * 2, numerical_emb_dim),
+                        nn.ReLU(),
+                    )
+                    emb_total_dim += numerical_emb_dim
+                elif info.dtype == np.int64:
+                    self.emb_featurewise[f"{timeframe}_{name}"] = nn.Embedding(
+                        # max + 1 を OOV token とする
+                        num_embeddings=info.max + 2,
+                        embedding_dim=categorical_emb_dim,
+                    )
+                    emb_total_dim += categorical_emb_dim
+
+            self.emb_conv[timeframe] = nn.Conv1d(
+                emb_total_dim,
+                block_channels,
+                emb_kernel_size,
+                padding=emb_kernel_size // 2,
             )
 
+        self.positional_encoding = PositionalEncoding(block_channels, hist_len)
+        self.emb_cls = nn.Parameter(torch.randn(block_channels))
+        self.block_nets = nn.ModuleList(
+            [
+                BlockNet(
+                    feature_info=feature_info,
+                    num_heads=block_num_heads,
+                    qkv_kernel_size=block_qkv_kernel_size,
+                    ff_kernel_size=block_ff_kernel_size,
+                    channels=block_channels,
+                    ff_channels=block_ff_channels,
+                    dropout=block_dropout,
+                )
+                for _ in range(num_blocks)
+            ]
+        )
+        self.symbol_emb = nn.Embedding(symbol_num, block_channels)
         self.head = build_fc_layer(
-            input_dim=base_fc_output_dim * len(feature_info),
+            input_dim=block_channels,
             hidden_dims=head_hidden_dims,
             batchnorm=head_batchnorm,
             dropout=head_dropout,
-            output_dim=4,
+            output_dim=head_output_dim,
         )
 
-    def forward(self, features: dict[str, dict[str, torch.Tensor]]) -> torch.Tensor:
-        base_outputs = []
-        for timeframe, base_net in self.base_nets.items():
-            base_outputs.append(base_net(features[timeframe]))
+    def forward(
+        self,
+        symbol_idx: torch.Tensor,
+        features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
+    ) -> torch.Tensor:
+        emb_dict = {}
+        batch_size = 0
+        for timeframe in features:
+            # (batch, hist_len, emb_total_dim)
+            x = torch.cat(
+                [
+                    self.emb_featurewise[f"{timeframe}_{feature_name}"](
+                        features[timeframe][feature_name]
+                    )
+                    for feature_name in features[timeframe]
+                ],
+                dim=2,
+            )
+            # (batch, block_channels, hist_len)
+            x = self.emb_conv[timeframe](x.transpose(1, 2))
+            emb_dict[timeframe] = self.positional_encoding(x)
+            batch_size = x.shape[0]
 
-        x = torch.cat(base_outputs, dim=1)
-        x = F.relu(x)
+        emb_cls = torch.tile(self.emb_cls, dims=(batch_size, 1))
+        for net in self.block_nets:
+            emb_dict, emb_cls = net(emb_dict, emb_cls)
+
+        # (batch, block_channels)
+        x = emb_cls + self.symbol_emb(symbol_idx)
         return cast(torch.Tensor, self.head(x))
 
 
@@ -363,31 +364,53 @@ class Model(pl.LightningModule):
     def __init__(
         self,
         net: nn.Module,
-        entropy_coef: float = 0.01,
-        spread: float = 2.0,
-        entry_pos_coef: float = 1.0,
-        exit_pos_coef: float = 1.0,
+        boundary: float,
+        temperature: float = 0.1,
+        canonical_batch_size: int = 1000,
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
+        cosine_decay_steps: int = 0,
+        cosine_decay_min: float = 0.01,
         log_stdout: bool = False,
     ):
         super().__init__()
         self.net = net
-        self.entropy_coef = entropy_coef
-        self.spread = spread
-        self.entry_pos_coef = entry_pos_coef
-        self.exit_pos_coef = exit_pos_coef
+
+        self.boundary = boundary
+        self.temperature = temperature
+        self.canonical_batch_size = canonical_batch_size
         self.learning_rate = learning_rate
         self.weight_decay = weight_decay
+        self.cosine_decay_steps = cosine_decay_steps
+        self.cosine_decay_min = cosine_decay_min
         self.log_stdout = log_stdout
 
-    def configure_optimizers(self) -> torch.optim.Optimizer:
+    def configure_optimizers(
+        self,
+    ) -> tuple[list[torch.optim.Optimizer], list[LRSchedulerConfig]]:
+        optimizer: torch.optim.Optimizer
         if self.weight_decay == 0:
-            return torch.optim.Adam(self.parameters(), lr=self.learning_rate)
+            optimizer = torch.optim.Adam(self.parameters(), lr=self.learning_rate)
         else:
-            return torch.optim.AdamW(
+            optimizer = torch.optim.AdamW(
                 self.parameters(), lr=self.learning_rate, weight_decay=self.weight_decay
             )
+
+        scheduler_config = cast(
+            LRSchedulerConfig,
+            {
+                "scheduler": torch.optim.lr_scheduler.CosineAnnealingLR(
+                    optimizer=optimizer,
+                    T_max=self.cosine_decay_steps if self.cosine_decay_steps > 0 else 1,
+                    eta_min=self.learning_rate
+                    * (self.cosine_decay_min if self.cosine_decay_steps > 0 else 1.0),
+                ),
+                "interval": "step",
+                "frequency": 1,
+            },
+        )
+
+        return [optimizer], [scheduler_config]
 
     def _to_torch_features(
         self,
@@ -399,13 +422,13 @@ class Model(pl.LightningModule):
             features_torch[timeframe] = {}
             for feature_name, value_np in features_np[timeframe].items():
                 if value_np.dtype == np.float32:
-                    # shape: (batch, length, feature=1)
+                    # shape: (batch, hist_len, feature=1)
                     features_torch[timeframe][feature_name] = torch.unsqueeze(
                         torch.from_numpy(features_np[timeframe][feature_name]),
                         dim=2,
                     ).to(self.device)
                 elif value_np.dtype == np.int64:
-                    # shape: (batch, length)
+                    # shape: (batch, hist_len)
                     features_torch[timeframe][feature_name] = torch.from_numpy(
                         features_np[timeframe][feature_name]
                     ).to(self.device)
@@ -417,157 +440,120 @@ class Model(pl.LightningModule):
 
         return features_torch
 
-    def _to_torch_gain(self, gain: NDArray[np.float32]) -> torch.Tensor:
-        return torch.from_numpy(gain).to(self.device)
+    def _predict_logits(
+        self,
+        symbol_idx: torch.Tensor,
+        features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
+    ) -> torch.Tensor:
+        return cast(torch.Tensor, self.net(symbol_idx, features))
 
-    def _predict_prob(
-        self, features_torch: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]]
-    ) -> Predictions:
-        # (long_entry, long_exit, short_entry, short_exit) は
-        # (1, 0, 0, 1), (0, 0, 0, 1), (0, 1, 0, 0),  (0, 1, 1, 0) のいずれか。
-        # 各ケースの確率を p0, p1, p2, p3 とすると、
-        # (prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit)
-        # = (p0, p2 + p3, p3, p0 + p1)
-        pred = self.net(features_torch)
-        # pred_norm = torch.softmax(pred, dim=1)
-        # prob_long_entry = pred_norm[:, 0]
-        # prob_long_exit = pred_norm[:, 2] + pred_norm[:, 3]
-        # prob_short_entry = pred_norm[:, 3]
-        # prob_short_exit = pred_norm[:, 0] + pred_norm[:, 1]
-        # return prob_long_entry, prob_long_exit, prob_short_entry, prob_short_exit
-        return (
-            torch.sigmoid(pred[:, 0]),
-            torch.sigmoid(pred[:, 1]),
-            torch.sigmoid(pred[:, 2]),
-            torch.sigmoid(pred[:, 3]),
-        )
-
-    def _calc_binary_entropy(self, prob: torch.Tensor) -> torch.Tensor:
+    def _predict_score(
+        self,
+        symbol_idx: torch.Tensor,
+        features: dict[data.Timeframe, dict[data.FeatureName, torch.Tensor]],
+    ) -> torch.Tensor:
+        logit = self._predict_logits(symbol_idx, features)
+        prob = torch.softmax(logit, dim=1)
         return cast(
-            torch.Tensor,
-            -(prob * torch.log(prob + 1e-6) + (1 - prob) * torch.log(1 - prob + 1e-6)),
+            torch.Tensor, prob[:, 0] * -self.boundary + prob[:, 2] * self.boundary
         )
 
     def _calc_loss(
         self,
-        prob_long_entry: torch.Tensor,
-        prob_long_exit: torch.Tensor,
-        prob_short_entry: torch.Tensor,
-        prob_short_exit: torch.Tensor,
-        gain_long: torch.Tensor,
-        gain_short: torch.Tensor,
+        logit: torch.Tensor,
+        lift: torch.Tensor,
         log_prefix: str,
     ) -> torch.Tensor:
-        gain_long_entry = (
-            prob_long_entry
-            * (gain_long - self.spread)
-            * torch.where(gain_long - self.spread > 0, self.entry_pos_coef, 1.0)
-        ).mean()
-        gain_long_exit = (
-            prob_long_exit
-            * -gain_long
-            * torch.where(-gain_long > 0, self.exit_pos_coef, 1.0)
-        ).mean()
-        gain_short_entry = (
-            prob_short_entry
-            * (gain_short - self.spread)
-            * torch.where(gain_short - self.spread > 0, self.entry_pos_coef, 1.0)
-        ).mean()
-        gain_short_exit = (
-            prob_short_exit
-            * -gain_short
-            * torch.where(-gain_short > 0, self.exit_pos_coef, 1.0)
-        ).mean()
-        entropy_long_entry = self._calc_binary_entropy(prob_long_entry).mean()
-        entropy_long_exit = self._calc_binary_entropy(prob_long_exit).mean()
-        entropy_short_entry = self._calc_binary_entropy(prob_short_entry).mean()
-        entropy_short_exit = self._calc_binary_entropy(prob_short_exit).mean()
-        gain = gain_long_entry + gain_long_exit + gain_short_entry + gain_short_exit
-        entropy = (
-            entropy_long_entry
-            + entropy_long_exit
-            + entropy_short_entry
-            + entropy_short_exit
+        soft_label = F.softmax(
+            torch.stack(
+                [
+                    cast(torch.Tensor, (-lift - self.boundary) / self.temperature),
+                    torch.zeros_like(lift),
+                    cast(torch.Tensor, (lift - self.boundary) / self.temperature),
+                ],
+                dim=1,
+            ),
+            dim=1,
         )
-        loss = -(gain + self.entropy_coef * entropy)
+        log_prob = F.log_softmax(logit, dim=1)
+        loss = -(log_prob * soft_label).sum(dim=1).mean()
+
+        with torch.no_grad():
+            prob = torch.exp(log_prob)
 
         self.log_dict(
             {
-                f"{log_prefix}/prob_long_entry": prob_long_entry.mean(),
-                f"{log_prefix}/prob_long_exit": prob_long_exit.mean(),
-                f"{log_prefix}/prob_short_entry": prob_short_entry.mean(),
-                f"{log_prefix}/prob_short_exit": prob_short_exit.mean(),
-                f"{log_prefix}/gain_long_entry": gain_long_entry,
-                f"{log_prefix}/gain_long_exit": gain_long_exit,
-                f"{log_prefix}/gain_short_entry": gain_short_entry,
-                f"{log_prefix}/gain_short_exit": gain_short_exit,
-                f"{log_prefix}/entropy_long_entry": entropy_long_entry,
-                f"{log_prefix}/entropy_long_exit": entropy_long_exit,
-                f"{log_prefix}/entropy_short_entry": entropy_short_entry,
-                f"{log_prefix}/entropy_short_exit": entropy_short_exit,
-                f"{log_prefix}/gain": gain,
-                f"{log_prefix}/entropy": entropy,
                 f"{log_prefix}/loss": loss,
+                f"{log_prefix}/prob_lowest": prob[:, 0].mean(),
+                f"{log_prefix}/prob_highest": prob[:, -1].mean(),
             },
             # Accumulate metrics on epoch level
             on_step=False,
             on_epoch=True,
-            batch_size=prob_long_entry.shape[0],
+            batch_size=logit.shape[0],
         )
 
-        return loss
+        # バッチサイズに合わせて gradient をスケーリングする
+        batch_size_ratio = logit.shape[0] / self.canonical_batch_size
+        return cast(torch.Tensor, loss * batch_size_ratio)
 
     def training_step(
         self,
         batch: tuple[
+            NDArray[np.int64],
             dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
-            tuple[NDArray[np.float32], NDArray[np.float32]],
+            NDArray[np.float32],
         ],
-        batch_idx: int,
+        *args: Any,
+        **kwargs: Any,
     ) -> torch.Tensor:
-        features_np, (gain_long_np, gain_short_np) = batch
+        symbol_idx_np, features_np, lift_np = batch
+        symbol_idx_torch = torch.from_numpy(symbol_idx_np).to(self.device)
         features_torch = self._to_torch_features(features_np)
-        gain_long_torch = self._to_torch_gain(gain_long_np)
-        gain_short_torch = self._to_torch_gain(gain_short_np)
+        lift_torch = torch.from_numpy(lift_np).to(self.device)
         return self._calc_loss(
-            *self._predict_prob(features_torch),
-            gain_long_torch,
-            gain_short_torch,
+            self._predict_logits(symbol_idx_torch, features_torch),
+            lift_torch,
             log_prefix="train",
         )
 
     def validation_step(
         self,
         batch: tuple[
+            NDArray[np.int64],
             dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
             NDArray[np.float32],
         ],
-        batch_idx: int,
+        *args: Any,
+        **kwargs: Any,
     ) -> None:
-        features_np, (gain_long_np, gain_short_np) = batch
+        symbol_idx_np, features_np, lift_np = batch
+        symbol_idx_torch = torch.from_numpy(symbol_idx_np).to(self.device)
         features_torch = self._to_torch_features(features_np)
-        gain_long_torch = self._to_torch_gain(gain_long_np)
-        gain_short_torch = self._to_torch_gain(gain_short_np)
+        lift_torch = torch.from_numpy(lift_np).to(self.device)
         # ロギング目的
         _ = self._calc_loss(
-            *self._predict_prob(features_torch),
-            gain_long_torch,
-            gain_short_torch,
+            self._predict_logits(symbol_idx_torch, features_torch),
+            lift_torch,
             log_prefix="valid",
         )
 
     def predict_step(
         self,
         batch: tuple[
-            dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]], None
+            NDArray[np.int64],
+            dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
+            None,
         ],
-        batch_idx: int,
-    ) -> Predictions:
-        features_np, _ = batch
+        *args: Any,
+        **kwargs: Any,
+    ) -> torch.Tensor:
+        symbol_idx_np, features_np, _ = batch
+        symbol_idx_torch = torch.from_numpy(symbol_idx_np).to(self.device)
         features_torch = self._to_torch_features(features_np)
-        return self._predict_prob(features_torch)
+        return self._predict_score(symbol_idx_torch, features_torch)
 
-    def on_trainput_epoch_end(self) -> None:
+    def on_train_epoch_end(self) -> None:
         if self.log_stdout:
             metrics = {k: float(v) for k, v in self.trainer.callback_metrics.items()}
             print(f"Training metrics: {metrics}")

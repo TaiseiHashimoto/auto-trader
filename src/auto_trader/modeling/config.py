@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from typing import Optional
 
 from omegaconf import MISSING
 
@@ -13,45 +14,43 @@ class NeptuneConfig:
             raise ValueError(f"Unknown mode {self.mode}")
 
 
-@dataclass
-class DataConfig:
-    symbol: str = MISSING
-    cleansed_data_dir: str = "./cleansed"
-    yyyymm_begin: int = MISSING
-    yyyymm_end: int = MISSING
-
-    def __post_init__(self) -> None:
-        if self.symbol != MISSING and self.symbol not in ["usdjpy", "eurusd"]:
-            raise ValueError(f"Unknown symbol {self.symbol}")
+YYYYMM_BEGIN_MAP = {
+    "usdjpy": 201204,  # 201203 にスプレッドマイナス
+    "eurusd": 201012,  # 201011 まではスプレッドが同じ値を取ることが多い
+    "gbpusd": 201011,  # 201010 までは桁数が少ない
+    "usdcad": 201011,  # 201010 までは桁数が少ない
+    "usdchf": 201011,  # 201010 までは桁数が少ない
+    "audusd": 201109,  # 201108 にスプレッドマイナス
+    "nzdusd": 201011,  # 201010 までは桁数が少ない
+}
 
 
 @dataclass
 class FeatureConfig:
-    timeframes: list[str] = field(default_factory=lambda: ["1min", "5min", "1h"])
+    timeframes: list[str] = field(default_factory=lambda: ["1min"])
     base_timing: str = "close"
-    sma_window_sizes: list[int] = field(default_factory=lambda: [5, 8, 13])
-    sma_window_size_center: int = 5
-    sigma_window_sizes: list[int] = field(default_factory=lambda: [9])
+    moving_window_sizes: list[int] = field(default_factory=lambda: [5, 8, 13])
+    moving_window_size_center: int = 5
+    use_sma_frac: bool = True
     sma_frac_unit: int = 100
+    use_hour: bool = True
+    use_dow: bool = True
     hist_len: int = 10
-    start_hour: int = 2
-    end_hour: int = 22
 
     def __post_init__(self) -> None:
         if "1min" not in self.timeframes:
             raise ValueError(f"timeframes {self.timeframes} must include '1min'")
 
-        if self.sma_window_size_center not in self.sma_window_sizes:
+        if self.moving_window_size_center not in self.moving_window_sizes:
             raise ValueError(
-                f"sma_window_sizes {self.sma_window_sizes} "
-                f"must include sma_window_size_center {self.sma_window_size_center}"
+                f"sma_window_sizes {self.moving_window_sizes} must include "
+                f"moving_window_size_center {self.moving_window_size_center}"
             )
 
 
 @dataclass
-class GainConfig:
+class LiftConfig:
     alpha: float = 0.1
-    thresh_losscut: float = 5.0
 
 
 @dataclass
@@ -60,24 +59,15 @@ class NetConfig:
     periodic_activation_num_coefs: int = 8
     periodic_activation_sigma: float = 1.0
     categorical_emb_dim: int = 16
-    emb_output_dim: int = 64
+    emb_kernel_size: int = 5
 
-    base_net_type: str = "attention"
-
-    base_attention_num_layers: int = 3
-    base_attention_num_heads: int = 1
-    base_attention_feedforward_dim: int = 128
-    base_attention_dropout: float = 0.1
-
-    base_conv_out_channels: list[int] = field(default_factory=lambda: [20, 40, 20])
-    base_conv_kernel_sizes: list[int] = field(default_factory=lambda: [5, 5, 5])
-    base_conv_batchnorm: bool = True
-    base_conv_dropout: float = 0.0
-
-    base_fc_hidden_dims: list[int] = field(default_factory=lambda: [128])
-    base_fc_batchnorm: bool = False
-    base_fc_dropout: float = 0.0
-    base_fc_output_dim: int = 128
+    num_blocks: int = 3
+    block_num_heads: int = 4
+    block_qkv_kernel_size: int = 5
+    block_ff_kernel_size: int = 5
+    block_channels: int = 20
+    block_ff_channels: int = 40
+    block_dropout: float = 0.0
 
     head_hidden_dims: list[int] = field(default_factory=lambda: [64])
     head_batchnorm: bool = False
@@ -89,38 +79,44 @@ class NetConfig:
                 f"numerical_emb_dim must be a even number: {self.numerical_emb_dim}"
             )
 
-        if self.base_net_type not in ["attention", "conv"]:
-            raise ValueError(f"Unknown base_type {self.base_net_type}")
+        if self.emb_kernel_size % 2 != 1:
+            raise ValueError(f"kernel must be odd numbers: {self.emb_kernel_size}")
 
-        if self.emb_output_dim % self.base_attention_num_heads != 0:
+        if self.block_channels % self.block_num_heads != 0:
             raise ValueError(
-                f"emb_dim ({self.emb_output_dim}) must be divisible by "
-                f"num_heads ({self.base_attention_num_heads})"
+                "block_channels must be divisible by block_num_heads: "
+                f"{self.block_channels} % {self.block_num_heads} != 0"
             )
 
-        if len(self.base_conv_out_channels) != len(self.base_conv_kernel_sizes):
+        if self.block_qkv_kernel_size % 2 != 1:
             raise ValueError(
-                f"Number of conv channels and kernel sizes does not match: "
-                f"{self.base_conv_out_channels} != {self.base_conv_kernel_sizes}"
+                f"kernel must be odd numbers: {self.block_qkv_kernel_size}"
             )
+
+        if self.block_ff_kernel_size % 2 != 1:
+            raise ValueError(f"kernel must be odd numbers: {self.block_ff_kernel_size}")
 
 
 @dataclass
 class LossConfig:
-    entropy_coef: float = 1.0
-    spread: float = 2.0
-    entry_pos_coef: float = 1.0
-    exit_pos_coef: float = 1.0
+    boundary: float = 2.0
+    temperature: float = 0.1
 
 
 @dataclass
 class OptimConfig:
     learning_rate: float = 1e-3
     weight_decay: float = 0.0
+    cosine_decay_steps: int = 0
+    cosine_decay_min: float = 0.01
 
 
 @dataclass
 class TrainConfig:
+    cleansed_data_dir: str = "./cleansed"
+    symbols: list[str] = field(default_factory=lambda: ["usdjpy"])
+    yyyymm_begin: Optional[int] = None
+    yyyymm_end: int = MISSING
     output_dir: str = "./output"
     max_epochs: int = 20
     early_stopping_patience: int = 3
@@ -130,12 +126,22 @@ class TrainConfig:
     random_seed: int = 123
 
     neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
-    data: DataConfig = field(default_factory=DataConfig)
     feature: FeatureConfig = field(default_factory=FeatureConfig)
-    gain: GainConfig = field(default_factory=GainConfig)
+    lift: LiftConfig = field(default_factory=LiftConfig)
     net: NetConfig = field(default_factory=NetConfig)
     loss: LossConfig = field(default_factory=LossConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
+
+    def __post_init__(self) -> None:
+        for symbol in self.symbols:
+            if symbol not in YYYYMM_BEGIN_MAP:
+                raise ValueError(f"Unknown symbol {symbol}")
+
+
+@dataclass
+class StrategyConfig:
+    percentile_entry: float = 95.0
+    max_entry_time: int = 10
 
 
 @dataclass
@@ -149,16 +155,22 @@ class SimulationConfig:
 
 @dataclass
 class EvalConfig:
+    cleansed_data_dir: str = "./cleansed"
+    symbol: str = "usdjpy"
+    yyyymm_begin: int = MISSING
+    yyyymm_end: int = MISSING
     output_dir: str = "./output"
     train_run_id: str = ""
     params_file: str = ""
-    percentile_entry_list: list[float] = field(default_factory=lambda: [90, 95])
-    percentile_exit_list: list[float] = field(default_factory=lambda: [90, 95])
+    batch_size: int = 1000
 
     neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
-    data: DataConfig = field(default_factory=DataConfig)
+    strategy: StrategyConfig = field(default_factory=StrategyConfig)
     simulation: SimulationConfig = field(default_factory=SimulationConfig)
 
     def __post_init__(self) -> None:
+        if self.symbol not in YYYYMM_BEGIN_MAP:
+            raise ValueError(f"Unknown symbol {self.symbol}")
+
         if self.train_run_id == "" and self.params_file == "":
             raise ValueError("Either train_run_id or params_file must be specified")

@@ -22,10 +22,10 @@ def test_main(tmp_path: Path) -> None:
             "output_dir=" + str(tmp_path / "output"),
             "params_file=" + str(tmp_path / "output" / "params.pt"),
             "neptune.mode=debug",
-            "data.symbol=usdjpy",
-            "data.cleansed_data_dir=" + str(tmp_path / "cleansed"),
-            "data.yyyymm_begin=202301",
-            "data.yyyymm_end=202301",
+            "symbol=usdjpy",
+            "cleansed_data_dir=" + str(tmp_path / "cleansed"),
+            "yyyymm_begin=202301",
+            "yyyymm_end=202301",
         ],
     )
     evaluate.main(config)

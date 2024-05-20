@@ -1,4 +1,3 @@
-import itertools
 import os
 from typing import cast
 
@@ -15,10 +14,9 @@ from sklearn.metrics import (
     recall_score,
     roc_auc_score,
 )
-from tqdm import tqdm
 
 from auto_trader.common import utils
-from auto_trader.modeling import data, model, order
+from auto_trader.modeling import data, model, order, strategy
 from auto_trader.modeling.config import EvalConfig, TrainConfig
 
 
@@ -39,121 +37,104 @@ def calc_stats(values: NDArray[np.float32]) -> dict[str, float]:
 
 def log_metrics(
     config: EvalConfig,
-    gain_long: "pd.Series[float]",
-    gain_short: "pd.Series[float]",
-    preds: pd.DataFrame,
+    lift: "pd.Series[float]",
+    score: "pd.Series[float]",
     run: neptune.Run,
 ) -> None:
-    for label_name in preds.columns:
-        pred = cast(NDArray[np.float32], preds[label_name].values)
-        run[f"stats/prob/{label_name}"] = calc_stats(pred)
+    score_np = score.to_numpy()
+    run["stats/score"] = calc_stats(score_np)
 
-        if label_name == "long_entry":
-            label = (gain_long.loc[preds.index] > config.simulation.spread).values
-        elif label_name == "long_exit":
-            label = (gain_long.loc[preds.index] < 0).values
-        elif label_name == "short_entry":
-            label = (gain_short.loc[preds.index] > config.simulation.spread).values
-        elif label_name == "short_exit":
-            label = (gain_short.loc[preds.index] < 0).values
-        else:
-            assert False
+    label_long_entry = (lift.loc[score.index] > config.simulation.spread).to_numpy()
+    label_short_entry = (lift.loc[score.index] < -config.simulation.spread).to_numpy()
+    run["stats/roc_auc/long_entry"] = roc_auc_score(label_long_entry, score)
+    run["stats/roc_auc/short_entry"] = roc_auc_score(label_short_entry, -score)
+    run["stats/pr_auc/long_entry"] = average_precision_score(label_long_entry, score)
+    run["stats/pr_auc/short_entry"] = average_precision_score(label_short_entry, -score)
 
-        run[f"stats/roc_auc/{label_name}"] = roc_auc_score(label, pred)
-        run[f"stats/pr_auc/{label_name}"] = average_precision_score(label, pred)
+    thresh_entry = np.percentile(np.abs(score_np), config.strategy.percentile_entry)
+    pred_long_entry = score_np > thresh_entry
+    pred_short_entry = score_np < -thresh_entry
+    run["stats/precision/long_entry"] = precision_score(
+        label_long_entry, pred_long_entry
+    )
+    run["stats/precision/short_entry"] = precision_score(
+        label_short_entry, pred_short_entry
+    )
+    run["stats/recall/long_entry"] = recall_score(label_long_entry, pred_long_entry)
+    run["stats/recall/short_entry"] = recall_score(label_short_entry, pred_short_entry)
 
-        if "entry" in label_name:
-            percentile_list = config.percentile_entry_list
-        elif "exit" in label_name:
-            percentile_list = config.percentile_exit_list
-        else:
-            assert False
-
-        for percentile in percentile_list:
-            pred_binary = get_binary_pred(pred, percentile)
-            run[f"stats/precision/{label_name}/{percentile}"] = precision_score(
-                label, pred_binary
-            )
-            run[f"stats/recall/{label_name}/{percentile}"] = recall_score(
-                label, pred_binary
-            )
+    lift_long_entry = lift.loc[score.index].loc[pred_long_entry].to_numpy()
+    lift_short_entry = lift.loc[score.index].loc[pred_short_entry].to_numpy()
+    if len(lift_long_entry) > 0:
+        run["stats/lift/long_entry"] = calc_stats(lift_long_entry)
+    if len(lift_short_entry) > 0:
+        run["stats/lift/short_entry"] = calc_stats(lift_short_entry)
 
 
 def run_simulations(
-    config: EvalConfig, rates: "pd.Series[float]", preds: pd.DataFrame, run: neptune.Run
+    config: EvalConfig,
+    rates: "pd.Series[float]",
+    score: "pd.Series[float]",
+    run: neptune.Run,
 ) -> None:
-    os.makedirs(config.output_dir, exist_ok=True)
-
-    params_list = list(
-        itertools.product(config.percentile_entry_list, config.percentile_exit_list)
+    thresh_entry = cast(
+        float, np.percentile(np.abs(score.to_numpy()), config.strategy.percentile_entry)
     )
-    for percentile_entry, percentile_exit in tqdm(params_list):
-        pred_binary_long_entry = get_binary_pred(
-            cast(NDArray[np.float32], preds["long_entry"].values), percentile_entry
-        )
-        pred_binary_long_exit = get_binary_pred(
-            cast(NDArray[np.float32], preds["long_exit"].values), percentile_exit
-        )
-        pred_binary_short_entry = get_binary_pred(
-            cast(NDArray[np.float32], preds["short_entry"].values), percentile_entry
-        )
-        pred_binary_short_exit = get_binary_pred(
-            cast(NDArray[np.float32], preds["short_exit"].values), percentile_exit
+    strategy_ = strategy.TimeLimitStrategy(
+        thresh_long_entry=thresh_entry,
+        thresh_short_entry=-thresh_entry,
+        max_entry_time=config.strategy.max_entry_time,
+    )
+    simulator = order.OrderSimulator(
+        config.simulation.start_hour,
+        config.simulation.end_hour,
+        config.simulation.thresh_losscut,
+    )
+    for i, timestamp in enumerate(rates.index):
+        (
+            pred_long_entry,
+            pred_long_exit,
+            pred_short_entry,
+            pred_short_exit,
+        ) = strategy_.make_decision(timestamp, score.values[i])
+
+        # TODO: 戦略 (e.g. n 回連続で long 選択の場合に実際に long する) を導入
+        simulator.step(
+            timestamp,
+            rates.iloc[i],
+            pred_long_entry,
+            pred_long_exit,
+            pred_short_entry,
+            pred_short_exit,
         )
 
-        simulator = order.OrderSimulator(
-            config.simulation.start_hour,
-            config.simulation.end_hour,
-            config.simulation.thresh_losscut,
+    os.makedirs(config.output_dir, exist_ok=True)
+    results = simulator.export_results()
+    results_path = os.path.join(config.output_dir, "results.csv")
+    results.to_csv(results_path, index=False)
+    run["simulation/results"].upload(results_path)
+
+    if len(results) > 0:
+        profit = pd.Series(
+            results["gain"].to_numpy() - config.simulation.spread,
+            index=results["entry_time"],
         )
-        for i, timestamp in enumerate(rates.index):
-            # TODO: 戦略 (e.g. n 回連続で long 選択の場合に実際に long する) を導入
-            simulator.step(
-                timestamp,
-                rates.iloc[i],
-                pred_binary_long_entry[i],
-                pred_binary_long_exit[i],
-                pred_binary_short_entry[i],
-                pred_binary_short_exit[i],
-            )
-
-        PARAM_STR = f"{percentile_entry},{percentile_exit}"
-
-        results = simulator.export_results()
-        results_path = f"{config.output_dir}/results_{PARAM_STR}.csv"
-        results.to_csv(results_path, index=False)
-        run[f"simulation/{PARAM_STR}/results"].upload(results_path)
-
-        if len(results) > 0:
-            profit = pd.Series(
-                cast(NDArray[np.float32], results["gain"].values)
-                - config.simulation.spread,
-                index=results["entry_time"],
-            )
-            profit_per_day = profit.resample("1d").sum()
-            num_order_per_day = profit.resample("1d").count()
-            run[f"simulation/{PARAM_STR}/num_order_per_day"] = calc_stats(
-                cast(NDArray[np.float32], num_order_per_day.values)
-            )
-            run[f"simulation/{PARAM_STR}/profit_per_trade"] = calc_stats(
-                cast(NDArray[np.float32], profit.values)
-            )
-            run[f"simulation/{PARAM_STR}/profit_per_day"] = calc_stats(
-                cast(NDArray[np.float32], profit_per_day.values)
-            )
-            duration = (
-                results["exit_time"] - results["entry_time"]
-            ).dt.total_seconds() / 60
-            run[f"simulation/{PARAM_STR}/duration"] = calc_stats(
-                cast(NDArray[np.float32], duration.values)
-            )
+        profit_per_day = profit.resample("1d").sum()
+        num_order_per_day = profit.resample("1d").count()
+        run["simulation/num_order_per_day"] = calc_stats(num_order_per_day.to_numpy())
+        run["simulation/profit_per_trade"] = calc_stats(profit.to_numpy())
+        run["simulation/profit_per_day"] = calc_stats(profit_per_day.to_numpy())
+        duration = (
+            results["exit_time"] - results["entry_time"]
+        ).dt.total_seconds() / 60
+        run["simulation/duration"] = calc_stats(duration.to_numpy())
 
 
 def main(config: EvalConfig) -> None:
     run = neptune.init_run(
         project=config.neptune.project,
         mode=config.neptune.mode,
-        tags=["eval"],
+        tags=["classification", "eval", "conv-transformer"],
     )
     run["config"] = OmegaConf.to_yaml(config)
 
@@ -162,7 +143,7 @@ def main(config: EvalConfig) -> None:
         train_run = neptune.init_run(
             project=config.neptune.project,
             with_id=config.train_run_id,
-            mode=config.neptune.mode,
+            mode="read-only",
         )
         os.makedirs(config.output_dir, exist_ok=True)
         params_file = os.path.join(config.output_dir, "params.pt")
@@ -173,15 +154,15 @@ def main(config: EvalConfig) -> None:
 
     params = torch.load(params_file)
     train_config = cast(TrainConfig, OmegaConf.create(params["config"]))
-    feature_info = params["feature_info"]
+    symbol_idxs = params["symbol_idxs"]
+    feature_info_all = params["feature_info_all"]
     net_state = params["net_state"]
-    run["sys/tags"].add(train_config.net.base_net_type)
 
     df = data.read_cleansed_data(
-        config.data.symbol,
-        config.data.yyyymm_begin,
-        config.data.yyyymm_end,
-        config.data.cleansed_data_dir,
+        symbol=config.symbol,
+        yyyymm_begin=config.yyyymm_begin,
+        yyyymm_end=config.yyyymm_end,
+        cleansed_data_dir=config.cleansed_data_dir,
     )
     df_base = data.merge_bid_ask(df)
 
@@ -191,22 +172,19 @@ def main(config: EvalConfig) -> None:
         features[timeframe] = data.create_features(
             df_resampled,
             base_timing=train_config.feature.base_timing,
-            sma_window_sizes=train_config.feature.sma_window_sizes,
-            sma_window_size_center=train_config.feature.sma_window_size_center,
-            sigma_window_sizes=train_config.feature.sigma_window_sizes,
+            moving_window_sizes=train_config.feature.moving_window_sizes,
+            moving_window_size_center=train_config.feature.moving_window_size_center,
+            use_sma_frac=train_config.feature.use_sma_frac,
             sma_frac_unit=train_config.feature.sma_frac_unit,
+            use_hour=train_config.feature.use_hour,
+            use_dow=train_config.feature.use_dow,
         )
 
-    gain_long, gain_short = data.calc_gains(
-        df_base["close"], train_config.gain.alpha, train_config.gain.thresh_losscut
-    )
+    lift = data.calc_lift(df_base["close"], train_config.lift.alpha)
 
     base_index = data.calc_available_index(
         features=features,
         hist_len=train_config.feature.hist_len,
-        # 取引時間は OrderSimulator で絞る
-        start_hour=0,
-        end_hour=24,
     )
 
     print(f"Evaluation period: {base_index[0]} ~ {base_index[-1]}")
@@ -214,52 +192,51 @@ def main(config: EvalConfig) -> None:
     run["data/first_timestamp"] = str(base_index[0])
     run["data/last_timestamp"] = str(base_index[-1])
 
-    loader = data.DataLoader(
+    raw_loader = data.RawLoader(
         base_index=base_index,
         features=features,
-        gain_long=gain_long,
-        gain_short=gain_short,
+        lift=lift,
         hist_len=train_config.feature.hist_len,
-        sma_window_size_center=train_config.feature.sma_window_size_center,
+        moving_window_size_center=train_config.feature.moving_window_size_center,
         batch_size=train_config.batch_size,
     )
+    normalized_loader = data.NormalizedLoader(
+        loader=raw_loader,
+        feature_info=feature_info_all[config.symbol],
+    )
+    combined_loader = data.CombinedLoader(
+        loaders={config.symbol: normalized_loader},
+        key_map=symbol_idxs,
+    )
+
     net = model.Net(
-        feature_info=feature_info,
+        symbol_num=len(train_config.symbols),
+        feature_info=feature_info_all[config.symbol],
         hist_len=train_config.feature.hist_len,
         numerical_emb_dim=train_config.net.numerical_emb_dim,
         periodic_activation_num_coefs=train_config.net.periodic_activation_num_coefs,
         periodic_activation_sigma=train_config.net.periodic_activation_sigma,
         categorical_emb_dim=train_config.net.categorical_emb_dim,
-        emb_output_dim=train_config.net.emb_output_dim,
-        base_net_type=train_config.net.base_net_type,
-        base_attention_num_layers=train_config.net.base_attention_num_layers,
-        base_attention_num_heads=train_config.net.base_attention_num_heads,
-        base_attention_feedforward_dim=train_config.net.base_attention_feedforward_dim,
-        base_attention_dropout=train_config.net.base_attention_dropout,
-        base_conv_out_channels=train_config.net.base_conv_out_channels,
-        base_conv_kernel_sizes=train_config.net.base_conv_kernel_sizes,
-        base_conv_batchnorm=train_config.net.base_conv_batchnorm,
-        base_conv_dropout=train_config.net.base_conv_dropout,
-        base_fc_hidden_dims=train_config.net.base_fc_hidden_dims,
-        base_fc_batchnorm=train_config.net.base_fc_batchnorm,
-        base_fc_dropout=train_config.net.base_fc_dropout,
-        base_fc_output_dim=train_config.net.base_fc_output_dim,
+        emb_kernel_size=train_config.net.emb_kernel_size,
+        num_blocks=train_config.net.num_blocks,
+        block_num_heads=train_config.net.block_num_heads,
+        block_qkv_kernel_size=train_config.net.block_qkv_kernel_size,
+        block_ff_kernel_size=train_config.net.block_ff_kernel_size,
+        block_channels=train_config.net.block_channels,
+        block_ff_channels=train_config.net.block_ff_channels,
+        block_dropout=train_config.net.block_dropout,
         head_hidden_dims=train_config.net.head_hidden_dims,
         head_batchnorm=train_config.net.head_batchnorm,
         head_dropout=train_config.net.head_dropout,
+        head_output_dim=3,
     )
     net.load_state_dict(net_state)
-    model_ = model.Model(net)
+    model_ = model.Model(net, boundary=train_config.loss.boundary)
     trainer = pl.Trainer(logger=False)
 
-    preds_torch = cast(list[model.Predictions], trainer.predict(model_, loader))
-    preds = pd.DataFrame(
-        {
-            "long_entry": np.concatenate([p[0].numpy() for p in preds_torch]),
-            "long_exit": np.concatenate([p[1].numpy() for p in preds_torch]),
-            "short_entry": np.concatenate([p[2].numpy() for p in preds_torch]),
-            "short_exit": np.concatenate([p[3].numpy() for p in preds_torch]),
-        },
+    scores_torch = cast(list[torch.Tensor], trainer.predict(model_, combined_loader))
+    score = pd.Series(
+        np.concatenate([s.numpy() for s in scores_torch]),
         index=base_index,
         dtype=np.float32,
     )
@@ -267,15 +244,14 @@ def main(config: EvalConfig) -> None:
     rates = df_base.loc[base_index, config.simulation.timing]
     log_metrics(
         config=config,
-        gain_long=gain_long,
-        gain_short=gain_short,
-        preds=preds,
+        lift=lift,
+        score=score,
         run=run,
     )
     run_simulations(
         config=config,
         rates=rates,
-        preds=preds,
+        score=score,
         run=run,
     )
 
