@@ -1,7 +1,4 @@
-# dukascopy-node (https://github.com/Leo4815162342/dukascopy-node) を使用する
-
 import calendar
-import glob
 import os
 import subprocess
 from datetime import datetime, timedelta
@@ -22,26 +19,21 @@ def execute_command(cmd: str) -> None:
 
 def main(config: CollectConfig) -> None:
     os.makedirs(config.raw_data_dir, exist_ok=True)
+    output_dir = Path(config.raw_data_dir, config.symbol)
 
     PRICE_TYPES = ["bid", "ask"]
 
     if config.recreate_latest:
         # 最新ファイルを削除して作り直す
         for price_type in PRICE_TYPES:
-            raw_data_files = sorted(
-                glob.glob(
-                    os.path.join(
-                        config.raw_data_dir, config.symbol, f"{price_type}-*.csv"
-                    )
-                )
-            )
+            raw_data_files = sorted(output_dir.glob(f"{price_type}-*.csv"))
             if len(raw_data_files) > 0:
                 latest_file_path = raw_data_files[-1]
                 print(f"Delete {latest_file_path}")
-                os.remove(latest_file_path)
+                latest_file_path.unlink()
 
     # データをダウンロード
-    yesterday = (datetime.utcnow() - timedelta(days=1)).date()
+    yesterday = (datetime.now() - timedelta(days=1)).date()
     yyyymm = config.yyyymm_begin
     while yyyymm <= config.yyyymm_end:
         date_first = utils.parse_yyyymm(yyyymm)
@@ -55,16 +47,15 @@ def main(config: CollectConfig) -> None:
         for price_type in PRICE_TYPES:
             print(price_type)
 
-            raw_data_file = os.path.join(
-                config.raw_data_dir,
-                config.symbol,
-                f"{price_type}-{date_first_str}-{date_last_str}.csv",
+            raw_data_file = (
+                output_dir / f"{price_type}-{date_first_str}-{date_last_str}.csv"
             )
-            if os.path.exists(raw_data_file):
+            if raw_data_file.exists():
                 print("Skip")
             else:
                 execute_command(
                     (
+                        # dukascopy-node を使用する
                         f"npx -y dukascopy-node "
                         f"--instrument {config.symbol} "
                         f"--date-from {date_first.isoformat()} "
@@ -72,8 +63,8 @@ def main(config: CollectConfig) -> None:
                         f"--timeframe m1 "
                         f"--format csv "
                         f"--price-type {price_type} "
-                        f"--directory {Path(raw_data_file).parent} "
-                        f"--file-name {Path(raw_data_file).stem} "
+                        f"--directory {raw_data_file.parent} "
+                        f"--file-name {raw_data_file.stem} "
                         "--cache"
                     )
                 )

@@ -1,5 +1,4 @@
-import glob
-import os
+from pathlib import Path
 from typing import cast
 
 import numpy as np
@@ -12,8 +11,8 @@ from auto_trader.data.config import CleanseConfig
 
 
 def read_raw_data(
+    raw_data_dir: Path,
     symbol: str,
-    raw_data_dir: str,
     yyyymm: int,
     convert_timezone: bool = True,
 ) -> pd.DataFrame:
@@ -21,8 +20,8 @@ def read_raw_data(
     Dukascopy から取得した生データを読み込む
     """
 
-    bid_paths = glob.glob(os.path.join(raw_data_dir, symbol, f"bid-{yyyymm}*.csv"))
-    ask_paths = glob.glob(os.path.join(raw_data_dir, symbol, f"ask-{yyyymm}*.csv"))
+    bid_paths = list((raw_data_dir / symbol).glob(f"bid-{yyyymm}*.csv"))
+    ask_paths = list((raw_data_dir / symbol).glob(f"ask-{yyyymm}*.csv"))
     if len(bid_paths) != 1 or len(ask_paths) != 1:
         raise RuntimeError(f"Raw data for {symbol} {yyyymm} is not properly prepared.")
 
@@ -164,19 +163,16 @@ def validate_data(df: pd.DataFrame, symbol: str) -> None:
 
 
 def main(config: CleanseConfig) -> None:
-    os.makedirs(os.path.join(config.cleansed_data_dir, config.symbol), exist_ok=True)
+    output_dir = Path(config.cleansed_data_dir, config.symbol)
+    output_dir.mkdir(parents=True, exist_ok=True)
 
     if config.recreate_latest:
         # 最新ファイルを削除して作り直す
-        cleansed_data_files = sorted(
-            glob.glob(
-                os.path.join(config.cleansed_data_dir, config.symbol, "*.parquet")
-            )
-        )
+        cleansed_data_files = sorted(output_dir.glob("*.parquet"))
         if len(cleansed_data_files) > 0:
             latest_file_path = cleansed_data_files[-1]
             print(f"Delete {latest_file_path}")
-            os.remove(latest_file_path)
+            latest_file_path.unlink()
 
     # データを整形して保存
     yyyymm = config.yyyymm_begin
@@ -184,21 +180,19 @@ def main(config: CleanseConfig) -> None:
     while yyyymm <= config.yyyymm_end:
         print(yyyymm)
 
-        cleansed_data_file = os.path.join(
-            config.cleansed_data_dir, config.symbol, f"{yyyymm}.parquet"
-        )
-        if os.path.exists(cleansed_data_file):
+        cleansed_data_file = output_dir / f"{yyyymm}.parquet"
+        if cleansed_data_file.exists():
             print("Skip")
         else:
             raw_data_buffer[yyyymm] = read_raw_data(
-                config.symbol, config.raw_data_dir, yyyymm, convert_timezone=True
+                Path(config.raw_data_dir), config.symbol, yyyymm, convert_timezone=True
             )
             # 元データファイルは UTC+0 基準で保存されているので, UTC+2/+3 に合わせるために前月のデータが2/3時間分だけ必要
             yyyymm_prev = utils.calc_yyyymm(yyyymm, month_delta=-1)
             if yyyymm_prev not in raw_data_buffer:
                 raw_data_buffer[yyyymm_prev] = read_raw_data(
+                    Path(config.raw_data_dir),
                     config.symbol,
-                    config.raw_data_dir,
                     yyyymm_prev,
                     convert_timezone=True,
                 )

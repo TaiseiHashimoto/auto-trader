@@ -38,8 +38,8 @@ def test_read_raw_data(tmp_path: Path) -> None:
     df_ask.to_csv(tmp_path / "usdjpy" / "ask-20230101-20230131.csv", index=False)
 
     df_actual = cleanse.read_raw_data(
+        raw_data_dir=tmp_path,
         symbol="usdjpy",
-        raw_data_dir=str(tmp_path),
         yyyymm=202301,
         convert_timezone=True,
     )
@@ -167,13 +167,13 @@ def test_main(tmp_path: Path) -> None:
             pd.concat(
                 [
                     cleanse.read_raw_data(
+                        raw_data_dir=tmp_path / "raw",
                         symbol="usdjpy",
-                        raw_data_dir=str(tmp_path / "raw"),
                         yyyymm=202301,
                     ).loc["2023-02"],
                     cleanse.read_raw_data(
+                        raw_data_dir=tmp_path / "raw",
                         symbol="usdjpy",
-                        raw_data_dir=str(tmp_path / "raw"),
                         yyyymm=202302,
                     ).loc["2023-02"],
                 ]
