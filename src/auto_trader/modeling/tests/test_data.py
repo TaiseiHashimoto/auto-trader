@@ -233,6 +233,28 @@ def test_get_feature_stats() -> None:
     assert actual["y"].vocab_counts == {0: 1, 1: 2}
 
 
+def test_normalize_features() -> None:
+    actual = data.normalize_features(
+        features=pd.DataFrame(
+            {
+                "x": np.array([np.nan, 0.0, 1.0, 2.0], dtype=np.float32),
+                "y": np.array([0, 1, 2, -1], dtype=np.int64),
+            }
+        ),
+        feature_stats={
+            "x": data.ContinuousFeatureStats(mean=1.0, std=0.5),
+            "y": data.CategoricalFeatureStats(vocab_counts={0: 1, 1: 1}),
+        },
+    )
+    expected = pd.DataFrame(
+        {
+            "x": np.array([np.nan, -2.0, 0.0, 2.0], dtype=np.float32),
+            "y": np.array([0, 1, 2, 2], dtype=np.int64),
+        }
+    )
+    pd.testing.assert_frame_equal(actual, expected)
+
+
 def test_calc_lift() -> None:
     value = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
     pd.testing.assert_series_equal(

@@ -174,8 +174,9 @@ def normalize_features(
         if isinstance(stats, ContinuousFeatureStats):
             normalized[col] = (val - stats.mean) / (stats.std + 1e-6)
         elif isinstance(stats, CategoricalFeatureStats):
-            # vocab_size は OOV token
-            normalized[col] = val.clip(lower=0, upper=stats.vocab_size)
+            # OOV は vocab_size に変換する
+            oov_mask = (val < 0) | (val >= stats.vocab_size)
+            normalized[col] = val.mask(oov_mask, stats.vocab_size)
 
     return normalized
 
@@ -273,8 +274,6 @@ class SequentialLoader:
         row_count = 0
         while row_count < len(index):
             idx_batch = idx[row_count : row_count + self.batch_size]
-
-            features: dict[FeatureName, FeatureValue] = {}
             # 時刻の昇順に展開 (B, T)
             idx_expanded = cast(
                 NDArray[np.int64],
@@ -283,7 +282,7 @@ class SequentialLoader:
             features = {
                 col: (
                     self.features[col]
-                    .values[idx_expanded.flatten()]
+                    .to_numpy()[idx_expanded.flatten()]
                     .reshape((len(idx_batch), self.hist_len))
                 )
                 for col in self.features.columns
