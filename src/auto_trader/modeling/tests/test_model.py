@@ -1,4 +1,3 @@
-import numpy as np
 import torch
 
 from auto_trader.modeling import data, model
@@ -13,57 +12,24 @@ def test_build_fc_layer() -> None:
     assert y.shape == (3, 2)
 
 
-def test_block_net() -> None:
-    layer = model.BlockNet(
-        feature_info={"1min": {}, "2min": {}},
-        num_heads=2,
-        qkv_kernel_size=5,
-        ff_kernel_size=1,
-        channels=2,
-        ff_channels=4,
-        dropout=True,
-    )
-    x = {
-        "1min": torch.randn(1, 2, 10),
-        "2min": torch.randn(1, 2, 10),
-    }
-    cls = torch.randn(1, 2)
-    actual = layer(x, cls)
-    assert list(actual[0].keys()) == ["1min", "2min"]
-    assert actual[0]["1min"].shape == (1, 2, 10)
-    assert actual[0]["2min"].shape == (1, 2, 10)
-    assert actual[1].shape == (1, 2)
-
-
 def test_net() -> None:
     layer = model.Net(
-        symbol_num=2,
-        feature_info={
-            "1min": {"sma5": data.FeatureInfo(np.float32)},
-            "2min": {"sma5": data.FeatureInfo(np.float32)},
-        },
+        feature_stats={"x": data.ContinuousFeatureStats(mean=0.0, std=1.0)},
         hist_len=10,
         numerical_emb_dim=4,
         periodic_activation_num_coefs=3,
         periodic_activation_sigma=1.0,
         categorical_emb_dim=4,
-        emb_kernel_size=3,
-        num_blocks=1,
-        block_num_heads=2,
-        block_qkv_kernel_size=5,
-        block_ff_kernel_size=5,
-        block_channels=4,
-        block_ff_channels=6,
-        block_dropout=0.1,
+        out_channels=[4],
+        kernel_sizes=[5],
+        strides=[5],
+        batchnorm=True,
+        dropout=0.1,
         head_hidden_dims=[10],
         head_batchnorm=True,
         head_dropout=0.1,
         head_output_dim=3,
     )
-    symbol_idx = torch.tensor([0, 1], dtype=torch.int64)
-    features = {
-        "1min": {"sma5": torch.randn(2, 10, 1)},
-        "2min": {"sma5": torch.randn(2, 10, 1)},
-    }
-    actual = layer(symbol_idx, features)
+    features = {"x": torch.randn(2, 10, 1)}
+    actual = layer(features)
     assert actual.shape == (2, 3)

@@ -1,4 +1,5 @@
 import os
+from pathlib import Path
 from typing import cast
 
 import lightning.pytorch as pl
@@ -38,14 +39,15 @@ def calc_stats(values: NDArray[np.float32]) -> dict[str, float]:
 def log_metrics(
     config: EvalConfig,
     lift: "pd.Series[float]",
+    label: "pd.Series[int]",
     score: "pd.Series[float]",
     run: neptune.Run,
 ) -> None:
     score_np = score.to_numpy()
     run["stats/score"] = calc_stats(score_np)
 
-    label_long_entry = (lift.loc[score.index] > config.simulation.spread).to_numpy()
-    label_short_entry = (lift.loc[score.index] < -config.simulation.spread).to_numpy()
+    label_long_entry = label.loc[score.index] == 2
+    label_short_entry = label.loc[score.index] == 0
     run["stats/roc_auc/long_entry"] = roc_auc_score(label_long_entry, score)
     run["stats/roc_auc/short_entry"] = roc_auc_score(label_short_entry, -score)
     run["stats/pr_auc/long_entry"] = average_precision_score(label_long_entry, score)
@@ -154,97 +156,83 @@ def main(config: EvalConfig) -> None:
 
     params = torch.load(params_file)
     train_config = cast(TrainConfig, OmegaConf.create(params["config"]))
-    symbol_idxs = params["symbol_idxs"]
-    feature_info_all = params["feature_info_all"]
+    feature_stats = cast(
+        dict[data.FeatureName, data.FeatureStats], params["feature_stats"]
+    )
+    label_stats = cast(data.CategoricalFeatureStats, params["label_stats"])
     net_state = params["net_state"]
 
-    df = data.read_cleansed_data(
+    df_cleansed = data.read_cleansed_data(
+        cleansed_data_dir=Path(config.cleansed_data_dir),
         symbol=config.symbol,
         yyyymm_begin=config.yyyymm_begin,
         yyyymm_end=config.yyyymm_end,
-        cleansed_data_dir=config.cleansed_data_dir,
     )
-    df_base = data.merge_bid_ask(df)
+    df_base = data.merge_bid_ask(df_cleansed)
 
-    features = {}
-    for timeframe in train_config.feature.timeframes:
-        df_resampled = data.resample(df_base, timeframe)
-        features[timeframe] = data.create_features(
-            df_resampled,
-            base_timing=train_config.feature.base_timing,
-            moving_window_sizes=train_config.feature.moving_window_sizes,
-            moving_window_size_center=train_config.feature.moving_window_size_center,
-            use_sma_frac=train_config.feature.use_sma_frac,
-            sma_frac_unit=train_config.feature.sma_frac_unit,
-            use_hour=train_config.feature.use_hour,
-            use_dow=train_config.feature.use_dow,
-        )
+    features = data.create_features(
+        df_base,
+        base_timing=train_config.feature.base_timing,
+        window_sizes=train_config.feature.window_sizes,
+        window_size_center=train_config.feature.window_size_center,
+        use_sma_frac=train_config.feature.use_sma_frac,
+        sma_frac_unit=train_config.feature.sma_frac_unit,
+        use_hour=train_config.feature.use_hour,
+        use_dow=train_config.feature.use_dow,
+    )
+    lift = data.calc_lift(df_base["close"], train_config.label.alpha)
+    label = data.create_label(lift, train_config.label.bin_boundary)
 
-    lift = data.calc_lift(df_base["close"], train_config.lift.alpha)
-
-    base_index = data.calc_available_index(
+    index = data.calc_available_index(
         features=features,
         hist_len=train_config.feature.hist_len,
     )
+    print(f"Evaluation period: {index[0]} ~ {index[-1]}")
+    run["data/size"] = len(index)
+    run["data/first_timestamp"] = str(index[0])
+    run["data/last_timestamp"] = str(index[-1])
 
-    print(f"Evaluation period: {base_index[0]} ~ {base_index[-1]}")
-    run["data/size"] = len(base_index)
-    run["data/first_timestamp"] = str(base_index[0])
-    run["data/last_timestamp"] = str(base_index[-1])
-
-    raw_loader = data.RawLoader(
-        base_index=base_index,
+    loader = data.SequentialLoader(
+        available_index=index,
         features=features,
-        lift=lift,
+        label=label,
         hist_len=train_config.feature.hist_len,
-        moving_window_size_center=train_config.feature.moving_window_size_center,
         batch_size=train_config.batch_size,
-    )
-    normalized_loader = data.NormalizedLoader(
-        loader=raw_loader,
-        feature_info=feature_info_all[config.symbol],
-    )
-    combined_loader = data.CombinedLoader(
-        loaders={config.symbol: normalized_loader},
-        key_map=symbol_idxs,
     )
 
     net = model.Net(
-        symbol_num=len(train_config.symbols),
-        feature_info=feature_info_all[config.symbol],
+        feature_stats=feature_stats,
         hist_len=train_config.feature.hist_len,
         numerical_emb_dim=train_config.net.numerical_emb_dim,
         periodic_activation_num_coefs=train_config.net.periodic_activation_num_coefs,
         periodic_activation_sigma=train_config.net.periodic_activation_sigma,
         categorical_emb_dim=train_config.net.categorical_emb_dim,
-        emb_kernel_size=train_config.net.emb_kernel_size,
-        num_blocks=train_config.net.num_blocks,
-        block_num_heads=train_config.net.block_num_heads,
-        block_qkv_kernel_size=train_config.net.block_qkv_kernel_size,
-        block_ff_kernel_size=train_config.net.block_ff_kernel_size,
-        block_channels=train_config.net.block_channels,
-        block_ff_channels=train_config.net.block_ff_channels,
-        block_dropout=train_config.net.block_dropout,
+        out_channels=train_config.net.out_channels,
+        kernel_sizes=train_config.net.kernel_sizes,
+        strides=train_config.net.strides,
+        batchnorm=train_config.net.batchnorm,
+        dropout=train_config.net.dropout,
         head_hidden_dims=train_config.net.head_hidden_dims,
         head_batchnorm=train_config.net.head_batchnorm,
         head_dropout=train_config.net.head_dropout,
-        head_output_dim=3,
+        head_output_dim=label_stats.vocab_size,
     )
     net.load_state_dict(net_state)
-    model_ = model.Model(net, boundary=train_config.loss.boundary)
+    model_ = model.Model(net, boundary=train_config.label.bin_boundary)
     trainer = pl.Trainer(logger=False)
 
-    scores_torch = cast(list[torch.Tensor], trainer.predict(model_, combined_loader))
+    scores_torch = cast(list[torch.Tensor], trainer.predict(model_, loader))
     score = pd.Series(
         np.concatenate([s.numpy() for s in scores_torch]),
-        index=base_index,
+        index=index,
         dtype=np.float32,
     )
 
-    rates = df_base.loc[base_index, config.simulation.timing]
+    rates = df_base.loc[index, config.simulation.timing]
     log_metrics(
         config=config,
         lift=lift,
+        label=label,
         score=score,
         run=run,
     )

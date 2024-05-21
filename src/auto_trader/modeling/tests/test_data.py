@@ -1,10 +1,8 @@
 from datetime import date
 from pathlib import Path
-from typing import Generator, cast
 
 import numpy as np
 import pandas as pd
-from numpy.typing import NDArray
 from pytest import approx
 
 from auto_trader.modeling import data
@@ -18,10 +16,10 @@ def test_read_cleansed_data(tmp_path: Path) -> None:
     df_202302.to_parquet(tmp_path / "usdjpy" / "202302.parquet")
 
     df_actual = data.read_cleansed_data(
+        cleansed_data_dir=tmp_path,
         symbol="usdjpy",
         yyyymm_begin=202301,
         yyyymm_end=202302,
-        cleansed_data_dir=str(tmp_path),
     )
 
     df_expected = pd.concat([df_202301, df_202302], axis=0)
@@ -54,48 +52,6 @@ def test_merge_bid_ask() -> None:
         index=index,
     )
     pd.testing.assert_frame_equal(actual_result, expected_result, check_dtype=False)
-
-
-def test_resample() -> None:
-    df_base = pd.DataFrame(
-        {
-            "open": [0, 1, 2, 3, 4, 5, 6, 7],
-            "high": [0, 10, 20, 30, 40, 50, 60, 70],
-            "low": [0, -10, -20, -30, -40, -50, -60, -70],
-            "close": [0, -1, -2, -3, -4, -5, -6, -7],
-        },
-        index=pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="1min"),
-    )
-    pd.testing.assert_frame_equal(
-        data.resample(df_base, timeframe="1min"),
-        pd.DataFrame(
-            {
-                "open": [np.nan, 0, 1, 2, 3, 4, 5, 6],
-                "high": [np.nan, 0, 10, 20, 30, 40, 50, 60],
-                "low": [np.nan, 0, -10, -20, -30, -40, -50, -60],
-                "close": [np.nan, 0, -1, -2, -3, -4, -5, -6],
-            },
-            index=pd.date_range(
-                "2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="1min"
-            ),
-        ),
-        check_dtype=False,
-    )
-    pd.testing.assert_frame_equal(
-        data.resample(df_base, timeframe="2min"),
-        pd.DataFrame(
-            {
-                "open": [np.nan, 0, 2, 4],
-                "high": [np.nan, 10, 30, 50],
-                "low": [np.nan, -10, -30, -50],
-                "close": [np.nan, -1, -3, -5],
-            },
-            index=pd.date_range(
-                "2022-01-01 00:00:00", "2022-01-01 00:07:00", freq="2min"
-            ),
-        ),
-        check_dtype=False,
-    )
 
 
 def test_calc_sma() -> None:
@@ -163,16 +119,11 @@ def test_calc_sigma() -> None:
             np.nan,
             np.nan,
             np.nan,
-            ((0**2 + 4**2 + 2**2 + 3**2) / 4 - ((0 + 4 + 2 + 3) / 4) ** 2)
-            ** 0.5,
-            ((4**2 + 2**2 + 3**2 + 6**2) / 4 - ((4 + 2 + 3 + 6) / 4) ** 2)
-            ** 0.5,
-            ((2**2 + 3**2 + 6**2 + 4**2) / 4 - ((2 + 3 + 6 + 4) / 4) ** 2)
-            ** 0.5,
-            ((3**2 + 6**2 + 4**2 + 6**2) / 4 - ((3 + 6 + 4 + 6) / 4) ** 2)
-            ** 0.5,
-            ((6**2 + 4**2 + 6**2 + 9**2) / 4 - ((6 + 4 + 6 + 9) / 4) ** 2)
-            ** 0.5,
+            ((0**2 + 4**2 + 2**2 + 3**2) / 4 - ((0 + 4 + 2 + 3) / 4) ** 2) ** 0.5,
+            ((4**2 + 2**2 + 3**2 + 6**2) / 4 - ((4 + 2 + 3 + 6) / 4) ** 2) ** 0.5,
+            ((2**2 + 3**2 + 6**2 + 4**2) / 4 - ((2 + 3 + 6 + 4) / 4) ** 2) ** 0.5,
+            ((3**2 + 6**2 + 4**2 + 6**2) / 4 - ((3 + 6 + 4 + 6) / 4) ** 2) ** 0.5,
+            ((6**2 + 4**2 + 6**2 + 9**2) / 4 - ((6 + 4 + 6 + 9) / 4) ** 2) ** 0.5,
         ],
         dtype=np.float32,
     )
@@ -201,51 +152,91 @@ def test_create_features() -> None:
         },
         index=pd.date_range("2023-01-01 00:00:00", "2023-01-01 00:11:00", freq="1min"),
     ).astype(np.float32)
+
+    # center = False
     actual = data.create_features(
         values=values,
         base_timing="close",
-        moving_window_sizes=[5, 10],
-        moving_window_size_center=5,
+        window_sizes=[3, 6],
+        window_size_center=9,
         use_sma_frac=True,
         sma_frac_unit=100,
         use_hour=True,
         use_dow=True,
+        center=False,
     )
-    expected = {
-        "rel": pd.DataFrame(
+    expected = pd.DataFrame(
+        {
+            "open": values["open"].shift(1),
+            "high": values["high"].shift(1),
+            "low": values["low"].shift(1),
+            "close": values["close"].shift(1),
+            "sma3": data.calc_sma(values["close"].shift(1), window_size=3),
+            "moving_max3": data.calc_moving_max(
+                values["close"].shift(1), window_size=3
+            ),
+            "moving_min3": data.calc_moving_min(
+                values["close"].shift(1), window_size=3
+            ),
+            "sigma3": data.calc_sigma(values["close"].shift(1), window_size=3),
+            "sma6": data.calc_sma(values["close"].shift(1), window_size=6),
+            "moving_max6": data.calc_moving_max(
+                values["close"].shift(1), window_size=6
+            ),
+            "moving_min6": data.calc_moving_min(
+                values["close"].shift(1), window_size=6
+            ),
+            "sigma6": data.calc_sigma(values["close"].shift(1), window_size=6),
+            "sma9_frac": data.calc_fraction(
+                data.calc_sma(values["close"].shift(1), window_size=9), unit=100
+            ),
+            "hour": np.full(12, 0),
+            "dow": np.full(12, date(2023, 1, 1).weekday()),
+        }
+    )
+    pd.testing.assert_frame_equal(actual, expected)
+
+    # center = True
+    actual = data.create_features(
+        values=values,
+        base_timing="close",
+        window_sizes=[3, 6],
+        window_size_center=9,
+        use_sma_frac=True,
+        sma_frac_unit=100,
+        use_hour=True,
+        use_dow=True,
+        center=True,
+    )
+    sma_center = data.calc_sma(values["close"].shift(1), window_size=9)
+    for col in expected.columns:
+        if col not in ("sigma3", "sigma6", "sma9_frac", "hour", "dow"):
+            expected[col] -= sma_center
+
+    pd.testing.assert_frame_equal(actual, expected)
+
+
+def test_get_feature_stats() -> None:
+    actual = data.get_feature_stats(
+        pd.DataFrame(
             {
-                "open": values["open"],
-                "high": values["high"],
-                "low": values["low"],
-                "close": values["close"],
-                "sma5": data.calc_sma(values["close"], window_size=5),
-                "moving_max5": data.calc_moving_max(values["close"], window_size=5),
-                "moving_min5": data.calc_moving_min(values["close"], window_size=5),
-                "sma10": data.calc_sma(values["close"], window_size=10),
-                "moving_max10": data.calc_moving_max(values["close"], window_size=10),
-                "moving_min10": data.calc_moving_min(values["close"], window_size=10),
+                "x": np.array([np.nan, 0.0, 1.0], dtype=np.float32),
+                "y": np.array([0, 1, 1], dtype=np.int64),
             }
-        ),
-        "abs": pd.DataFrame(
-            {
-                "sigma5": data.calc_sigma(values["close"], window_size=5),
-                "sigma10": data.calc_sigma(values["close"], window_size=10),
-                "sma5_frac": data.calc_fraction(
-                    data.calc_sma(values["close"], window_size=5), unit=100
-                ),
-                "hour": np.full(12, 0),
-                "dow": np.full(12, date(2023, 1, 1).weekday()),
-            }
-        ),
-    }
-    pd.testing.assert_frame_equal(actual["rel"], expected["rel"])
-    pd.testing.assert_frame_equal(actual["abs"], expected["abs"])
+        )
+    )
+    assert set(actual.keys()) == {"x", "y"}
+    assert isinstance(actual["x"], data.ContinuousFeatureStats)
+    assert approx(actual["x"].mean) == 0.5
+    assert approx(actual["x"].std) == 0.5
+    assert isinstance(actual["y"], data.CategoricalFeatureStats)
+    assert actual["y"].vocab_counts == {0: 1, 1: 2}
 
 
 def test_calc_lift() -> None:
-    value_close = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+    value = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
     pd.testing.assert_series_equal(
-        data.calc_lift(value_close, alpha=0.1),
+        data.calc_lift(value, alpha=0.1),
         pd.Series(
             [
                 np.nan,
@@ -259,45 +250,25 @@ def test_calc_lift() -> None:
     )
 
 
-def test_calc_available_index_nan() -> None:
-    features = cast(
-        dict[data.Timeframe, dict[data.FeatureType, pd.DataFrame]],
-        {
-            "1min": {
-                "rel": pd.DataFrame(
-                    {"x": [0] * 20},
-                    index=pd.date_range(
-                        "2023-1-1 00:00", "2023-1-1 00:19", freq="1min"
-                    ),
-                ),
-                "abs": pd.DataFrame(
-                    {"y": [0] * 20},
-                    index=pd.date_range(
-                        "2023-1-1 00:00", "2023-1-1 00:19", freq="1min"
-                    ),
-                ),
-            },
-            "5min": {
-                "rel": pd.DataFrame(
-                    {"x": [0] * 4},
-                    index=pd.date_range(
-                        "2023-1-1 00:00", "2023-1-1 00:19", freq="5min"
-                    ),
-                ),
-                "abs": pd.DataFrame(
-                    {"y": [np.nan] + [0] * 3},
-                    index=pd.date_range(
-                        "2023-1-1 00:00", "2023-1-1 00:19", freq="5min"
-                    ),
-                ),
-            },
-        },
+def test_create_label() -> None:
+    EPS = 0.01
+    lift = pd.Series([-1 - EPS, -1 + EPS, 1 - EPS, 1 + EPS], dtype=np.float32)
+    pd.testing.assert_series_equal(
+        data.create_label(lift, bin_boundary=1),
+        pd.Series([0, 1, 1, 2], dtype=np.int64),
+    )
+
+
+def test_calc_available_index() -> None:
+    features = pd.DataFrame(
+        {"x": [0] * 10, "y": [np.nan] * 2 + [10] * 8},
+        index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:09", freq="1min"),
     )
     actual = data.calc_available_index(
         features=features,
         hist_len=2,
     )
-    expected = pd.date_range("2023-1-1 00:10", "2023-1-1 00:19", freq="1min")
+    expected = pd.date_range("2023-1-1 00:03", "2023-1-1 00:09", freq="1min")
     pd.testing.assert_index_equal(actual, expected)
 
 
@@ -342,280 +313,48 @@ def test_split_block_idxs() -> None:
     assert (6 in idxs_train) or (6 in idxs_valid)
 
 
-def test_raw_loader() -> None:
-    base_index = pd.date_range("2023-1-1 00:02", "2023-1-1 00:05", freq="1min")
-    features = cast(
-        dict[data.Timeframe, dict[data.FeatureType, pd.DataFrame]],
+def test_sequential_loader() -> None:
+    available_index = pd.date_range("2023-1-1 00:02", "2023-1-1 00:05", freq="1min")
+    features = pd.DataFrame(
         {
-            "1min": {
-                "rel": pd.DataFrame(
-                    {
-                        "sma5": np.array(
-                            [0.0, 1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32
-                        ),
-                        "x": np.array(
-                            [-0.0, -1.0, -2.0, -3.0, -4.0, -5.0], dtype=np.float32
-                        ),
-                    },
-                    index=pd.date_range(
-                        "2023-1-1 00:00", "2023-1-1 00:05", freq="1min"
-                    ),
-                ),
-                "abs": pd.DataFrame(
-                    {
-                        "sigma": np.array(
-                            [10.0, 11.0, 12.0, 13.0, 14.0, 15.0], dtype=np.float32
-                        ),
-                        "minute": np.array([0, 1, 2, 3, 4, 5], dtype=np.int64),
-                    },
-                    index=pd.date_range(
-                        "2023-1-1 00:00", "2023-1-1 00:05", freq="1min"
-                    ),
-                ),
-            },
-            "2min": {
-                "rel": pd.DataFrame(
-                    {
-                        "sma5": np.array([0.5, 1.5, 2.5], dtype=np.float32),
-                        "x": np.array([-0.5, -1.5, -2.5], dtype=np.float32),
-                    },
-                    index=pd.date_range(
-                        "2023-1-1 00:00", "2023-1-1 00:05", freq="2min"
-                    ),
-                ),
-                "abs": pd.DataFrame(
-                    {
-                        "sigma": np.array([10.5, 11.5, 12.5], dtype=np.float32),
-                        "minute": np.array([0, 2, 4], dtype=np.int64),
-                    },
-                    index=pd.date_range(
-                        "2023-1-1 00:00", "2023-1-1 00:05", freq="2min"
-                    ),
-                ),
-            },
+            "x": np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float32),
+            "y": np.array([0, 1, 2, 3, 4, 5], dtype=np.int64),
         },
-    )
-    lift = pd.Series(
-        [100.0, 101.0, 102.0, 103.0, 104.0, 105.0],
         index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:05", freq="1min"),
-        dtype=np.float32,
+    )
+    label = pd.Series(
+        [0, 1, 2, 0, 1, 2],
+        index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:05", freq="1min"),
+        dtype=np.int64,
     )
 
-    loader = data.RawLoader(
-        base_index=base_index,
+    loader = data.SequentialLoader(
+        available_index=available_index,
         features=features,
-        lift=lift,
-        hist_len=2,
-        moving_window_size_center=5,
+        label=label,
+        hist_len=3,
         batch_size=2,
     )
 
     expected_features_list = [
         {
-            "1min": {
-                "sma5": np.array([[1.0, 2.0], [2.0, 3.0]]) - np.array([[2.0], [3.0]]),
-                "x": np.array([[-1.0, -2.0], [-2.0, -3.0]]) - np.array([[2.0], [3.0]]),
-                "sigma": np.array([[11.0, 12.0], [12.0, 13.0]]),
-                "minute": np.array([[1, 2], [2, 3]]),
-            },
-            "2min": {
-                "sma5": np.array([[0.5, 1.5], [0.5, 1.5]]) - np.array([[1.5], [1.5]]),
-                "x": np.array([[-0.5, -1.5], [-0.5, -1.5]]) - np.array([[1.5], [1.5]]),
-                "sigma": np.array([[10.5, 11.5], [10.5, 11.5]]),
-                "minute": np.array([[0, 2], [0, 2]]),
-            },
+            "x": np.array([[0.0, 0.1, 0.2], [0.1, 0.2, 0.3]]),
+            "y": np.array([[0, 1, 2], [1, 2, 3]]),
         },
         {
-            "1min": {
-                "sma5": np.array([[3.0, 4.0], [4.0, 5.0]]) - np.array([[4.0], [5.0]]),
-                "x": np.array([[-3.0, -4.0], [-4.0, -5.0]]) - np.array([[4.0], [5.0]]),
-                "sigma": np.array([[13.0, 14.0], [14.0, 15.0]]),
-                "minute": np.array([[3, 4], [4, 5]]),
-            },
-            "2min": {
-                "sma5": np.array([[1.5, 2.5], [1.5, 2.5]]) - np.array([[2.5], [2.5]]),
-                "x": np.array([[-1.5, -2.5], [-1.5, -2.5]]) - np.array([[2.5], [2.5]]),
-                "sigma": np.array([[11.5, 12.5], [11.5, 12.5]]),
-                "minute": np.array([[2, 4], [2, 4]]),
-            },
+            "x": np.array([[0.2, 0.3, 0.4], [0.3, 0.4, 0.5]]),
+            "y": np.array([[2, 3, 4], [3, 4, 5]]),
         },
     ]
     expected_lift_list = [
-        np.array([102.0, 103.0]),
-        np.array([104.0, 105.0]),
+        np.array([2, 0]),
+        np.array([1, 2]),
     ]
 
-    # iterator のテスト
-    for batch_idx, (actual_features, actual_lift) in enumerate(loader):
-        for timeframe in ["1min", "2min"]:
-            for feature_name in ["sma5", "x", "sigma", "minute"]:
-                np.testing.assert_allclose(
-                    actual_features[timeframe][feature_name],
-                    expected_features_list[batch_idx][timeframe][feature_name],
-                )
-
-        np.testing.assert_allclose(actual_lift, expected_lift_list[batch_idx])
-
-    # get_feature_info のテスト
-    feature_info, lift_info = data.get_feature_info(loader)
-    for timeframe in ["1min", "2min"]:
-        for feature_name in ["sma5", "x", "sigma", "minute"]:
-            expected_feature_values = np.concatenate(
-                [f[timeframe][feature_name] for f in expected_features_list], axis=0
+    for batch_idx, (actual_features, actual_label) in enumerate(loader):
+        for feature_name in ["x", "y"]:
+            np.testing.assert_allclose(
+                actual_features[feature_name],
+                expected_features_list[batch_idx][feature_name],
             )
-            if feature_info[timeframe][feature_name].dtype == np.float32:
-                assert feature_info[timeframe][feature_name].mean == approx(
-                    expected_feature_values.mean()
-                )
-                assert feature_info[timeframe][feature_name].var == approx(
-                    expected_feature_values.var()
-                )
-            else:
-                assert feature_info[timeframe][feature_name].max == approx(
-                    expected_feature_values.max()
-                )
-
-    expected_lift = np.concatenate(expected_lift_list, axis=0)
-    assert lift_info.mean == approx(np.mean(expected_lift))
-    assert lift_info.var == approx(np.var(expected_lift))
-
-
-class DummyLoader:
-    def __init__(
-        self,
-        features: dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
-        lift: NDArray[np.float32],
-        batch_size: int,
-    ):
-        self.features = features
-        self.lift = lift
-        self.batch_size = batch_size
-
-    def __len__(self) -> int:
-        return (len(self.lift) + self.batch_size - 1) // self.batch_size
-
-    @property
-    def size(self) -> int:
-        return len(self.lift)
-
-    def __iter__(
-        self,
-    ) -> Generator[
-        tuple[
-            dict[data.Timeframe, dict[data.FeatureName, data.FeatureValue]],
-            NDArray[np.float32],
-        ],
-        None,
-        None,
-    ]:
-        for i in range((len(self.lift) + self.batch_size - 1) // self.batch_size):
-            features_batch = {}
-            for timeframe in self.features:
-                features_batch[timeframe] = {
-                    feature_name: feature_value[
-                        self.batch_size * i : self.batch_size * (i + 1)
-                    ]
-                    for feature_name, feature_value in self.features[timeframe].items()
-                }
-
-            yield (
-                {
-                    timeframe: {
-                        feature_name: feature_value[
-                            self.batch_size * i : self.batch_size * (i + 1)
-                        ]
-                        for feature_name, feature_value in self.features[
-                            timeframe
-                        ].items()
-                    }
-                    for timeframe in self.features
-                },
-                self.lift[self.batch_size * i : self.batch_size * (i + 1)],
-            )
-
-
-def test_normalized_loader() -> None:
-    raw_loader = cast(
-        data.RawLoader,
-        DummyLoader(
-            features={
-                "1min": {
-                    "close": np.array([[1.0], [2.0], [3.0], [4.0]], dtype=np.float32),
-                },
-            },
-            lift=np.array([0.1, 0.2, 0.3, 0.4], dtype=np.float32),
-            batch_size=4,
-        ),
-    )
-    feature_info, _ = data.get_feature_info(raw_loader)
-
-    normalized_loader = data.NormalizedLoader(
-        loader=raw_loader,
-        feature_info=feature_info,
-    )
-    features, lift = next(iter(normalized_loader))
-    features["1min"]["close"].mean() == approx(0.0)
-    features["1min"]["close"].std() == approx(1.0)
-    np.testing.assert_allclose(lift, np.array([0.1, 0.2, 0.3, 0.4]))
-
-
-def test_combined_loader() -> None:
-    loader1 = cast(
-        data.NormalizedLoader,
-        DummyLoader(
-            features={
-                "1min": {
-                    "close": np.array([[1.0], [2.0], [3.0]], dtype=np.float32),
-                },
-            },
-            lift=np.array([0.1, 0.2, 0.3], dtype=np.float32),
-            batch_size=2,
-        ),
-    )
-    loader2 = cast(
-        data.NormalizedLoader,
-        DummyLoader(
-            features={
-                "1min": {
-                    "close": np.array(
-                        [[-1.0], [-2.0], [-3.0], [-4.0], [-5.0]], dtype=np.float32
-                    ),
-                },
-            },
-            lift=np.array([-0.1, -0.2, -0.3, -0.4, -0.5], dtype=np.float32),
-            batch_size=2,
-        ),
-    )
-
-    expected_key_idx_list = [
-        np.array([1, 1, 2, 2], dtype=np.int64),
-        np.array([1, 2, 2], dtype=np.int64),
-        np.array([2], dtype=np.int64),
-    ]
-    expected_features_list = [
-        {"1min": {"close": np.array([[1.0], [2.0], [-1.0], [-2.0]], dtype=np.float32)}},
-        {"1min": {"close": np.array([[3.0], [-3.0], [-4.0]], dtype=np.float32)}},
-        {"1min": {"close": np.array([[-5.0]], dtype=np.float32)}},
-    ]
-    expected_lift_list = [
-        np.array([0.1, 0.2, -0.1, -0.2], dtype=np.float32),
-        np.array([0.3, -0.3, -0.4], dtype=np.float32),
-        np.array([-0.5], dtype=np.float32),
-    ]
-
-    loader_combined = data.CombinedLoader(
-        loaders={"key1": loader1, "key2": loader2},
-        key_map={"key1": 1, "key2": 2},
-    )
-    assert len(loader_combined) == 3
-    assert loader_combined.size == 3 + 5
-
-    for batch_idx, (actual_key_idx, actual_features, actual_lift) in enumerate(
-        loader_combined
-    ):
-        np.testing.assert_array_equal(actual_key_idx, expected_key_idx_list[batch_idx])
-        np.testing.assert_allclose(
-            actual_features["1min"]["close"],
-            expected_features_list[batch_idx]["1min"]["close"],
-        )
-        np.testing.assert_allclose(actual_lift, expected_lift_list[batch_idx])
+        np.testing.assert_allclose(actual_label, expected_lift_list[batch_idx])

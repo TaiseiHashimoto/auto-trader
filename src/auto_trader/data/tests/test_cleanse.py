@@ -162,24 +162,21 @@ def test_main(tmp_path: Path) -> None:
     df_actual = pd.read_parquet(tmp_path / "cleansed" / "usdjpy" / "202302.parquet")
 
     df_expected = cleanse.remove_flat_data(
-        cast(
-            pd.DataFrame,
-            pd.concat(
-                [
-                    cleanse.read_raw_data(
-                        raw_data_dir=tmp_path / "raw",
-                        symbol="usdjpy",
-                        yyyymm=202301,
-                    ).loc["2023-02"],
-                    cleanse.read_raw_data(
-                        raw_data_dir=tmp_path / "raw",
-                        symbol="usdjpy",
-                        yyyymm=202302,
-                    ).loc["2023-02"],
-                ]
-            )
-            / utils.get_pip_scale("usdjpy"),
+        pd.concat(
+            [
+                cleanse.read_raw_data(
+                    raw_data_dir=tmp_path / "raw",
+                    symbol="usdjpy",
+                    yyyymm=202301,
+                ).loc["2023-02"],
+                cleanse.read_raw_data(
+                    raw_data_dir=tmp_path / "raw",
+                    symbol="usdjpy",
+                    yyyymm=202302,
+                ).loc["2023-02"],
+            ]
         )
+        / utils.get_pip_scale("usdjpy"),
     )
     pd.testing.assert_frame_equal(
         df_actual, df_expected, check_names=False, check_freq=False

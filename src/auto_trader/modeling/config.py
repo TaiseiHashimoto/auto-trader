@@ -27,30 +27,27 @@ YYYYMM_BEGIN_MAP = {
 
 @dataclass
 class FeatureConfig:
-    timeframes: list[str] = field(default_factory=lambda: ["1min"])
     base_timing: str = "close"
-    moving_window_sizes: list[int] = field(default_factory=lambda: [5, 8, 13])
-    moving_window_size_center: int = 5
+    window_sizes: list[int] = field(default_factory=lambda: [5, 10, 15])
+    window_size_center: int = 30
     use_sma_frac: bool = True
     sma_frac_unit: int = 100
     use_hour: bool = True
     use_dow: bool = True
-    hist_len: int = 10
+    hist_len: int = 64
 
     def __post_init__(self) -> None:
-        if "1min" not in self.timeframes:
-            raise ValueError(f"timeframes {self.timeframes} must include '1min'")
-
-        if self.moving_window_size_center not in self.moving_window_sizes:
+        if self.window_size_center in self.window_sizes:
             raise ValueError(
-                f"sma_window_sizes {self.moving_window_sizes} must include "
-                f"moving_window_size_center {self.moving_window_size_center}"
+                f"window_sizes {self.window_sizes} must not include "
+                f"window_size_center {self.window_size_center}"
             )
 
 
 @dataclass
-class LiftConfig:
+class LabelConfig:
     alpha: float = 0.1
+    bin_boundary: float = 2.0
 
 
 @dataclass
@@ -59,42 +56,14 @@ class NetConfig:
     periodic_activation_num_coefs: int = 8
     periodic_activation_sigma: float = 1.0
     categorical_emb_dim: int = 16
-    emb_kernel_size: int = 5
-
-    num_blocks: int = 3
-    block_num_heads: int = 4
-    block_qkv_kernel_size: int = 5
-    block_ff_kernel_size: int = 5
-    block_channels: int = 20
-    block_ff_channels: int = 40
-    block_dropout: float = 0.0
-
+    out_channels: list[int] = field(default_factory=lambda: [64, 64])
+    kernel_sizes: list[int] = field(default_factory=lambda: [8, 8])
+    strides: list[int] = field(default_factory=lambda: [8, 8])
+    batchnorm: bool = True
+    dropout: float = 0.2
     head_hidden_dims: list[int] = field(default_factory=lambda: [64])
     head_batchnorm: bool = False
     head_dropout: float = 0.0
-
-    def __post_init__(self) -> None:
-        if self.numerical_emb_dim % 2 != 0:
-            raise ValueError(
-                f"numerical_emb_dim must be a even number: {self.numerical_emb_dim}"
-            )
-
-        if self.emb_kernel_size % 2 != 1:
-            raise ValueError(f"kernel must be odd numbers: {self.emb_kernel_size}")
-
-        if self.block_channels % self.block_num_heads != 0:
-            raise ValueError(
-                "block_channels must be divisible by block_num_heads: "
-                f"{self.block_channels} % {self.block_num_heads} != 0"
-            )
-
-        if self.block_qkv_kernel_size % 2 != 1:
-            raise ValueError(
-                f"kernel must be odd numbers: {self.block_qkv_kernel_size}"
-            )
-
-        if self.block_ff_kernel_size % 2 != 1:
-            raise ValueError(f"kernel must be odd numbers: {self.block_ff_kernel_size}")
 
 
 @dataclass
@@ -114,7 +83,7 @@ class OptimConfig:
 @dataclass
 class TrainConfig:
     cleansed_data_dir: str = "./cleansed"
-    symbols: list[str] = field(default_factory=lambda: ["usdjpy"])
+    symbol: str = "usdjpy"
     yyyymm_begin: Optional[int] = None
     yyyymm_end: int = MISSING
     output_dir: str = "./output"
@@ -127,15 +96,14 @@ class TrainConfig:
 
     neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
     feature: FeatureConfig = field(default_factory=FeatureConfig)
-    lift: LiftConfig = field(default_factory=LiftConfig)
+    label: LabelConfig = field(default_factory=LabelConfig)
     net: NetConfig = field(default_factory=NetConfig)
     loss: LossConfig = field(default_factory=LossConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
 
     def __post_init__(self) -> None:
-        for symbol in self.symbols:
-            if symbol not in YYYYMM_BEGIN_MAP:
-                raise ValueError(f"Unknown symbol {symbol}")
+        if self.symbol not in YYYYMM_BEGIN_MAP:
+            raise ValueError(f"Unknown symbol {self.symbol}")
 
 
 @dataclass
