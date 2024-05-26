@@ -142,6 +142,14 @@ def test_calc_fraction() -> None:
     pd.testing.assert_series_equal(expected, actual)
 
 
+def test_is_relative_feature() -> None:
+    assert data.is_relative_feature("sma1")
+    assert data.is_relative_feature("moving_min10")
+    assert data.is_relative_feature("moving_max20")
+    assert not data.is_relative_feature("moving_foo30")
+    assert not data.is_relative_feature("hour")
+
+
 def test_create_features() -> None:
     rates = pd.DataFrame(
         {
@@ -179,7 +187,7 @@ def test_create_features() -> None:
             "moving_max6": data.calc_moving_max(rates["close"], window_size=6),
             "moving_min6": data.calc_moving_min(rates["close"], window_size=6),
             "sigma6": data.calc_sigma(rates["close"], window_size=6),
-            "sma9_frac": data.calc_fraction(
+            "sma_frac9": data.calc_fraction(
                 data.calc_sma(rates["close"], window_size=9), unit=100
             ),
             "hour": np.full(12, 0),
@@ -202,7 +210,7 @@ def test_create_features() -> None:
     )
     sma_center = data.calc_sma(rates["close"], window_size=9)
     for col in expected.columns:
-        if col not in ("sigma3", "sigma6", "sma9_frac", "hour", "dow"):
+        if data.is_relative_feature(col):
             expected[col] -= sma_center
 
     pd.testing.assert_frame_equal(actual, expected)

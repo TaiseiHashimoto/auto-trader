@@ -1,3 +1,4 @@
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Generator, Optional, Union, cast
@@ -68,6 +69,10 @@ def calc_fraction(rates: "pd.Series[float]", unit: int) -> "pd.Series[float]":
     return (rates % unit).astype(np.float32)
 
 
+def is_relative_feature(name: str) -> bool:
+    return re.fullmatch(r"(sma|moving_(max|min))\d+", name) is not None
+
+
 def create_features(
     rates: pd.DataFrame,
     base_timing: str,
@@ -95,11 +100,11 @@ def create_features(
         abs_feature_names.add(f"sigma{window_size}")
 
     if use_sma_frac:
-        features[f"sma{window_size_center}_frac"] = calc_fraction(
+        features[f"sma_frac{window_size_center}"] = calc_fraction(
             sma_center,
             unit=sma_frac_unit,
         )
-        abs_feature_names.add(f"sma{window_size_center}_frac")
+        abs_feature_names.add(f"sma_frac{window_size_center}")
 
     datetime_index = cast(pd.DatetimeIndex, features.index)
     if use_hour:
@@ -111,7 +116,7 @@ def create_features(
 
     if center:
         for feature_name in features.columns:
-            if feature_name not in abs_feature_names:
+            if is_relative_feature(feature_name):
                 features[feature_name] -= sma_center
 
     return features
