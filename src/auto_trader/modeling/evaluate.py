@@ -25,13 +25,12 @@ def get_binary_pred(pred: NDArray[np.float32], percentile: float) -> NDArray[np.
     return pred > np.percentile(pred, percentile)
 
 
-def calc_stats(values: NDArray[np.float32]) -> dict[str, float]:
+def calc_stats(rates: NDArray[np.float32]) -> dict[str, float]:
     PERCENTILES = np.arange(21) * 5
     return {
-        "mean": cast(float, np.mean(values)),
+        "mean": cast(float, np.mean(rates)),
         **{
-            f"percentile_{p}": cast(float, np.percentile(values, p))
-            for p in PERCENTILES
+            f"percentile_{p}": cast(float, np.percentile(rates, p)) for p in PERCENTILES
         },
     }
 
@@ -39,7 +38,7 @@ def calc_stats(values: NDArray[np.float32]) -> dict[str, float]:
 def log_metrics(
     config: EvalConfig,
     lift: "pd.Series[float]",
-    label: "pd.Series[int]",
+    label: "pd.Series[float]",
     score: "pd.Series[float]",
     run: neptune.Run,
 ) -> None:
@@ -75,7 +74,7 @@ def log_metrics(
 
 def run_simulations(
     config: EvalConfig,
-    rates: "pd.Series[float]",
+    rate: "pd.Series[float]",
     score: "pd.Series[float]",
     run: neptune.Run,
 ) -> None:
@@ -92,7 +91,7 @@ def run_simulations(
         config.simulation.end_hour,
         config.simulation.thresh_losscut,
     )
-    for i, timestamp in enumerate(rates.index):
+    for i, timestamp in enumerate(rate.index):
         (
             pred_long_entry,
             pred_long_exit,
@@ -103,7 +102,7 @@ def run_simulations(
         # TODO: 戦略 (e.g. n 回連続で long 選択の場合に実際に long する) を導入
         simulator.step(
             timestamp,
-            rates.iloc[i],
+            rate.iloc[i],
             pred_long_entry,
             pred_long_exit,
             pred_short_entry,
@@ -180,11 +179,14 @@ def main(config: EvalConfig) -> None:
         use_hour=train_config.feature.use_hour,
         use_dow=train_config.feature.use_dow,
     )
-    lift = data.calc_lift(df_base["close"], train_config.label.alpha)
+    lift = data.calc_lift(
+        df_base["close"], train_config.label.future_begin, train_config.label.future_end
+    )
     label = data.create_label(lift, train_config.label.bin_boundary)
 
     index = data.calc_available_index(
         features=features,
+        label=label,
         hist_len=train_config.feature.hist_len,
     )
     print(f"Evaluation period: {index[0]} ~ {index[-1]}")
@@ -228,7 +230,7 @@ def main(config: EvalConfig) -> None:
         dtype=np.float32,
     )
 
-    rates = df_base.loc[index, config.simulation.timing]
+    rate = df_base.loc[index, config.simulation.timing]
     log_metrics(
         config=config,
         lift=lift,
@@ -238,7 +240,7 @@ def main(config: EvalConfig) -> None:
     )
     run_simulations(
         config=config,
-        rates=rates,
+        rate=rate,
         score=score,
         run=run,
     )

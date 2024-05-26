@@ -131,19 +131,19 @@ def test_calc_sigma() -> None:
 
 
 def test_calc_fraction() -> None:
-    values = pd.Series([12345.67, 9876.54])
+    rates = pd.Series([12345.67, 9876.54])
 
-    actual = data.calc_fraction(values, unit=100)
+    actual = data.calc_fraction(rates, unit=100)
     expected = pd.Series([45.67, 76.54], dtype=np.float32)
     pd.testing.assert_series_equal(expected, actual)
 
-    actual = data.calc_fraction(values, unit=1000)
+    actual = data.calc_fraction(rates, unit=1000)
     expected = pd.Series([345.67, 876.54], dtype=np.float32)
     pd.testing.assert_series_equal(expected, actual)
 
 
 def test_create_features() -> None:
-    values = pd.DataFrame(
+    rates = pd.DataFrame(
         {
             "open": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
             "high": [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110],
@@ -155,7 +155,7 @@ def test_create_features() -> None:
 
     # center = False
     actual = data.create_features(
-        values=values,
+        rates=rates,
         base_timing="close",
         window_sizes=[3, 6],
         window_size_center=9,
@@ -167,28 +167,20 @@ def test_create_features() -> None:
     )
     expected = pd.DataFrame(
         {
-            "open": values["open"].shift(1),
-            "high": values["high"].shift(1),
-            "low": values["low"].shift(1),
-            "close": values["close"].shift(1),
-            "sma3": data.calc_sma(values["close"].shift(1), window_size=3),
-            "moving_max3": data.calc_moving_max(
-                values["close"].shift(1), window_size=3
-            ),
-            "moving_min3": data.calc_moving_min(
-                values["close"].shift(1), window_size=3
-            ),
-            "sigma3": data.calc_sigma(values["close"].shift(1), window_size=3),
-            "sma6": data.calc_sma(values["close"].shift(1), window_size=6),
-            "moving_max6": data.calc_moving_max(
-                values["close"].shift(1), window_size=6
-            ),
-            "moving_min6": data.calc_moving_min(
-                values["close"].shift(1), window_size=6
-            ),
-            "sigma6": data.calc_sigma(values["close"].shift(1), window_size=6),
+            "open": rates["open"],
+            "high": rates["high"],
+            "low": rates["low"],
+            "close": rates["close"],
+            "sma3": data.calc_sma(rates["close"], window_size=3),
+            "moving_max3": data.calc_moving_max(rates["close"], window_size=3),
+            "moving_min3": data.calc_moving_min(rates["close"], window_size=3),
+            "sigma3": data.calc_sigma(rates["close"], window_size=3),
+            "sma6": data.calc_sma(rates["close"], window_size=6),
+            "moving_max6": data.calc_moving_max(rates["close"], window_size=6),
+            "moving_min6": data.calc_moving_min(rates["close"], window_size=6),
+            "sigma6": data.calc_sigma(rates["close"], window_size=6),
             "sma9_frac": data.calc_fraction(
-                data.calc_sma(values["close"].shift(1), window_size=9), unit=100
+                data.calc_sma(rates["close"], window_size=9), unit=100
             ),
             "hour": np.full(12, 0),
             "dow": np.full(12, date(2023, 1, 1).weekday()),
@@ -198,7 +190,7 @@ def test_create_features() -> None:
 
     # center = True
     actual = data.create_features(
-        values=values,
+        rates=rates,
         base_timing="close",
         window_sizes=[3, 6],
         window_size_center=9,
@@ -208,7 +200,7 @@ def test_create_features() -> None:
         use_dow=True,
         center=True,
     )
-    sma_center = data.calc_sma(values["close"].shift(1), window_size=9)
+    sma_center = data.calc_sma(rates["close"], window_size=9)
     for col in expected.columns:
         if col not in ("sigma3", "sigma6", "sma9_frac", "hour", "dow"):
             expected[col] -= sma_center
@@ -256,16 +248,17 @@ def test_normalize_features() -> None:
 
 
 def test_calc_lift() -> None:
-    value = pd.Series([1.0, 2.0, 3.0, 4.0, 5.0], dtype=np.float32)
+    rate = pd.Series([1.0, 2.0, 4.0, 8.0, 16.0, 32.0], dtype=np.float32)
     pd.testing.assert_series_equal(
-        data.calc_lift(value, alpha=0.1),
+        data.calc_lift(rate, future_begin=2, future_end=4),
         pd.Series(
             [
+                (4 + 8) / 2 - 1,
+                (8 + 16) / 2 - 2,
+                (16 + 32) / 2 - 4,
                 np.nan,
-                (2 * 0.1 + 3 * 0.1 * 0.9 + 4 * 0.1 * 0.9**2 + 5 * 0.9**3) - 1,
-                (3 * 0.1 + 4 * 0.1 * 0.9 + 5 * 0.9**2) - 2,
-                (4 * 0.1 + 5 * 0.9**1) - 3,
-                5 * 0.9**0 - 4,
+                np.nan,
+                np.nan,
             ],
             dtype=np.float32,
         ),
@@ -277,7 +270,7 @@ def test_create_label() -> None:
     lift = pd.Series([-1 - EPS, -1 + EPS, 1 - EPS, 1 + EPS], dtype=np.float32)
     pd.testing.assert_series_equal(
         data.create_label(lift, bin_boundary=1),
-        pd.Series([0, 1, 1, 2], dtype=np.int64),
+        pd.Series([0, 1, 1, 2], dtype=np.float32),
     )
 
 
@@ -286,11 +279,9 @@ def test_calc_available_index() -> None:
         {"x": [0] * 10, "y": [np.nan] * 2 + [10] * 8},
         index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:09", freq="1min"),
     )
-    actual = data.calc_available_index(
-        features=features,
-        hist_len=2,
-    )
-    expected = pd.date_range("2023-1-1 00:03", "2023-1-1 00:09", freq="1min")
+    label = pd.Series([0] * 9 + [np.nan], dtype=np.float32, index=features.index)
+    actual = data.calc_available_index(features, label, hist_len=2)
+    expected = pd.date_range("2023-1-1 00:03", "2023-1-1 00:08", freq="1min")
     pd.testing.assert_index_equal(actual, expected)
 
 
@@ -345,9 +336,9 @@ def test_sequential_loader() -> None:
         index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:05", freq="1min"),
     )
     label = pd.Series(
-        [0, 1, 2, 0, 1, 2],
+        [0.0, 1.0, 2.0, 0.0, 1.0, 2.0],
         index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:05", freq="1min"),
-        dtype=np.int64,
+        dtype=np.float32,
     )
 
     loader = data.SequentialLoader(

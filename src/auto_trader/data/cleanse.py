@@ -158,7 +158,7 @@ def validate_data(df: pd.DataFrame, symbol: str) -> None:
 
     if extreme_value_mask.any(axis=None):
         raise ValueError(
-            f"Found extreme values: min={df.min(axis=None)}, max={df.max(axis=None)}"
+            f"Found extreme rates: min={df.min(axis=None)}, max={df.max(axis=None)}"
         )
 
 

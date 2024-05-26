@@ -49,7 +49,9 @@ def main(config: TrainConfig) -> None:
         {n: str(feature_stats[n]) for n in feature_stats}
     )
 
-    lift = data.calc_lift(df_base["close"], config.label.alpha)
+    lift = data.calc_lift(
+        df_base["close"], config.label.future_begin, config.label.future_end
+    )
     lift_stats = data.ContinuousFeatureStats(lift.mean(), lift.std())
     logger.experiment["data/lift_stats"] = str(lift_stats)
 
@@ -61,6 +63,7 @@ def main(config: TrainConfig) -> None:
 
     index = data.calc_available_index(
         features=features,
+        label=label,
         hist_len=config.feature.hist_len,
     )
     print(f"Train period: {index[0]} ~ {index[-1]}")

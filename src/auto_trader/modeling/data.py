@@ -64,12 +64,12 @@ def calc_sigma(s: "pd.Series[float]", window_size: int) -> "pd.Series[float]":
     return s.rolling(window_size).std(ddof=0).astype(np.float32)
 
 
-def calc_fraction(values: "pd.Series[float]", unit: int) -> "pd.Series[float]":
-    return (values % unit).astype(np.float32)
+def calc_fraction(rates: "pd.Series[float]", unit: int) -> "pd.Series[float]":
+    return (rates % unit).astype(np.float32)
 
 
 def create_features(
-    values: pd.DataFrame,
+    rates: pd.DataFrame,
     base_timing: str,
     window_sizes: list[int],
     window_size_center: int,
@@ -79,8 +79,7 @@ def create_features(
     use_dow: bool,
     center: bool = True,
 ) -> pd.DataFrame:
-    # 未来の値を見ないようにする
-    features = values.shift(1)
+    features = rates.copy()
 
     sma_center = calc_sma(features[base_timing], window_size_center)
     abs_feature_names = set()
@@ -181,30 +180,36 @@ def normalize_features(
     return normalized
 
 
-def calc_lift(value: "pd.Series[float]", alpha: float) -> "pd.Series[float]":
-    future_value = (
-        value.iloc[::-1]
-        .ewm(alpha=alpha, adjust=False)
-        .mean()
-        .iloc[::-1]
-        .astype(np.float32)
+def calc_lift(
+    rate: "pd.Series[float]", future_begin: int, future_end: int
+) -> "pd.Series[float]":
+    future_value = calc_sma(rate, future_end - future_begin).shift(-(future_end - 1))
+    return future_value - rate
+
+
+def create_label(lift: "pd.Series[float]", bin_boundary: float) -> "pd.Series[float]":
+    return pd.cut(
+        lift,
+        bins=[lift.min(), -bin_boundary, bin_boundary, lift.max()],
+        labels=False,
+        include_lowest=True,
+    ).astype(np.float32)
+
+
+def calc_available_index(
+    features: pd.DataFrame, label: "pd.Series[float]", hist_len: int
+) -> pd.DatetimeIndex:
+    available_index_features = features.index[features.notna().all(axis=1)]
+    available_index_label = label.index[label.notna()]
+    first_datetime = max(
+        available_index_features[hist_len - 1], available_index_label[hist_len - 1]
     )
-    return future_value - value.shift(1)
+    last_datetime = min(available_index_features[-1], available_index_label[-1])
 
-
-def create_label(lift: "pd.Series[float]", bin_boundary: float) -> "pd.Series[int]":
-    low_mask = lift < -bin_boundary
-    high_mask = lift > bin_boundary
-    med_mask = (~low_mask) & (~high_mask)
-    return low_mask * 0 + med_mask * 1 + high_mask * 2
-
-
-def calc_available_index(features: pd.DataFrame, hist_len: int) -> pd.DatetimeIndex:
-    notnan_idxs = features.notna().all(axis=1).to_numpy().nonzero()[0]
-    first_datetime = features.index[notnan_idxs[0] + hist_len - 1]
     base_index = cast(pd.DatetimeIndex, features.index)
     available_mask = (
         (base_index >= first_datetime)
+        & (base_index <= last_datetime)
         # クリスマスは一部時間がデータに含まれるが、傾向が特殊なので除外
         & ~((base_index.month == 12) & (base_index.day == 25))
     )
@@ -234,7 +239,7 @@ class SequentialLoader:
         self,
         available_index: pd.DatetimeIndex,
         features: pd.DataFrame,
-        label: Optional["pd.Series[int]"],
+        label: Optional["pd.Series[float]"],
         hist_len: int,
         batch_size: int,
         shuffle: bool = False,
@@ -289,16 +294,14 @@ class SequentialLoader:
             }
 
             if self.label is not None:
-                label = self.label.values[idx_batch]
+                label = self.label.values[idx_batch].astype(np.int64)
             else:
-                label = np.zeros(len(idx_batch), dtype=np.float32)
+                label = np.zeros(len(idx_batch), dtype=np.float64)
 
             # for feature_name in features:
             #     assert not np.isnan(
             #         features[feature_name]
             #     ).any(), f"NaN found in {feature_name}"
-
-            # assert not np.isnan(label).any()
 
             yield features, label
 
