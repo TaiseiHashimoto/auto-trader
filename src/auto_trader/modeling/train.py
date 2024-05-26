@@ -37,12 +37,12 @@ def main(config: TrainConfig) -> None:
         df_base,
         base_timing=config.feature.base_timing,
         window_sizes=config.feature.window_sizes,
-        window_size_center=config.feature.window_size_center,
         use_sma_frac=config.feature.use_sma_frac,
         sma_frac_unit=config.feature.sma_frac_unit,
         use_hour=config.feature.use_hour,
         use_dow=config.feature.use_dow,
     )
+    features = data.relativize_features(features, config.feature.base_timing)
     feature_stats = data.get_feature_stats(features)
     features = data.normalize_features(features, feature_stats)
     logger.experiment["data/feature_stats"] = yaml.dump(

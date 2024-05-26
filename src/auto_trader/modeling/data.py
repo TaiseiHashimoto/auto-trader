@@ -69,25 +69,17 @@ def calc_fraction(rates: "pd.Series[float]", unit: int) -> "pd.Series[float]":
     return (rates % unit).astype(np.float32)
 
 
-def is_relative_feature(name: str) -> bool:
-    return re.fullmatch(r"(sma|moving_(max|min))\d+", name) is not None
-
-
 def create_features(
     rates: pd.DataFrame,
     base_timing: str,
     window_sizes: list[int],
-    window_size_center: int,
     use_sma_frac: bool,
     sma_frac_unit: int,
     use_hour: bool,
     use_dow: bool,
-    center: bool = True,
 ) -> pd.DataFrame:
     features = rates.copy()
 
-    sma_center = calc_sma(features[base_timing], window_size_center)
-    abs_feature_names = set()
     for window_size in window_sizes:
         features[f"sma{window_size}"] = calc_sma(features[base_timing], window_size)
         features[f"moving_max{window_size}"] = calc_moving_max(
@@ -97,29 +89,38 @@ def create_features(
             features[base_timing], window_size
         )
         features[f"sigma{window_size}"] = calc_sigma(features[base_timing], window_size)
-        abs_feature_names.add(f"sigma{window_size}")
 
     if use_sma_frac:
-        features[f"sma_frac{window_size_center}"] = calc_fraction(
-            sma_center,
-            unit=sma_frac_unit,
-        )
-        abs_feature_names.add(f"sma_frac{window_size_center}")
+        features["sma_frac"] = calc_fraction(features[base_timing], sma_frac_unit)
 
     datetime_index = cast(pd.DatetimeIndex, features.index)
     if use_hour:
         features["hour"] = datetime_index.hour.astype(np.int64)
-        abs_feature_names.add("hour")
     if use_dow:
         features["dow"] = datetime_index.day_of_week.astype(np.int64)
-        abs_feature_names.add("dow")
-
-    if center:
-        for feature_name in features.columns:
-            if is_relative_feature(feature_name):
-                features[feature_name] -= sma_center
 
     return features
+
+
+def calc_prev_day_mean(rate: "pd.Series[float]") -> "pd.Series[float]":
+    return rate.resample("1D").mean().shift(1).reindex(rate.index).ffill()
+
+
+def relativize_features(features: pd.DataFrame, base_timing: str) -> pd.DataFrame:
+    relativezed = features.copy()
+    center = calc_prev_day_mean(features[base_timing])
+
+    def is_relative_feature(name: str) -> bool:
+        return (
+            re.fullmatch(r"(open|high|low|close|(sma|moving_(max|min))\d+)", name)
+            is not None
+        )
+
+    for feature_name in features.columns:
+        if is_relative_feature(feature_name):
+            relativezed[feature_name] -= center
+
+    return relativezed
 
 
 @dataclass

@@ -29,19 +29,11 @@ YYYYMM_BEGIN_MAP = {
 class FeatureConfig:
     base_timing: str = "close"
     window_sizes: list[int] = field(default_factory=lambda: [5, 10, 15])
-    window_size_center: int = 30
     use_sma_frac: bool = True
     sma_frac_unit: int = 100
     use_hour: bool = True
     use_dow: bool = True
     hist_len: int = 64
-
-    def __post_init__(self) -> None:
-        if self.window_size_center in self.window_sizes:
-            raise ValueError(
-                f"window_sizes `{self.window_sizes}` must not include "
-                f"window_size_center `{self.window_size_center}`"
-            )
 
 
 @dataclass

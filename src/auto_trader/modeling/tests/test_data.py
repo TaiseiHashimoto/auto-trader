@@ -27,7 +27,7 @@ def test_read_cleansed_data(tmp_path: Path) -> None:
 
 
 def test_merge_bid_ask() -> None:
-    index = pd.date_range("2022-01-01 00:00:00", "2022-01-01 00:03:00", freq="1min")
+    index = pd.date_range("2022-01-01 00:00", "2022-01-01 00:03", freq="1min")
     df = pd.DataFrame(
         {
             "bid_open": [0, 1, 2, 3],
@@ -131,23 +131,15 @@ def test_calc_sigma() -> None:
 
 
 def test_calc_fraction() -> None:
-    rates = pd.Series([12345.67, 9876.54])
+    rate = pd.Series([12345.67, 9876.54])
 
-    actual = data.calc_fraction(rates, unit=100)
+    actual = data.calc_fraction(rate, unit=100)
     expected = pd.Series([45.67, 76.54], dtype=np.float32)
     pd.testing.assert_series_equal(expected, actual)
 
-    actual = data.calc_fraction(rates, unit=1000)
+    actual = data.calc_fraction(rate, unit=1000)
     expected = pd.Series([345.67, 876.54], dtype=np.float32)
     pd.testing.assert_series_equal(expected, actual)
-
-
-def test_is_relative_feature() -> None:
-    assert data.is_relative_feature("sma1")
-    assert data.is_relative_feature("moving_min10")
-    assert data.is_relative_feature("moving_max20")
-    assert not data.is_relative_feature("moving_foo30")
-    assert not data.is_relative_feature("hour")
 
 
 def test_create_features() -> None:
@@ -158,20 +150,17 @@ def test_create_features() -> None:
             "low": [0, -10, -20, -30, -40, -50, -60, -70, -80, -90, -100, -110],
             "close": [0, -1, -2, -3, -4, -5, -6, -7, -8, -9, -10, -11],
         },
-        index=pd.date_range("2023-01-01 00:00:00", "2023-01-01 00:11:00", freq="1min"),
+        index=pd.date_range("2023-01-01 00:00", "2023-01-01 00:11", freq="1min"),
     ).astype(np.float32)
 
-    # center = False
     actual = data.create_features(
         rates=rates,
         base_timing="close",
         window_sizes=[3, 6],
-        window_size_center=9,
         use_sma_frac=True,
         sma_frac_unit=100,
         use_hour=True,
         use_dow=True,
-        center=False,
     )
     expected = pd.DataFrame(
         {
@@ -187,32 +176,48 @@ def test_create_features() -> None:
             "moving_max6": data.calc_moving_max(rates["close"], window_size=6),
             "moving_min6": data.calc_moving_min(rates["close"], window_size=6),
             "sigma6": data.calc_sigma(rates["close"], window_size=6),
-            "sma_frac9": data.calc_fraction(
-                data.calc_sma(rates["close"], window_size=9), unit=100
-            ),
+            "sma_frac": data.calc_fraction(rates["close"], unit=100),
             "hour": np.full(12, 0),
             "dow": np.full(12, date(2023, 1, 1).weekday()),
         }
     )
     pd.testing.assert_frame_equal(actual, expected)
 
-    # center = True
-    actual = data.create_features(
-        rates=rates,
-        base_timing="close",
-        window_sizes=[3, 6],
-        window_size_center=9,
-        use_sma_frac=True,
-        sma_frac_unit=100,
-        use_hour=True,
-        use_dow=True,
-        center=True,
-    )
-    sma_center = data.calc_sma(rates["close"], window_size=9)
-    for col in expected.columns:
-        if data.is_relative_feature(col):
-            expected[col] -= sma_center
 
+def test_calc_prev_day_rate() -> None:
+    MIN_PER_DAY = 24 * 60
+    rate = pd.Series(
+        np.arange(0, MIN_PER_DAY * 3),
+        index=pd.date_range("2023-01-01 00:00", "2023-01-03 23:59", freq="1min"),
+    )
+    actual = data.calc_prev_day_mean(rate)
+    expected = pd.Series(
+        [np.nan] * MIN_PER_DAY
+        + [np.arange(0, MIN_PER_DAY).mean()] * MIN_PER_DAY
+        + [np.arange(MIN_PER_DAY, MIN_PER_DAY * 2).mean()] * MIN_PER_DAY,
+        index=rate.index,
+    )
+    pd.testing.assert_series_equal(actual, expected)
+
+
+def test_center_relative_features() -> None:
+    index = pd.date_range("2023-01-01 00:00", "2023-01-02 23:59", freq="1min")
+    features = pd.DataFrame(
+        {
+            "open": np.random.randn(len(index)).astype(np.float32),
+            "close": np.random.randn(len(index)).astype(np.float32),
+            "hour": index.hour,
+        },
+        index=index,
+    )
+    actual = data.relativize_features(features, base_timing="close")
+    expected = pd.DataFrame(
+        {
+            "open": features["open"] - data.calc_prev_day_mean(features["close"]),
+            "close": features["close"] - data.calc_prev_day_mean(features["close"]),
+            "hour": features["hour"],
+        }
+    )
     pd.testing.assert_frame_equal(actual, expected)
 
 
