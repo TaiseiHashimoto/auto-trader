@@ -173,8 +173,8 @@ def main(config: EvalConfig) -> None:
         df_rate,
         base_timing=train_config.feature.base_timing,
         window_sizes=train_config.feature.window_sizes,
-        use_sma_frac=train_config.feature.use_sma_frac,
-        sma_frac_unit=train_config.feature.sma_frac_unit,
+        use_fraction=train_config.feature.use_fraction,
+        fraction_unit=train_config.feature.fraction_unit,
         use_hour=train_config.feature.use_hour,
         use_dow=train_config.feature.use_dow,
     )

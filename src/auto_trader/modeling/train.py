@@ -37,8 +37,8 @@ def main(config: TrainConfig) -> None:
         df_rate,
         base_timing=config.feature.base_timing,
         window_sizes=config.feature.window_sizes,
-        use_sma_frac=config.feature.use_sma_frac,
-        sma_frac_unit=config.feature.sma_frac_unit,
+        use_fraction=config.feature.use_fraction,
+        fraction_unit=config.feature.fraction_unit,
         use_hour=config.feature.use_hour,
         use_dow=config.feature.use_dow,
     )

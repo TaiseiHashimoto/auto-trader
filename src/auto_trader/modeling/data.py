@@ -65,16 +65,16 @@ def calc_sigma(s: "pd.Series[float]", window_size: int) -> "pd.Series[float]":
     return s.rolling(window_size).std(ddof=0).astype(np.float32)
 
 
-def calc_fraction(rates: "pd.Series[float]", unit: int) -> "pd.Series[float]":
-    return (rates % unit).astype(np.float32)
+def calc_fraction(s: "pd.Series[float]", unit: int) -> "pd.Series[float]":
+    return (s % unit).astype(np.float32)
 
 
 def create_features(
     rates: pd.DataFrame,
     base_timing: str,
     window_sizes: list[int],
-    use_sma_frac: bool,
-    sma_frac_unit: int,
+    use_fraction: bool,
+    fraction_unit: int,
     use_hour: bool,
     use_dow: bool,
 ) -> pd.DataFrame:
@@ -90,8 +90,8 @@ def create_features(
         )
         features[f"sigma{window_size}"] = calc_sigma(features[base_timing], window_size)
 
-    if use_sma_frac:
-        features["sma_frac"] = calc_fraction(features[base_timing], sma_frac_unit)
+    if use_fraction:
+        features["fraction"] = calc_fraction(features[base_timing], fraction_unit)
 
     datetime_index = cast(pd.DatetimeIndex, features.index)
     if use_hour:

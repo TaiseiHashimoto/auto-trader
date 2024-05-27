@@ -29,8 +29,8 @@ YYYYMM_BEGIN_MAP = {
 class FeatureConfig:
     base_timing: str = "close"
     window_sizes: list[int] = field(default_factory=lambda: [5, 10, 15])
-    use_sma_frac: bool = True
-    sma_frac_unit: int = 100
+    use_fraction: bool = True
+    fraction_unit: int = 100
     use_hour: bool = True
     use_dow: bool = True
     hist_len: int = 64

@@ -157,8 +157,8 @@ def test_create_features() -> None:
         rates=rates,
         base_timing="close",
         window_sizes=[3, 6],
-        use_sma_frac=True,
-        sma_frac_unit=100,
+        use_fraction=True,
+        fraction_unit=100,
         use_hour=True,
         use_dow=True,
     )
@@ -176,7 +176,7 @@ def test_create_features() -> None:
             "moving_max6": data.calc_moving_max(rates["close"], window_size=6),
             "moving_min6": data.calc_moving_min(rates["close"], window_size=6),
             "sigma6": data.calc_sigma(rates["close"], window_size=6),
-            "sma_frac": data.calc_fraction(rates["close"], unit=100),
+            "fraction": data.calc_fraction(rates["close"], unit=100),
             "hour": np.full(12, 0),
             "dow": np.full(12, date(2023, 1, 1).weekday()),
         }
