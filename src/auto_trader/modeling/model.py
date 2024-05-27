@@ -33,7 +33,7 @@ def build_fc_layer(
 ) -> nn.Sequential:
     layers: list[nn.Module] = []
     for hidden_dim in hidden_dims:
-        layers.append(nn.Linear(input_dim, hidden_dim))
+        layers.append(nn.Linear(input_dim, hidden_dim, bias=not batchnorm))
         if batchnorm:
             layers.append(nn.BatchNorm1d(hidden_dim))
         layers.append(nn.ReLU())
@@ -97,6 +97,7 @@ class Net(nn.Module):
                     out_channels=out_channels[i],
                     kernel_size=kernel_sizes[i],
                     stride=strides[i],
+                    bias=not batchnorm,
                 )
             )
             if batchnorm:
