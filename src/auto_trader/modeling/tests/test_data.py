@@ -196,6 +196,7 @@ def test_calc_prev_day_rate() -> None:
         + [np.arange(0, MIN_PER_DAY).mean()] * MIN_PER_DAY
         + [np.arange(MIN_PER_DAY, MIN_PER_DAY * 2).mean()] * MIN_PER_DAY,
         index=rate.index,
+        dtype=np.float32,
     )
     pd.testing.assert_series_equal(actual, expected)
 

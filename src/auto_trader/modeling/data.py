@@ -103,7 +103,14 @@ def create_features(
 
 
 def calc_prev_day_mean(rate: "pd.Series[float]") -> "pd.Series[float]":
-    return rate.resample("1D").mean().shift(1).reindex(rate.index).ffill()
+    return (
+        rate.resample("1D")
+        .mean()
+        .shift(1)
+        .reindex(rate.index)
+        .ffill()
+        .astype(np.float32)
+    )
 
 
 def relativize_features(features: pd.DataFrame, base_timing: str) -> pd.DataFrame:
@@ -177,7 +184,9 @@ def normalize_features(
         val = features[col]
         stats = feature_stats[col]
         if isinstance(stats, ContinuousFeatureStats):
-            normalized[col] = (val - stats.mean) / (stats.std + 1e-6)
+            normalized[col] = ((val - stats.mean) / (stats.std + 1e-6)).astype(
+                np.float32
+            )
         elif isinstance(stats, CategoricalFeatureStats):
             # OOV は vocab_size に変換する
             oov_mask = (val < 0) | (val >= stats.vocab_size)
