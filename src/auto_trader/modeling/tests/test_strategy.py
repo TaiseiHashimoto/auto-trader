@@ -9,14 +9,14 @@ def test_time_limit_strategy() -> None:
     strategy_ = strategy.TimeLimitStrategy(
         thresh_long_entry=1.0,
         thresh_short_entry=-1.0,
-        max_entry_time=10,
+        entry_time_max=10,
     )
     score = np.zeros(60)
-    score[10] = 1.1
-    score[25] = 1.1
-    score[26] = -1.1
-    score[40] = -1.1
-    score[42] = 1.1
+    score[10] = 1.0
+    score[25] = 1.0
+    score[26] = -1.0
+    score[40] = -1.0
+    score[42] = 1.0
     expected = [(False, False, False, False) for _ in range(len(score))]
     # long entry
     expected[10] = (True, False, False, False)

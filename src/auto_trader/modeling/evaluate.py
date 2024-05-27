@@ -84,7 +84,7 @@ def run_simulations(
     strategy_ = strategy.TimeLimitStrategy(
         thresh_long_entry=thresh_entry,
         thresh_short_entry=-thresh_entry,
-        max_entry_time=config.strategy.max_entry_time,
+        entry_time_max=config.strategy.entry_time_max,
     )
     simulator = order.OrderSimulator(
         config.simulation.start_hour,
@@ -167,10 +167,10 @@ def main(config: EvalConfig) -> None:
         yyyymm_begin=config.yyyymm_begin,
         yyyymm_end=config.yyyymm_end,
     )
-    df_base = data.merge_bid_ask(df_cleansed)
+    df_rate = data.merge_bid_ask(df_cleansed)
 
     features = data.create_features(
-        df_base,
+        df_rate,
         base_timing=train_config.feature.base_timing,
         window_sizes=train_config.feature.window_sizes,
         use_sma_frac=train_config.feature.use_sma_frac,
@@ -179,8 +179,10 @@ def main(config: EvalConfig) -> None:
         use_dow=train_config.feature.use_dow,
     )
     features = data.relativize_features(features, train_config.feature.base_timing)
+    features = data.normalize_features(features, feature_stats)
+
     lift = data.calc_lift(
-        df_base["close"], train_config.label.future_begin, train_config.label.future_end
+        df_rate["close"], train_config.label.future_begin, train_config.label.future_end
     )
     label = data.create_label(lift, train_config.label.bin_boundary)
 
@@ -232,7 +234,7 @@ def main(config: EvalConfig) -> None:
         dtype=np.float32,
     )
 
-    rate = df_base.loc[index, config.simulation.timing]
+    rate = df_rate.loc[index, config.simulation.timing]
     log_metrics(
         config=config,
         lift=lift,

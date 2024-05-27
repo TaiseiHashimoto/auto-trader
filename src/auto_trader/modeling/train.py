@@ -31,10 +31,10 @@ def main(config: TrainConfig) -> None:
         yyyymm_begin=yyyymm_begin,
         yyyymm_end=config.yyyymm_end,
     )
-    df_base = data.merge_bid_ask(df_cleansed)
+    df_rate = data.merge_bid_ask(df_cleansed)
 
     features = data.create_features(
-        df_base,
+        df_rate,
         base_timing=config.feature.base_timing,
         window_sizes=config.feature.window_sizes,
         use_sma_frac=config.feature.use_sma_frac,
@@ -50,7 +50,7 @@ def main(config: TrainConfig) -> None:
     )
 
     lift = data.calc_lift(
-        df_base["close"], config.label.future_begin, config.label.future_end
+        df_rate["close"], config.label.future_begin, config.label.future_end
     )
     lift_stats = data.ContinuousFeatureStats(lift.mean(), lift.std())
     logger.experiment["data/lift_stats"] = str(lift_stats)
@@ -97,7 +97,6 @@ def main(config: TrainConfig) -> None:
     logger.experiment["data/size/total"] = loader_train.size + loader_valid.size
 
     net = model.Net(
-        # symbol ごとに特徴量の型式は変わらないので、どれを渡しても良い
         feature_stats=feature_stats,
         hist_len=config.feature.hist_len,
         numerical_emb_dim=config.net.numerical_emb_dim,

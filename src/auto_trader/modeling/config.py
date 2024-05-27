@@ -111,7 +111,7 @@ class TrainConfig:
 @dataclass
 class StrategyConfig:
     percentile_entry: float = 95.0
-    max_entry_time: int = 10
+    entry_time_max: int = 60
 
 
 @dataclass

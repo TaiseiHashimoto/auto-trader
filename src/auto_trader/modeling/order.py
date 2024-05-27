@@ -77,7 +77,7 @@ class OrderSimulator:
             dt.day,
         ) != (12, 25)
 
-        # 決済する条件: ポジションをもっている and (取引時間外 or モデルが決済を選択 or 損切り)
+        # exit の条件: ポジションをもっている and (取引時間外 or モデルが決済を選択 or 損切り)
         if (
             self.open_position is not None
             and self.open_position.position_type == PositionType.LONG
@@ -99,6 +99,7 @@ class OrderSimulator:
             self.order_history.append(self.open_position)
             self.open_position = None
 
+        # open の条件: 取引時間内 and ポジションを持っていない and モデルが購入を選択
         if is_open and self.open_position is None:
             if long_entry:
                 self.open_position = Order(PositionType.LONG, dt, rate)
