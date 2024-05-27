@@ -19,9 +19,9 @@ class PeriodicActivation(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         assert x.shape[-1] == 1
         # (...batch, num_coefs)
-        x = x * self.params * 2 * np.pi
-        # (...batch, num_coefs*2)
-        return torch.cat([torch.sin(x), torch.cos(x)], dim=-1)
+        x_ = x * self.params * 2 * np.pi
+        # (...batch, num_coefs * 2 + 1)
+        return torch.cat([torch.sin(x_), torch.cos(x_), x], dim=-1)
 
 
 def build_fc_layer(
@@ -76,7 +76,7 @@ class Net(nn.Module):
                     PeriodicActivation(
                         periodic_activation_num_coefs, periodic_activation_sigma
                     ),
-                    nn.Linear(periodic_activation_num_coefs * 2, numerical_emb_dim),
+                    nn.Linear(periodic_activation_num_coefs * 2 + 1, numerical_emb_dim),
                     nn.ReLU(),
                 )
                 emb_total_dim += numerical_emb_dim
