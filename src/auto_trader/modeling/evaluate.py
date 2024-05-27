@@ -188,6 +188,8 @@ def main(config: EvalConfig) -> None:
         features=features,
         label=label,
         hist_len=train_config.feature.hist_len,
+        hour_begin=train_config.feature.hour_begin,
+        hour_end=train_config.feature.hour_end,
     )
     print(f"Evaluation period: {index[0]} ~ {index[-1]}")
     run["data/size"] = len(index)

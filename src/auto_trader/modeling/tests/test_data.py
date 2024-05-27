@@ -293,7 +293,9 @@ def test_calc_available_index() -> None:
         index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:09", freq="1min"),
     )
     label = pd.Series([0] * 9 + [np.nan], dtype=np.float32, index=features.index)
-    actual = data.calc_available_index(features, label, hist_len=2)
+    actual = data.calc_available_index(
+        features, label, hist_len=2, hour_begin=0, hour_end=24
+    )
     expected = pd.date_range("2023-1-1 00:03", "2023-1-1 00:08", freq="1min")
     pd.testing.assert_index_equal(actual, expected)
 

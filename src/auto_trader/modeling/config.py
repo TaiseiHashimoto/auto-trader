@@ -34,6 +34,8 @@ class FeatureConfig:
     use_hour: bool = True
     use_dow: bool = True
     hist_len: int = 64
+    hour_begin: int = 2
+    hour_end: int = 22
 
 
 @dataclass

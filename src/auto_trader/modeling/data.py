@@ -203,7 +203,11 @@ def create_label(lift: "pd.Series[float]", bin_boundary: float) -> "pd.Series[fl
 
 
 def calc_available_index(
-    features: pd.DataFrame, label: "pd.Series[float]", hist_len: int
+    features: pd.DataFrame,
+    label: "pd.Series[float]",
+    hist_len: int,
+    hour_begin: int,
+    hour_end: int,
 ) -> pd.DatetimeIndex:
     available_index_features = features.index[features.notna().all(axis=1)]
     available_index_label = label.index[label.notna()]
@@ -216,6 +220,8 @@ def calc_available_index(
     available_mask = (
         (base_index >= first_datetime)
         & (base_index <= last_datetime)
+        & (base_index.hour >= hour_begin)
+        & (base_index.hour < hour_end)
         # クリスマスは一部時間がデータに含まれるが、傾向が特殊なので除外
         & ~((base_index.month == 12) & (base_index.day == 25))
     )

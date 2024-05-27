@@ -65,6 +65,8 @@ def main(config: TrainConfig) -> None:
         features=features,
         label=label,
         hist_len=config.feature.hist_len,
+        hour_begin=config.feature.hour_begin,
+        hour_end=config.feature.hour_end,
     )
     print(f"Train period: {index[0]} ~ {index[-1]}")
 
