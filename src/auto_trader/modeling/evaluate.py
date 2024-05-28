@@ -209,7 +209,7 @@ def main(config: EvalConfig) -> None:
     net = model.Net(
         feature_stats=feature_stats,
         hist_len=train_config.feature.hist_len,
-        numerical_emb_dim=train_config.net.numerical_emb_dim,
+        continuous_emb_dim=train_config.net.continuous_emb_dim,
         periodic_activation_num_coefs=train_config.net.periodic_activation_num_coefs,
         periodic_activation_sigma=train_config.net.periodic_activation_sigma,
         categorical_emb_dim=train_config.net.categorical_emb_dim,

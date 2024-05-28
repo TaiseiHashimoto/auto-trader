@@ -22,7 +22,7 @@ def test_main(tmp_path: Path) -> None:
             "yyyymm_begin=202301",
             "yyyymm_end=202301",
             "feature.hist_len=8",
-            "net.numerical_emb_dim=2",
+            "net.continuous_emb_dim=2",
             "net.categorical_emb_dim=1",
             "net.out_channels=[2,2]",
             "net.kernel_sizes=[2,2]",

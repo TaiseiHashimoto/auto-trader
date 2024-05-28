@@ -56,7 +56,7 @@ class LabelConfig:
 class NetConfig:
     periodic_activation_num_coefs: int = 8
     periodic_activation_sigma: float = 1.0
-    numerical_emb_dim: int = 16
+    continuous_emb_dim: int = 16
     categorical_emb_dim: int = 16
     out_channels: list[int] = field(default_factory=lambda: [64, 64])
     kernel_sizes: list[int] = field(default_factory=lambda: [8, 8])

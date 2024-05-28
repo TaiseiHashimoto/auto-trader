@@ -21,7 +21,28 @@ class PeriodicActivation(nn.Module):
         # (...batch, num_coefs)
         x_ = x * self.params * 2 * np.pi
         # (...batch, num_coefs * 2 + 1)
-        return torch.cat([torch.sin(x_), torch.cos(x_), x], dim=-1)
+        return torch.cat([torch.sin(x_), torch.cos(x_)], dim=-1)
+
+
+class ContinuousEmbedding(nn.Module):
+    def __init__(
+        self,
+        periodic_activation_num_coefs: int,
+        periodic_activation_sigma: float,
+        output_dim: int,
+    ) -> None:
+        super().__init__()
+        self.periodic_activation = None
+        if periodic_activation_num_coefs > 0:
+            self.periodic_activation = PeriodicActivation(
+                periodic_activation_num_coefs, periodic_activation_sigma
+            )
+        self.linear = nn.Linear(periodic_activation_num_coefs * 2 + 1, output_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.periodic_activation is not None:
+            x = torch.cat([self.periodic_activation(x), x], dim=-1)
+        return F.relu(self.linear(x))
 
 
 def build_fc_layer(
@@ -52,7 +73,7 @@ class Net(nn.Module):
         self,
         feature_stats: dict[data.FeatureName, data.FeatureStats],
         hist_len: int,
-        numerical_emb_dim: int,
+        continuous_emb_dim: int,
         periodic_activation_num_coefs: int,
         periodic_activation_sigma: float,
         categorical_emb_dim: int,
@@ -72,14 +93,12 @@ class Net(nn.Module):
         emb_total_dim = 0
         for name, stats in feature_stats.items():
             if isinstance(stats, data.ContinuousFeatureStats):
-                self.emb_feature[name] = nn.Sequential(
-                    PeriodicActivation(
-                        periodic_activation_num_coefs, periodic_activation_sigma
-                    ),
-                    nn.Linear(periodic_activation_num_coefs * 2 + 1, numerical_emb_dim),
-                    nn.ReLU(),
+                self.emb_feature[name] = ContinuousEmbedding(
+                    periodic_activation_num_coefs,
+                    periodic_activation_sigma,
+                    continuous_emb_dim,
                 )
-                emb_total_dim += numerical_emb_dim
+                emb_total_dim += continuous_emb_dim
             elif isinstance(stats, data.CategoricalFeatureStats):
                 self.emb_feature[name] = nn.Embedding(
                     # vocab_size は OOV token
@@ -109,7 +128,9 @@ class Net(nn.Module):
             length = int((length - kernel_sizes[i]) / strides[i] + 1)
 
         self.head = build_fc_layer(
-            input_dim=length * out_channels[-1],
+            input_dim=(
+                length * (out_channels[-1] if len(out_channels) > 0 else emb_total_dim)
+            ),
             hidden_dims=head_hidden_dims,
             batchnorm=head_batchnorm,
             dropout=head_dropout,

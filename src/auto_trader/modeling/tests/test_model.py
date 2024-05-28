@@ -16,7 +16,7 @@ def test_net() -> None:
     layer = model.Net(
         feature_stats={"x": data.ContinuousFeatureStats(mean=0.0, std=1.0)},
         hist_len=10,
-        numerical_emb_dim=4,
+        continuous_emb_dim=4,
         periodic_activation_num_coefs=3,
         periodic_activation_sigma=1.0,
         categorical_emb_dim=4,
