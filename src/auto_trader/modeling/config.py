@@ -10,7 +10,7 @@ class NeptuneConfig:
     mode: str = "async"
 
     def __post_init__(self) -> None:
-        if self.mode not in ["async", "debug"]:
+        if self.mode not in ["async", "sync", "debug"]:
             raise ValueError(f"Unknown mode `{self.mode}`")
 
 
