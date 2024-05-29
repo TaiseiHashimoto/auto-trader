@@ -206,17 +206,35 @@ def test_center_relative_features() -> None:
     features = pd.DataFrame(
         {
             "open": np.random.randn(len(index)).astype(np.float32),
+            "low": np.random.randn(len(index)).astype(np.float32),
+            "high": np.random.randn(len(index)).astype(np.float32),
             "close": np.random.randn(len(index)).astype(np.float32),
+            "sma5": np.random.randn(len(index)).astype(np.float32),
+            "moving_max5": np.random.randn(len(index)).astype(np.float32),
+            "moving_min5": np.random.randn(len(index)).astype(np.float32),
+            "sigma5": np.random.randn(len(index)).astype(np.float32),
+            "fraction": np.random.randn(len(index)).astype(np.float32),
             "hour": index.hour,
+            "dow": index.day_of_week,
         },
         index=index,
     )
+    base = data.calc_prev_day_mean(features["close"])
+
     actual = data.relativize_features(features, base_timing="close")
     expected = pd.DataFrame(
         {
-            "open": features["open"] - data.calc_prev_day_mean(features["close"]),
-            "close": features["close"] - data.calc_prev_day_mean(features["close"]),
+            "open": features["open"] - base,
+            "low": features["low"] - base,
+            "high": features["high"] - base,
+            "close": features["close"] - base,
+            "sma5": features["sma5"] - base,
+            "moving_max5": features["moving_max5"] - base,
+            "moving_min5": features["moving_min5"] - base,
+            "sigma5": features["sigma5"],
+            "fraction": features["fraction"],
             "hour": features["hour"],
+            "dow": features["dow"],
         }
     )
     pd.testing.assert_frame_equal(actual, expected)
