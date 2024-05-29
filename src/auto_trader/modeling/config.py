@@ -95,6 +95,7 @@ class TrainConfig:
     valid_block_size: int = 60 * 4
     valid_ratio: float = 0.1
     random_seed: int = 123
+    lightning_profiler: Optional[str] = None
 
     neptune: NeptuneConfig = field(default_factory=NeptuneConfig)
     feature: FeatureConfig = field(default_factory=FeatureConfig)

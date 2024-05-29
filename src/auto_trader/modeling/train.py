@@ -143,6 +143,7 @@ def main(config: TrainConfig) -> None:
         max_epochs=config.max_epochs,
         logger=logger,
         callbacks=[early_stopping_callback, checkpoint_callback],
+        profiler=config.lightning_profiler,
     )
     trainer.fit(
         model=model_,
