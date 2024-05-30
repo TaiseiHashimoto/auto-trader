@@ -103,6 +103,7 @@ def main(config: TrainConfig) -> None:
         kernel_sizes=config.net.kernel_sizes,
         pooling_sizes=config.net.pooling_sizes,
         batchnorm=config.net.batchnorm,
+        layernorm=config.net.layernorm,
         dropout=config.net.dropout,
         head_hidden_dims=config.net.head_hidden_dims,
         head_batchnorm=config.net.head_batchnorm,

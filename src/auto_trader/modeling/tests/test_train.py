@@ -27,6 +27,7 @@ def test_main(tmp_path: Path) -> None:
             "net.out_channels=[2,2]",
             "net.kernel_sizes=[3,3]",
             "net.pooling_sizes=[4,2]",
+            "net.layernorm=True",
             "net.head_hidden_dims=[2]",
         ],
     )

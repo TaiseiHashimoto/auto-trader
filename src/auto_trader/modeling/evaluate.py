@@ -217,6 +217,7 @@ def main(config: EvalConfig) -> None:
         kernel_sizes=train_config.net.kernel_sizes,
         pooling_sizes=train_config.net.pooling_sizes,
         batchnorm=train_config.net.batchnorm,
+        layernorm=train_config.net.layernorm,
         dropout=train_config.net.dropout,
         head_hidden_dims=train_config.net.head_hidden_dims,
         head_batchnorm=train_config.net.head_batchnorm,

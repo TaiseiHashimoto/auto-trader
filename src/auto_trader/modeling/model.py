@@ -81,6 +81,7 @@ class Net(nn.Module):
         kernel_sizes: list[int],
         pooling_sizes: list[int],
         batchnorm: bool,
+        layernorm: bool,
         dropout: float,
         head_hidden_dims: list[int],
         head_batchnorm: bool,
@@ -127,6 +128,9 @@ class Net(nn.Module):
                 self.conv.append(nn.MaxPool1d(kernel_size=pooling_sizes[i]))
             if batchnorm:
                 self.conv.append(nn.BatchNorm1d(out_channels[i]))
+            if layernorm:
+                length = shape_history[-1].length // pooling_sizes[i]
+                self.conv.append(nn.LayerNorm([out_channels[i], length]))
             self.conv.append(nn.ReLU())
             if dropout:
                 self.conv.append(nn.Dropout(dropout))

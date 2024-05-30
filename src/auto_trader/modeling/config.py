@@ -57,7 +57,8 @@ class NetConfig:
     out_channels: list[int] = field(default_factory=lambda: [64, 64])
     kernel_sizes: list[int] = field(default_factory=lambda: [5, 5])
     pooling_sizes: list[int] = field(default_factory=lambda: [8, 8])
-    batchnorm: bool = True
+    batchnorm: bool = False
+    layernorm: bool = False
     dropout: float = 0.2
     head_hidden_dims: list[int] = field(default_factory=lambda: [64])
     head_batchnorm: bool = False
@@ -85,6 +86,9 @@ class NetConfig:
                 f"Every item in kernel_sizes `{self.kernel_sizes}` "
                 "must be an odd number"
             )
+
+        if self.batchnorm and self.layernorm:
+            raise ValueError("At most one of batchnorm and layernorm can be True")
 
 
 @dataclass

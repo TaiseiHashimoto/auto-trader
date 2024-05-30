@@ -24,6 +24,7 @@ def test_net() -> None:
         kernel_sizes=[5],
         pooling_sizes=[5],
         batchnorm=True,
+        layernorm=False,
         dropout=0.1,
         head_hidden_dims=[10],
         head_batchnorm=True,
