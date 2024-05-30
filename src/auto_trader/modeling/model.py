@@ -1,4 +1,4 @@
-from typing import Any, Optional, cast
+from typing import Any, NamedTuple, Optional, cast
 
 import lightning.pytorch as pl
 import numpy as np
@@ -79,7 +79,7 @@ class Net(nn.Module):
         categorical_emb_dim: int,
         out_channels: list[int],
         kernel_sizes: list[int],
-        strides: list[int],
+        pooling_sizes: list[int],
         batchnorm: bool,
         dropout: float,
         head_hidden_dims: list[int],
@@ -107,29 +107,45 @@ class Net(nn.Module):
                 )
                 emb_total_dim += categorical_emb_dim
 
+        class ConvShape(NamedTuple):
+            length: int
+            channel: int
+
+        shape_history = [ConvShape(length=hist_len, channel=emb_total_dim)]
         self.conv = nn.Sequential()
-        length = hist_len
         for i in range(len(out_channels)):
             self.conv.append(
                 nn.Conv1d(
-                    in_channels=emb_total_dim if i == 0 else out_channels[i - 1],
+                    in_channels=shape_history[-1].channel,
                     out_channels=out_channels[i],
                     kernel_size=kernel_sizes[i],
-                    stride=strides[i],
+                    padding=(kernel_sizes[i] - 1) // 2,  # same size
                     bias=not batchnorm,
                 )
             )
+            if pooling_sizes[i] > 1:
+                self.conv.append(nn.MaxPool1d(kernel_size=pooling_sizes[i]))
             if batchnorm:
                 self.conv.append(nn.BatchNorm1d(out_channels[i]))
             self.conv.append(nn.ReLU())
             if dropout:
                 self.conv.append(nn.Dropout(dropout))
 
-            length = int((length - kernel_sizes[i]) / strides[i] + 1)
+            shape_history.append(
+                ConvShape(
+                    length=shape_history[-1].length // pooling_sizes[i],
+                    channel=out_channels[i],
+                )
+            )
+
+        print("Conv shape history")
+        for shape in shape_history:
+            print(shape)
 
         self.head = build_fc_layer(
             input_dim=(
-                length * (out_channels[-1] if len(out_channels) > 0 else emb_total_dim)
+                shape_history[-1].length
+                * (out_channels[-1] if len(out_channels) > 0 else emb_total_dim)
             ),
             hidden_dims=head_hidden_dims,
             batchnorm=head_batchnorm,

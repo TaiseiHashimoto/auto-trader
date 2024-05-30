@@ -22,7 +22,7 @@ def test_net() -> None:
         categorical_emb_dim=4,
         out_channels=[4],
         kernel_sizes=[5],
-        strides=[5],
+        pooling_sizes=[5],
         batchnorm=True,
         dropout=0.1,
         head_hidden_dims=[10],

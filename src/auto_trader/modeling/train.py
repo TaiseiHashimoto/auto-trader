@@ -101,7 +101,7 @@ def main(config: TrainConfig) -> None:
         categorical_emb_dim=config.net.categorical_emb_dim,
         out_channels=config.net.out_channels,
         kernel_sizes=config.net.kernel_sizes,
-        strides=config.net.strides,
+        pooling_sizes=config.net.pooling_sizes,
         batchnorm=config.net.batchnorm,
         dropout=config.net.dropout,
         head_hidden_dims=config.net.head_hidden_dims,

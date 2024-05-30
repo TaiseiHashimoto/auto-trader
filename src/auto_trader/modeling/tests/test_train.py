@@ -9,7 +9,7 @@ from auto_trader.modeling import train
 from auto_trader.modeling.config import TrainConfig
 
 
-@pytest.mark.skip(reason="called by test_evaluate.test_main")
+@pytest.mark.skip(reason="should be called by test_evaluate.test_main")
 def test_main(tmp_path: Path) -> None:
     config = utils.get_config(
         TrainConfig,
@@ -25,8 +25,8 @@ def test_main(tmp_path: Path) -> None:
             "net.continuous_emb_dim=2",
             "net.categorical_emb_dim=1",
             "net.out_channels=[2,2]",
-            "net.kernel_sizes=[2,2]",
-            "net.strides=[2,2]",
+            "net.kernel_sizes=[3,3]",
+            "net.pooling_sizes=[4,2]",
             "net.head_hidden_dims=[2]",
         ],
     )

@@ -215,7 +215,7 @@ def main(config: EvalConfig) -> None:
         categorical_emb_dim=train_config.net.categorical_emb_dim,
         out_channels=train_config.net.out_channels,
         kernel_sizes=train_config.net.kernel_sizes,
-        strides=train_config.net.strides,
+        pooling_sizes=train_config.net.pooling_sizes,
         batchnorm=train_config.net.batchnorm,
         dropout=train_config.net.dropout,
         head_hidden_dims=train_config.net.head_hidden_dims,

@@ -55,13 +55,36 @@ class NetConfig:
     continuous_emb_dim: int = 16
     categorical_emb_dim: int = 16
     out_channels: list[int] = field(default_factory=lambda: [64, 64])
-    kernel_sizes: list[int] = field(default_factory=lambda: [8, 8])
-    strides: list[int] = field(default_factory=lambda: [8, 8])
+    kernel_sizes: list[int] = field(default_factory=lambda: [5, 5])
+    pooling_sizes: list[int] = field(default_factory=lambda: [8, 8])
     batchnorm: bool = True
     dropout: float = 0.2
     head_hidden_dims: list[int] = field(default_factory=lambda: [64])
     head_batchnorm: bool = False
     head_dropout: float = 0.0
+
+    def __post_init__(self) -> None:
+        if (
+            len(
+                {
+                    len(self.out_channels),
+                    len(self.kernel_sizes),
+                    len(self.pooling_sizes),
+                }
+            )
+            > 1
+        ):
+            raise ValueError(
+                f"Length of out_channels `{self.out_channels}`, "
+                f"kerne_sizes `{self.kernel_sizes}` and "
+                f"pooling_sizes `{self.pooling_sizes}` must be the same"
+            )
+
+        if any([s % 2 != 1 for s in self.kernel_sizes]):
+            raise ValueError(
+                f"Every item in kernel_sizes `{self.kernel_sizes}` "
+                "must be an odd number"
+            )
 
 
 @dataclass
