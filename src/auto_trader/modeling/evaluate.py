@@ -180,11 +180,11 @@ def main(config: EvalConfig) -> None:
     )
     features = data.relativize_features(features, train_config.feature.base_timing)
     features = data.normalize_features(features, feature_stats)
-
-    lift = data.calc_lift(
-        df_rate["close"], train_config.label.future_begin, train_config.label.future_end
+    label = data.create_label(
+        df_rate["close"],
+        train_config.label.future_step,
+        train_config.label.bin_boundary,
     )
-    label = data.create_label(lift, train_config.label.bin_boundary)
 
     index = data.calc_available_index(
         features=features,
@@ -235,6 +235,8 @@ def main(config: EvalConfig) -> None:
     )
 
     rate = df_rate.loc[index, config.simulation.timing]
+    # NOTE: data.calc_lift の lift とは異なり、単純に future_step 後との比較
+    lift = rate.shift(-train_config.label.future_step) - rate
     log_metrics(
         config=config,
         lift=lift,

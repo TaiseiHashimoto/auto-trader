@@ -40,16 +40,12 @@ class FeatureConfig:
 
 @dataclass
 class LabelConfig:
-    future_begin: int = 10
-    future_end: int = 20
+    future_step: int = 10
     bin_boundary: float = 2.0
 
     def __post_init__(self) -> None:
-        if not 0 < self.future_begin < self.future_end:
-            raise ValueError(
-                f'The condition "0 < future_begin `{self.future_begin}` < '
-                f'future_end `{self.future_end}`" is not met.'
-            )
+        if self.future_step <= 0:
+            raise ValueError(f"future_step `{self.future_step}` must be positive")
 
 
 @dataclass

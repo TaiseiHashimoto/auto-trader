@@ -49,13 +49,9 @@ def main(config: TrainConfig) -> None:
         {n: str(feature_stats[n]) for n in feature_stats}
     )
 
-    lift = data.calc_lift(
-        df_rate["close"], config.label.future_begin, config.label.future_end
+    label = data.create_label(
+        df_rate["close"], config.label.future_step, config.label.bin_boundary
     )
-    lift_stats = data.ContinuousFeatureStats(lift.mean(), lift.std())
-    logger.experiment["data/lift_stats"] = str(lift_stats)
-
-    label = data.create_label(lift, config.label.bin_boundary)
     label_stats = data.CategoricalFeatureStats(
         label.value_counts().sort_index().to_dict()
     )

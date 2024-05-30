@@ -280,15 +280,29 @@ def test_normalize_features() -> None:
 
 
 def test_calc_lift() -> None:
-    rate = pd.Series([1.0, 2.0, 4.0, 8.0, 16.0, 32.0], dtype=np.float32)
+    rate = pd.Series([1.0, 2.0, 4.0, 3.0, 0.0, 10.0], dtype=np.float32)
     pd.testing.assert_series_equal(
-        data.calc_lift(rate, future_begin=2, future_end=4),
+        data.calc_lift(rate, future_step=2),
         pd.Series(
             [
-                (4 + 8) / 2 - 1,
-                (8 + 16) / 2 - 2,
-                (16 + 32) / 2 - 4,
+                max(2.0, 4.0) - 1.0,
+                max(4.0, 3.0) - 2.0,
+                max(3.0, 0.0) - 4.0,
+                max(0.0, 10.0) - 3.0,
                 np.nan,
+                np.nan,
+            ],
+            dtype=np.float32,
+        ),
+    )
+    pd.testing.assert_series_equal(
+        data.calc_lift(-rate, future_step=2),
+        pd.Series(
+            [
+                -(min(2.0, 4.0) - 1.0),
+                -(min(4.0, 3.0) - 2.0),
+                -(min(3.0, 0.0) - 4.0),
+                -(min(0.0, 10.0) - 3.0),
                 np.nan,
                 np.nan,
             ],
@@ -298,11 +312,24 @@ def test_calc_lift() -> None:
 
 
 def test_create_label() -> None:
-    EPS = 0.01
-    lift = pd.Series([-1 - EPS, -1 + EPS, 1 - EPS, 1 + EPS], dtype=np.float32)
+    rate = pd.Series([0.0, 0.0, 1.0, -1.0, -1.0, -0.5], dtype=np.float32)
     pd.testing.assert_series_equal(
-        data.create_label(lift, bin_boundary=1),
-        pd.Series([0, 1, 1, 2], dtype=np.float32),
+        data.create_label(rate, future_step=2, bin_boundary=1.0),
+        pd.Series(
+            [
+                # up & ~down
+                2.0,
+                # up & down
+                1.0,
+                # ~up & down
+                0.0,
+                # ~up & ~down
+                1.0,
+                np.nan,
+                np.nan,
+            ],
+            dtype=np.float32,
+        ),
     )
 
 

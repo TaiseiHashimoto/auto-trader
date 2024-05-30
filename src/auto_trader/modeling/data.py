@@ -195,20 +195,22 @@ def normalize_features(
     return normalized
 
 
-def calc_lift(
-    rate: "pd.Series[float]", future_begin: int, future_end: int
+def calc_lift(rate: "pd.Series[float]", future_step: int) -> "pd.Series[float]":
+    future_max = calc_moving_max(rate, future_step).shift(-future_step)
+    return future_max - rate
+
+
+def create_label(
+    rate: "pd.Series[float]", future_step: int, bin_boundary: float
 ) -> "pd.Series[float]":
-    future_value = calc_sma(rate, future_end - future_begin).shift(-(future_end - 1))
-    return future_value - rate
-
-
-def create_label(lift: "pd.Series[float]", bin_boundary: float) -> "pd.Series[float]":
-    return pd.cut(
-        lift,
-        bins=[lift.min(), -bin_boundary, bin_boundary, lift.max()],
-        labels=False,
-        include_lowest=True,
-    ).astype(np.float32)
+    lift_up = calc_lift(rate, future_step=future_step)
+    lift_down = calc_lift(-rate, future_step=future_step)
+    return (
+        pd.Series(np.ones(len(rate), dtype=np.float32), index=rate.index)
+        .mask((lift_up >= bin_boundary) & (lift_down < bin_boundary), 2.0)
+        .mask((lift_up < bin_boundary) & (lift_down >= bin_boundary), 0.0)
+        .mask(lift_up.isna() | lift_down.isna(), np.nan)
+    )
 
 
 def calc_available_index(
