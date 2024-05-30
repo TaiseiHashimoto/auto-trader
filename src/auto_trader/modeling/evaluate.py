@@ -55,6 +55,8 @@ def log_metrics(
     thresh_entry = np.percentile(np.abs(score_np), config.strategy.percentile_entry)
     pred_long_entry = score_np > thresh_entry
     pred_short_entry = score_np < -thresh_entry
+    run["stats/ratio/long_entry"] = pred_long_entry.mean()
+    run["stats/ratio/short_entry"] = pred_short_entry.mean()
     run["stats/precision/long_entry"] = precision_score(
         label_long_entry, pred_long_entry
     )
@@ -225,7 +227,7 @@ def main(config: EvalConfig) -> None:
         head_output_dim=label_stats.vocab_size,
     )
     net.load_state_dict(net_state)
-    model_ = model.Model(net, boundary=train_config.label.bin_boundary)
+    model_ = model.Model(net)
     trainer = pl.Trainer(logger=False)
 
     scores_torch = cast(list[torch.Tensor], trainer.predict(model_, loader))

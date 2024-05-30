@@ -177,7 +177,7 @@ class Model(pl.LightningModule):
     def __init__(
         self,
         net: nn.Module,
-        boundary: float,
+        boundary: float = 1.0,
         learning_rate: float = 1e-3,
         weight_decay: float = 0.0,
         cosine_decay_steps: int = 0,
