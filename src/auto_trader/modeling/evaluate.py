@@ -135,7 +135,7 @@ def main(config: EvalConfig) -> None:
     run = neptune.init_run(
         project=config.neptune.project,
         mode=config.neptune.mode,
-        tags=["classification", "eval", "conv-transformer"],
+        tags=["classification", "eval"],
     )
     run["config"] = OmegaConf.to_yaml(config)
 
