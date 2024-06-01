@@ -102,32 +102,11 @@ def create_features(
     return features
 
 
-def calc_prev_day_mean(rate: "pd.Series[float]") -> "pd.Series[float]":
+def is_relative_feature(name: str) -> bool:
     return (
-        rate.resample("1D")
-        .mean()
-        .shift(1)
-        .reindex(rate.index)
-        .ffill()
-        .astype(np.float32)
+        re.fullmatch(r"(open|high|low|close|(sma|moving_(max|min))\d+)", name)
+        is not None
     )
-
-
-def relativize_features(features: pd.DataFrame, base_timing: str) -> pd.DataFrame:
-    relativezed = features.copy()
-    center = calc_prev_day_mean(features[base_timing])
-
-    def is_relative_feature(name: str) -> bool:
-        return (
-            re.fullmatch(r"(open|high|low|close|(sma|moving_(max|min))\d+)", name)
-            is not None
-        )
-
-    for feature_name in features.columns:
-        if is_relative_feature(feature_name):
-            relativezed[feature_name] -= center
-
-    return relativezed
 
 
 @dataclass
@@ -162,12 +141,22 @@ class CategoricalFeatureStats:
 FeatureStats = Union[ContinuousFeatureStats, CategoricalFeatureStats]
 
 
-def get_feature_stats(features: pd.DataFrame) -> dict[FeatureName, FeatureStats]:
+def get_feature_stats(
+    features: pd.DataFrame, base_timing: str, hist_len: int
+) -> dict[FeatureName, FeatureStats]:
     stats: dict[FeatureName, FeatureStats] = {}
     for col in features.columns:
         val = features[col]
         if val.dtype == np.float32:
-            stats[col] = ContinuousFeatureStats(val.mean(), val.std(ddof=0))
+            if is_relative_feature(col):
+                # relativize 後の分散を計算する
+                sma_val = calc_sma(val, hist_len)
+                sma_base = calc_sma(features[base_timing], hist_len)
+                sma_val2 = calc_sma(val**2, hist_len)
+                std = (sma_val2 - 2 * sma_val * sma_base + sma_base**2).mean() ** 0.5
+                stats[col] = ContinuousFeatureStats(0.0, std)
+            else:
+                stats[col] = ContinuousFeatureStats(val.mean(), val.std(ddof=0))
         elif val.dtype == np.int64:
             stats[col] = CategoricalFeatureStats(
                 val.value_counts().sort_index().to_dict()
@@ -263,6 +252,7 @@ class SequentialLoader:
         available_index: pd.DatetimeIndex,
         features: pd.DataFrame,
         label: Optional["pd.Series[float]"],
+        base_timing: str,
         hist_len: int,
         batch_size: int,
         shuffle: bool = False,
@@ -273,6 +263,7 @@ class SequentialLoader:
         self.available_index = available_index
         self.features = features
         self.label = label
+        self.base_timing = base_timing
         self.hist_len = hist_len
         self.batch_size = batch_size
         self.shuffle = shuffle
@@ -307,6 +298,7 @@ class SequentialLoader:
                 NDArray[np.int64],
                 idx_batch[:, np.newaxis] - np.arange(self.hist_len)[::-1],
             )
+
             features = {
                 col: (
                     self.features[col]
@@ -315,6 +307,10 @@ class SequentialLoader:
                 )
                 for col in self.features.columns
             }
+            base_mean = features[self.base_timing].mean(axis=1, keepdims=True)
+            for col in features:
+                if is_relative_feature(col):
+                    features[col] -= base_mean
 
             if self.label is not None:
                 label = self.label.values[idx_batch].astype(np.int64)

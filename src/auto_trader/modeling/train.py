@@ -42,8 +42,9 @@ def main(config: TrainConfig) -> None:
         use_hour=config.feature.use_hour,
         use_dow=config.feature.use_dow,
     )
-    features = data.relativize_features(features, config.feature.base_timing)
-    feature_stats = data.get_feature_stats(features)
+    feature_stats = data.get_feature_stats(
+        features, config.feature.base_timing, config.feature.hist_len
+    )
     features = data.normalize_features(features, feature_stats)
     logger.experiment["data/feature_stats"] = yaml.dump(
         {n: str(feature_stats[n]) for n in feature_stats}
@@ -77,6 +78,7 @@ def main(config: TrainConfig) -> None:
         available_index=index_train,
         features=features,
         label=label,
+        base_timing=config.feature.base_timing,
         hist_len=config.feature.hist_len,
         batch_size=config.batch_size,
         shuffle=True,
@@ -85,6 +87,7 @@ def main(config: TrainConfig) -> None:
         available_index=index_valid,
         features=features,
         label=label,
+        base_timing=config.feature.base_timing,
         hist_len=config.feature.hist_len,
         batch_size=config.batch_size,
     )

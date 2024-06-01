@@ -1,5 +1,6 @@
 from datetime import date
 from pathlib import Path
+from unittest.mock import MagicMock, patch
 
 import numpy as np
 import pandas as pd
@@ -184,77 +185,43 @@ def test_create_features() -> None:
     pd.testing.assert_frame_equal(actual, expected)
 
 
-def test_calc_prev_day_rate() -> None:
-    MIN_PER_DAY = 24 * 60
-    rate = pd.Series(
-        np.arange(0, MIN_PER_DAY * 3),
-        index=pd.date_range("2023-01-01 00:00", "2023-01-03 23:59", freq="1min"),
-    )
-    actual = data.calc_prev_day_mean(rate)
-    expected = pd.Series(
-        [np.nan] * MIN_PER_DAY
-        + [np.arange(0, MIN_PER_DAY).mean()] * MIN_PER_DAY
-        + [np.arange(MIN_PER_DAY, MIN_PER_DAY * 2).mean()] * MIN_PER_DAY,
-        index=rate.index,
-        dtype=np.float32,
-    )
-    pd.testing.assert_series_equal(actual, expected)
+def test_is_relative_feature() -> None:
+    assert data.is_relative_feature("open")
+    assert data.is_relative_feature("high")
+    assert data.is_relative_feature("low")
+    assert data.is_relative_feature("close")
+    assert data.is_relative_feature("sma5")
+    assert data.is_relative_feature("moving_max5")
+    assert data.is_relative_feature("moving_min5")
+    assert not data.is_relative_feature("sma")
+    assert not data.is_relative_feature("moving_mix5")
 
 
-def test_center_relative_features() -> None:
-    index = pd.date_range("2023-01-01 00:00", "2023-01-02 23:59", freq="1min")
-    features = pd.DataFrame(
-        {
-            "open": np.random.randn(len(index)).astype(np.float32),
-            "low": np.random.randn(len(index)).astype(np.float32),
-            "high": np.random.randn(len(index)).astype(np.float32),
-            "close": np.random.randn(len(index)).astype(np.float32),
-            "sma5": np.random.randn(len(index)).astype(np.float32),
-            "moving_max5": np.random.randn(len(index)).astype(np.float32),
-            "moving_min5": np.random.randn(len(index)).astype(np.float32),
-            "sigma5": np.random.randn(len(index)).astype(np.float32),
-            "fraction": np.random.randn(len(index)).astype(np.float32),
-            "hour": index.hour,
-            "dow": index.day_of_week,
-        },
-        index=index,
-    )
-    base = data.calc_prev_day_mean(features["close"])
+@patch("auto_trader.modeling.data.is_relative_feature")
+def test_get_feature_stats(is_relative_feature_mock: MagicMock) -> None:
+    # 特徴量 y は relative
+    is_relative_feature_mock.side_effect = lambda f: f in ["y"]
 
-    actual = data.relativize_features(features, base_timing="close")
-    expected = pd.DataFrame(
-        {
-            "open": features["open"] - base,
-            "low": features["low"] - base,
-            "high": features["high"] - base,
-            "close": features["close"] - base,
-            "sma5": features["sma5"] - base,
-            "moving_max5": features["moving_max5"] - base,
-            "moving_min5": features["moving_min5"] - base,
-            "sigma5": features["sigma5"],
-            "fraction": features["fraction"],
-            "hour": features["hour"],
-            "dow": features["dow"],
-        }
-    )
-    pd.testing.assert_frame_equal(actual, expected)
-
-
-def test_get_feature_stats() -> None:
     actual = data.get_feature_stats(
         pd.DataFrame(
             {
-                "x": np.array([np.nan, 0.0, 1.0], dtype=np.float32),
-                "y": np.array([0, 1, 1], dtype=np.int64),
+                "x": np.array([np.nan, 0.0, 1.0, 2.0], dtype=np.float32),
+                "y": np.array([np.nan, 0.0, 1.0, 2.0], dtype=np.float32),
+                "z": np.array([0, 1, 1, 2], dtype=np.int64),
             }
-        )
+        ),
+        base_timing="y",
+        hist_len=2,
     )
-    assert set(actual.keys()) == {"x", "y"}
+    assert set(actual.keys()) == {"x", "y", "z"}
     assert isinstance(actual["x"], data.ContinuousFeatureStats)
-    assert approx(actual["x"].mean) == 0.5
-    assert approx(actual["x"].std) == 0.5
-    assert isinstance(actual["y"], data.CategoricalFeatureStats)
-    assert actual["y"].vocab_counts == {0: 1, 1: 2}
+    assert approx(actual["x"].mean) == 1.0
+    assert approx(actual["x"].std) == (2 / 3) ** 0.5
+    assert isinstance(actual["y"], data.ContinuousFeatureStats)
+    assert approx(actual["y"].mean) == 0.0
+    assert approx(actual["y"].std) == 0.5
+    assert isinstance(actual["z"], data.CategoricalFeatureStats)
+    assert actual["z"].vocab_counts == {0: 1, 1: 2, 2: 1}
 
 
 def test_normalize_features() -> None:
@@ -387,12 +354,17 @@ def test_split_block_idxs() -> None:
     assert (6 in idxs_train) or (6 in idxs_valid)
 
 
-def test_sequential_loader() -> None:
+@patch("auto_trader.modeling.data.is_relative_feature")
+def test_sequential_loader(is_relative_feature_mock: MagicMock) -> None:
+    # 特徴量 y は relative
+    is_relative_feature_mock.side_effect = lambda f: f in ["y"]
+
     available_index = pd.date_range("2023-1-1 00:02", "2023-1-1 00:05", freq="1min")
     features = pd.DataFrame(
         {
             "x": np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float32),
-            "y": np.array([0, 1, 2, 3, 4, 5], dtype=np.int64),
+            "y": np.array([0.0, 0.1, 0.2, 0.3, 0.4, 0.5], dtype=np.float32),
+            "z": np.array([0, 1, 2, 3, 4, 5], dtype=np.int64),
         },
         index=pd.date_range("2023-1-1 00:00", "2023-1-1 00:05", freq="1min"),
     )
@@ -406,6 +378,7 @@ def test_sequential_loader() -> None:
         available_index=available_index,
         features=features,
         label=label,
+        base_timing="y",
         hist_len=3,
         batch_size=2,
     )
@@ -413,14 +386,16 @@ def test_sequential_loader() -> None:
     expected_features_list = [
         {
             "x": np.array([[0.0, 0.1, 0.2], [0.1, 0.2, 0.3]]),
-            "y": np.array([[0, 1, 2], [1, 2, 3]]),
+            "y": np.array([[-0.1, 0.0, 0.1], [-0.1, 0.0, 0.1]]),
+            "z": np.array([[0, 1, 2], [1, 2, 3]]),
         },
         {
             "x": np.array([[0.2, 0.3, 0.4], [0.3, 0.4, 0.5]]),
-            "y": np.array([[2, 3, 4], [3, 4, 5]]),
+            "y": np.array([[-0.1, 0.0, 0.1], [-0.1, 0.0, 0.1]]),
+            "z": np.array([[2, 3, 4], [3, 4, 5]]),
         },
     ]
-    expected_lift_list = [
+    expected_label_list = [
         np.array([2, 0]),
         np.array([1, 2]),
     ]
@@ -430,5 +405,7 @@ def test_sequential_loader() -> None:
             np.testing.assert_allclose(
                 actual_features[feature_name],
                 expected_features_list[batch_idx][feature_name],
+                atol=1e-6,
+                err_msg=f"feature {feature_name} does not match",
             )
-        np.testing.assert_allclose(actual_label, expected_lift_list[batch_idx])
+        np.testing.assert_allclose(actual_label, expected_label_list[batch_idx])

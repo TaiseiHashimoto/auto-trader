@@ -180,7 +180,6 @@ def main(config: EvalConfig) -> None:
         use_hour=train_config.feature.use_hour,
         use_dow=train_config.feature.use_dow,
     )
-    features = data.relativize_features(features, train_config.feature.base_timing)
     features = data.normalize_features(features, feature_stats)
     label = data.create_label(
         df_rate["close"],
@@ -204,6 +203,7 @@ def main(config: EvalConfig) -> None:
         available_index=index,
         features=features,
         label=label,
+        base_timing=train_config.feature.base_timing,
         hist_len=train_config.feature.hist_len,
         batch_size=train_config.batch_size,
     )
