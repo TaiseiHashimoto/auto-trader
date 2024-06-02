@@ -83,10 +83,10 @@ def create_features(
     for window_size in window_sizes:
         features[f"sma{window_size}"] = calc_sma(features[base_timing], window_size)
         features[f"moving_max{window_size}"] = calc_moving_max(
-            features[base_timing], window_size
+            features["high"], window_size
         )
         features[f"moving_min{window_size}"] = calc_moving_min(
-            features[base_timing], window_size
+            features["low"], window_size
         )
         features[f"sigma{window_size}"] = calc_sigma(features[base_timing], window_size)
 
