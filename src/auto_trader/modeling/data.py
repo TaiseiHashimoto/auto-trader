@@ -153,8 +153,11 @@ def get_feature_stats(
                 sma_val = calc_sma(val, hist_len)
                 sma_base = calc_sma(features[base_timing], hist_len)
                 sma_val2 = calc_sma(val**2, hist_len)
-                std = (sma_val2 - 2 * sma_val * sma_base + sma_base**2).mean() ** 0.5
-                stats[col] = ContinuousFeatureStats(0.0, std)
+                mean = (sma_val - sma_base).mean()
+                std = (
+                    sma_val2 - 2 * sma_val * (sma_base + mean) + (sma_base + mean) ** 2
+                ).mean() ** 0.5
+                stats[col] = ContinuousFeatureStats(mean, std)
             else:
                 stats[col] = ContinuousFeatureStats(val.mean(), val.std(ddof=0))
         elif val.dtype == np.int64:

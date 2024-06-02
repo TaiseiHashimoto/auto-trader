@@ -206,11 +206,11 @@ def test_get_feature_stats(is_relative_feature_mock: MagicMock) -> None:
         pd.DataFrame(
             {
                 "x": np.array([np.nan, 0.0, 1.0, 2.0], dtype=np.float32),
-                "y": np.array([np.nan, 0.0, 1.0, 2.0], dtype=np.float32),
+                "y": np.array([np.nan, 1.0, 2.0, 3.0], dtype=np.float32),
                 "z": np.array([0, 1, 1, 2], dtype=np.int64),
             }
         ),
-        base_timing="y",
+        base_timing="x",
         hist_len=2,
     )
     assert set(actual.keys()) == {"x", "y", "z"}
@@ -218,7 +218,7 @@ def test_get_feature_stats(is_relative_feature_mock: MagicMock) -> None:
     assert approx(actual["x"].mean) == 1.0
     assert approx(actual["x"].std) == (2 / 3) ** 0.5
     assert isinstance(actual["y"], data.ContinuousFeatureStats)
-    assert approx(actual["y"].mean) == 0.0
+    assert approx(actual["y"].mean) == 1.0
     assert approx(actual["y"].std) == 0.5
     assert isinstance(actual["z"], data.CategoricalFeatureStats)
     assert actual["z"].vocab_counts == {0: 1, 1: 2, 2: 1}
