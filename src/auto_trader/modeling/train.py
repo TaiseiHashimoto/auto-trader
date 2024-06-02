@@ -156,7 +156,6 @@ def main(config: TrainConfig) -> None:
     model.Model.load_from_checkpoint(
         checkpoint_path=checkpoint_callback.best_model_path,
         net=net,
-        boundary=config.loss.boundary,
     )
     os.makedirs(config.output_dir, exist_ok=True)
     params_file = os.path.join(config.output_dir, "params.pt")

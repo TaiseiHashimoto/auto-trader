@@ -92,12 +92,6 @@ class NetConfig:
 
 
 @dataclass
-class LossConfig:
-    boundary: float = 2.0
-    temperature: float = 0.1
-
-
-@dataclass
 class OptimConfig:
     learning_rate: float = 1e-3
     weight_decay: float = 0.0
@@ -124,7 +118,6 @@ class TrainConfig:
     feature: FeatureConfig = field(default_factory=FeatureConfig)
     label: LabelConfig = field(default_factory=LabelConfig)
     net: NetConfig = field(default_factory=NetConfig)
-    loss: LossConfig = field(default_factory=LossConfig)
     optim: OptimConfig = field(default_factory=OptimConfig)
 
     def __post_init__(self) -> None:
