@@ -328,3 +328,12 @@ class SequentialLoader:
             yield features, label
 
             row_count += len(idx_batch)
+
+
+def flatten_features(features: dict[FeatureName, FeatureValue]) -> pd.DataFrame:
+    result = {}
+    for key, val in features.items():
+        hist_len = val.shape[1]
+        for i in range(hist_len):
+            result[f"{key}_lag{i}"] = val[:, hist_len - i - 1]
+    return pd.DataFrame(result)

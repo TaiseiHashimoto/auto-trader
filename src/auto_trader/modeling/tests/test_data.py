@@ -409,3 +409,23 @@ def test_sequential_loader(is_relative_feature_mock: MagicMock) -> None:
                 err_msg=f"feature {feature_name} does not match",
             )
         np.testing.assert_allclose(actual_label, expected_label_list[batch_idx])
+
+
+def test_flatten_features() -> None:
+    actual = data.flatten_features(
+        features={
+            "x": np.array([[0.0, 0.1, 0.2], [0.3, 0.4, 0.5]]),
+            "y": np.array([[0, 1, 2], [3, 4, 5]]),
+        }
+    )
+    expected = pd.DataFrame(
+        {
+            "x_lag0": [0.2, 0.5],
+            "x_lag1": [0.1, 0.4],
+            "x_lag2": [0.0, 0.3],
+            "y_lag0": [2, 5],
+            "y_lag1": [1, 4],
+            "y_lag2": [0, 3],
+        }
+    )
+    pd.testing.assert_frame_equal(actual, expected)
